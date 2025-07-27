@@ -5,6 +5,10 @@
 # MacOS
 .DS_Store
 
+# LMDB
+*.mdb
+*.mdb-lock
+
 # Prerequisites
 *.d
 

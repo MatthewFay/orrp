@@ -1,15 +1,18 @@
 # Compiler and flags
 CC = gcc
 CFLAGS = -Iinclude -Itests/unity -Wall -Wextra -g
-# Add include path for Roaring Bitmaps
-CFLAGS += -Isrc/lib/roaring
+# Add include paths for libraries
+CFLAGS += -Isrc/lib/roaring -Isrc/lib/lmdb
+# LMDB requires the -lrt library for real-time extensions (e.g., mmap) on some systems.
+# On some systems (like macOS), this functionality is part of the standard C library
+# and -lrt is not needed and can cause "library not found" errors.
 LDFLAGS =
 
 # Source files
 # Main application sources
-APP_SRCS = src/main.c src/core/bitmaps.c
-# Library sources
-LIB_SRCS = src/lib/roaring/roaring.c
+APP_SRCS = src/main.c src/core/bitmaps.c src/core/db.c
+# Library sources 
+LIB_SRCS = src/lib/roaring/roaring.c src/lib/lmdb/mdb.c src/lib/lmdb/midl.c
 # Combine all source files
 SRCS = $(APP_SRCS) $(LIB_SRCS)
 
