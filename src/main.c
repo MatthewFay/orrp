@@ -1,33 +1,28 @@
 #include <stdio.h>
-#include "db.h"
+#include "core/bitmaps.h" // Include your wrapper
 
-/**
- * @brief Main entry point for the database server application.
- *
- * @param argc The number of command-line arguments.
- * @param argv An array of command-line argument strings.
- * @return int Returns 0 on successful execution.
- */
-int main(int argc, char *argv[]) {
-    // This is a placeholder for the main application logic.
-    // In the future, this will initialize the server,
-    // parse arguments, and start the main event loop.
-    
-    // Suppress unused parameter warnings for now
-    (void)argc;
-    (void)argv;
-
-    print_hello_message();
-    
-    return 0;
-}
-
-/**
- * @brief Prints the initial "Hello, World!" message.
- *
- * This function serves as a simple demonstration that the application
- * can be compiled and run successfully.
- */
-void print_hello_message(void) {
+int main()
+{
     printf("Hello from the database!\n");
+
+    bitmap_t *my_bitmap = bitmap_create();
+    if (my_bitmap)
+    {
+        bitmap_add(my_bitmap, 10);
+        bitmap_add(my_bitmap, 20);
+        bitmap_add(my_bitmap, 100);
+
+        if (bitmap_contains(my_bitmap, 20))
+        {
+            printf("Bitmap contains 20.\n");
+        }
+        if (!bitmap_contains(my_bitmap, 50))
+        {
+            printf("Bitmap does not contain 50.\n");
+        }
+
+        bitmap_free(my_bitmap);
+    }
+
+    return 0;
 }

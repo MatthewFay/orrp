@@ -1,18 +1,28 @@
 # Compiler and flags
 CC = gcc
 CFLAGS = -Iinclude -Itests/unity -Wall -Wextra -g
+# Add include path for Roaring Bitmaps
+CFLAGS += -Isrc/lib/roaring
 LDFLAGS =
 
 # Source files
-SRCS = src/main.c
-# Add other source files here, e.g., SRCS += src/core/abc.c
+# Main application sources
+APP_SRCS = src/main.c src/core/bitmaps.c
+# Library sources
+LIB_SRCS = src/lib/roaring/roaring.c
+# Combine all source files
+SRCS = $(APP_SRCS) $(LIB_SRCS)
 
 # Directories for build artifacts
 BIN_DIR = bin
 OBJ_DIR = obj
 
-# Object files will now go into their respective subdirectories within 'obj'
-OBJS = $(patsubst src/%.c, $(OBJ_DIR)/src/%.o, $(SRCS))
+# Object files for application sources
+APP_OBJS = $(patsubst src/%.c, $(OBJ_DIR)/src/%.o, $(APP_SRCS))
+# Object files for library sources
+LIB_OBJS = $(patsubst src/lib/%.c, $(OBJ_DIR)/lib/%.o, $(LIB_SRCS))
+# Combine all object files
+OBJS = $(APP_OBJS) $(LIB_OBJS)
 
 # Test source files
 TEST_SRCS = tests/test_runner.c tests/test_main.c tests/unity/unity.c
@@ -47,8 +57,13 @@ test: $(TEST_TARGET)
 $(TEST_TARGET): $(BIN_DIR) $(OBJ_DIR) $(TEST_OBJS)
 	$(CC) $(LDFLAGS) -o $@ $(TEST_OBJS)
 
-# Compile main source files into object files in obj/src/
+# Compile main application source files into object files in obj/src/
 $(OBJ_DIR)/src/%.o: src/%.c
+	@mkdir -p $(dir $@) # Create the specific output directory for this object file
+	$(CC) $(CFLAGS) -c $< -o $@
+
+# Compile library source files into object files in obj/lib/
+$(OBJ_DIR)/lib/%.o: src/lib/%.c
 	@mkdir -p $(dir $@) # Create the specific output directory for this object file
 	$(CC) $(CFLAGS) -c $< -o $@
 
