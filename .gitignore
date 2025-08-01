@@ -8,6 +8,7 @@
 # LMDB
 *.mdb
 *.mdb-lock
+/data/
 
 # Prerequisites
 *.d

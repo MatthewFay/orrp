@@ -1,0 +1,13 @@
+{
+  "files.associations": {
+    "stdbool.h": "c",
+    "cstdio": "c",
+    "locale": "c",
+    "ios": "c",
+    "stdlib.h": "c"
+  },
+  "editor.formatOnSave": true,
+  "[c]": {
+    "editor.formatOnSave": true
+  }
+}

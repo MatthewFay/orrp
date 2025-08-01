@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include "core/bitmaps.h" // Your Roaring wrapper
 #include "core/db.h"      // Your LMDB wrapper
+#include "engine.h"
 
 int main()
 {
@@ -42,8 +43,8 @@ int main()
 
     // --- Example using LMDB ---
     printf("\n--- LMDB Example ---\n");
-    const char *db_path = "my_database.mdb"; // Name of the LMDB file
-    size_t db_map_size = 1048576;            // 1 MB map size
+    const char *db_path = "data/my_database.mdb"; // Name of the LMDB file
+    size_t db_map_size = 1048576;                 // 1 MB map size
 
     db_t *my_db = db_open(db_path, db_map_size);
     if (my_db)

@@ -4,7 +4,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-// Forward declaration for your opaque bitmap type
 typedef struct bitmap_s bitmap_t;
 
 // Function to create a new bitmap
