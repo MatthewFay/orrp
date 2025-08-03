@@ -84,7 +84,7 @@ bool db_open(MDB_env *env, const char *db_name, MDB_dbi *db_out) {
 }
 
 bool db_put(MDB_dbi db, MDB_txn *txn, db_key_t *key, const void *value,
-            bool auto_commit) {
+            size_t value_size, bool auto_commit) {
   if (txn == NULL)
     return false;
 
@@ -119,7 +119,7 @@ bool db_put(MDB_dbi db, MDB_txn *txn, db_key_t *key, const void *value,
     return false;
   }
 
-  mdb_value.mv_size = sizeof(value);
+  mdb_value.mv_size = value_size;
   mdb_value.mv_data = (void *)value;
 
   rc = mdb_put(txn, db, &mdb_key, &mdb_value, 0);

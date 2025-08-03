@@ -37,7 +37,7 @@ bool db_open(MDB_env *env, const char *db_name, MDB_dbi *db_out);
 
 // Function to put a key-value pair into the database
 bool db_put(MDB_dbi db, MDB_txn *txn, db_key_t *key, const void *value,
-            bool auto_commit);
+            size_t value_size, bool auto_commit);
 
 // Function to get a value by key from the database. Remember to free memory
 // returned by db_get using `db_free_get_result`.

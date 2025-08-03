@@ -1,5 +1,6 @@
 #include "engine.h"
 #include "api.h"
+#include "core/bitmaps.h"
 #include "core/db.h"
 #include <inttypes.h>
 #include <stdint.h>
@@ -34,7 +35,8 @@ static void _get_next_n_id(eng_db_t *db, MDB_txn *txn, u_int32_t *n_id) {
   db_get_result_t *next = db_get(db->metadata_db, txn, &key);
   if (next->status == DB_GET_OK) {
     u_int32_t next_id_val = *(u_int32_t *)next->value + 1;
-    r = db_put(db->metadata_db, txn, &key, &next_id_val, false);
+    r = db_put(db->metadata_db, txn, &key, &next_id_val, sizeof(u_int32_t),
+               false);
     *n_id = r ? *(u_int32_t *)next : 0;
   }
   *n_id = 0; // Should only happen if DB has not been initialized!
@@ -81,7 +83,8 @@ eng_db_t *eng_init_dbs() {
   db_get_result_t *r = db_get(metadata_db, txn, &key);
 
   if (r->status == DB_GET_NOT_FOUND) {
-    bool put_r = db_put(metadata_db, txn, &key, &NEXT_ID_INIT_VAL, false);
+    bool put_r = db_put(metadata_db, txn, &key, &NEXT_ID_INIT_VAL,
+                        sizeof(u_int32_t), false);
     bool committed = put_r && db_commit_txn(txn);
     db_free_get_result(r);
     return committed ? db : NULL;
@@ -98,14 +101,15 @@ static bool _map(eng_db_t *db, MDB_txn *txn, const char *id, uint32_t n_id) {
   db_key_t id_key;
   id_key.type = DB_KEY_STRING;
   id_key.key.s = id;
-  bool put_r = db_put(db->id_to_int_db, txn, &id_key, &n_id, false);
+  bool put_r =
+      db_put(db->id_to_int_db, txn, &id_key, &n_id, sizeof(u_int32_t), false);
   if (!put_r) {
     return false;
   }
   db_key_t n_id_key;
   n_id_key.type = DB_KEY_INTEGER;
   n_id_key.key.i = n_id;
-  put_r = db_put(db->int_to_id_db, txn, &n_id_key, id, false);
+  put_r = db_put(db->int_to_id_db, txn, &n_id_key, id, strlen(id) + 1, false);
   if (!put_r) {
     return false;
   }
@@ -178,7 +182,8 @@ incr_result_t *_incr(eng_db_t *db, MDB_txn *txn, char *ns, char *key,
 
   switch (counter->status) {
   case DB_GET_NOT_FOUND:
-    put_r = db_put(db->event_counters_db, txn, &c_key, &init_val, false);
+    put_r = db_put(db->event_counters_db, txn, &c_key, &init_val,
+                   sizeof(uint32_t), false);
     if (put_r) {
       r->ok = true;
       r->count = 1;
@@ -186,7 +191,8 @@ incr_result_t *_incr(eng_db_t *db, MDB_txn *txn, char *ns, char *key,
     break;
   case DB_GET_OK:
     new_count = *(uint32_t *)counter->value + 1;
-    put_r = db_put(db->event_counters_db, txn, &c_key, &new_count, false);
+    put_r = db_put(db->event_counters_db, txn, &c_key, &new_count,
+                   sizeof(uint32_t), false);
     if (put_r) {
       r->ok = true;
       r->count = new_count;
@@ -200,10 +206,40 @@ incr_result_t *_incr(eng_db_t *db, MDB_txn *txn, char *ns, char *key,
 }
 
 static bool _upsert_bitmap(eng_db_t *db, MDB_txn *txn, char *ns, char *key,
-                           incr_result_t *counter_r) {
+                           uint32_t n_id, incr_result_t *counter_r) {
+  bool r = false;
   char bitmap_buffer[512];
+  bitmap_t *bm;
   _construct_bitmap_key_into(bitmap_buffer, sizeof(bitmap_buffer), ns, key,
                              counter_r);
+  db_key_t b_key;
+  size_t serialized_size;
+
+  b_key.type = DB_KEY_STRING;
+  b_key.key.s = bitmap_buffer;
+  db_get_result_t *get_r = db_get(db->bitmaps_db, txn, &b_key);
+  switch (get_r->status) {
+  case DB_GET_OK:
+    break;
+  case DB_GET_NOT_FOUND:
+    bm = bitmap_create();
+    bitmap_add(bm, n_id);
+    void *buffer = bitmap_serialize(bm, &serialized_size);
+    if (!buffer) {
+      bitmap_free(bm);
+      break;
+    }
+    r = db_put(db->bitmaps_db, txn, &b_key, buffer, serialized_size, false);
+    if (!r) {
+      bitmap_free(bm);
+      free(buffer);
+    }
+    break;
+  case DB_GET_ERROR:
+    break;
+  }
+  db_free_get_result(get_r);
+  return r;
 }
 
 void eng_add(api_response_t *r, eng_db_t *db, char *ns, char *key, char *id) {
@@ -226,7 +262,7 @@ void eng_add(api_response_t *r, eng_db_t *db, char *ns, char *key, char *id) {
     r->err_msg = ENG_COUNTER_ERR;
     return;
   }
-  bool bm_r = _upsert_bitmap(db, txn, ns, key, counter_r);
+  bool bm_r = _upsert_bitmap(db, txn, ns, key, n_id, counter_r);
   if (!bm_r) {
     db_abort_txn(txn);
     free(counter_r);
