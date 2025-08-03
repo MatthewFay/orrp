@@ -79,9 +79,9 @@ MDB_dbi db_open(MDB_env *env, const char *db_name)
   return db;
 }
 
-bool db_put(MDB_dbi *db, MDB_txn *txn, const char *key, const void *value, bool auto_commit)
+bool db_put(MDB_dbi db, MDB_txn *txn, const char *key, const void *value, bool auto_commit)
 {
-  if (db == NULL || txn == NULL)
+  if (txn == NULL)
     return false;
 
   MDB_val mdb_key, mdb_value;
@@ -116,13 +116,13 @@ void db_free_get_result(db_get_result_t *r)
   }
 }
 
-db_get_result_t *db_get(MDB_dbi *db, MDB_txn *txn, const char *key)
+db_get_result_t *db_get(MDB_dbi db, MDB_txn *txn, const char *key)
 {
   db_get_result_t *r = malloc(sizeof(db_get_result_t));
   r->status = DB_GET_ERROR;
   r->value = NULL;
   r->value_len = 0;
-  if (db == NULL || txn == NULL)
+  if (txn == NULL)
     return r;
 
   MDB_val mdb_key, mdb_value;
@@ -158,13 +158,9 @@ db_get_result_t *db_get(MDB_dbi *db, MDB_txn *txn, const char *key)
   return r;
 }
 
-void db_close(MDB_env *env, MDB_dbi *db)
+void db_close(MDB_env *env, MDB_dbi db)
 {
-  if (db)
-  {
-    mdb_dbi_close(env, db);
-    free(db);
-  }
+  mdb_dbi_close(env, db);
 }
 
 void db_env_close(MDB_env *env)

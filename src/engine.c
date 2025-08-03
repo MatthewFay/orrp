@@ -1,5 +1,6 @@
 #include <string.h>
 #include <stdlib.h>
+#include <inttypes.h>
 #include "engine.h"
 #include "core/bitmaps.h"
 #include "core/db.h"
@@ -10,6 +11,9 @@ const int MAX_NUM_DBS = 5;
 
 const char *ENG_TXN_ERR = "Transaction error";
 const char *ENG_ID_TRANSL_ERR = "Id translation error";
+const char *ENG_COUNTER_ERR = "Counter error";
+const char *ENG_BITMAP_ERR = "Bitmap error";
+const char *ENG_TXN_COMMIT_ERR = "Transaction Commit error";
 
 const char *DB_ID_TO_INT_NAME = "id_to_int";
 const char *DB_INT_TO_ID_NAME = "int_to_id";
@@ -43,11 +47,11 @@ eng_db_t *eng_init_dbs()
   MDB_env *env = db_create_env(MDB_PATH, DB_SIZE, MAX_NUM_DBS);
   if (!env)
     return NULL;
-  MDB_dbi *id_to_int_db = db_open(env, DB_ID_TO_INT_NAME);
-  MDB_dbi *int_to_id_db = db_open(env, DB_INT_TO_ID_NAME);
-  MDB_dbi *metadata_db = db_open(env, DB_METADATA_NAME);
-  MDB_dbi *event_counters_db = db_open(env, DB_EVENT_COUNTERS_NAME);
-  MDB_dbi *bitmaps_db = db_open(env, DB_BITMAPS_NAME);
+  MDB_dbi id_to_int_db = db_open(env, DB_ID_TO_INT_NAME);
+  MDB_dbi int_to_id_db = db_open(env, DB_INT_TO_ID_NAME);
+  MDB_dbi metadata_db = db_open(env, DB_METADATA_NAME);
+  MDB_dbi event_counters_db = db_open(env, DB_EVENT_COUNTERS_NAME);
+  MDB_dbi bitmaps_db = db_open(env, DB_BITMAPS_NAME);
 
   if (!id_to_int_db || !int_to_id_db || !metadata_db || !event_counters_db || !bitmaps_db)
     return NULL;
@@ -80,24 +84,103 @@ eng_db_t *eng_init_dbs()
   return ok ? db : NULL;
 }
 
+static bool _map(eng_db_t *db, MDB_txn *txn, const char *id, uint32_t n_id)
+{
+  bool put_r = db_put(db->id_to_int_db, txn, id, &n_id, false);
+  if (!put_r)
+  {
+    return false;
+  }
+  put_r = db_put(db->int_to_id_db, txn, &n_id, id, false);
+  if (!put_r)
+  {
+    return false;
+  }
+  return true;
+}
+
 static void
 _map_str_id_to_numeric(eng_db_t *db, MDB_txn *txn, char *id, uint32_t *n_id)
 {
+  bool map_r;
   db_get_result_t *r = db_get(db->id_to_int_db, txn, id);
 
-  if (r->status == DB_GET_NOT_FOUND)
+  switch (r->status)
   {
+  case DB_GET_NOT_FOUND:
     _get_next_n_id(db, txn, id, n_id);
-  }
-  else if (r->status == DB_GET_OK)
-  {
+    if (!n_id)
+      break;
+    map_r = _map(db, txn, id, *n_id);
+    if (!map_r)
+      *n_id = 0;
+    break;
+  case DB_GET_OK:
     *n_id = *(uint32_t *)r->value;
+
+    break;
   }
 
   db_free_get_result(r);
 }
 
-void eng_set(api_response_t *r, eng_db_t *db, char *ns, char *bitmap, char *id)
+typedef struct incr_result_s
+{
+  bool ok;
+  u_int32_t count;
+} incr_result_t;
+
+static void _construct_counter_key_into(char *out_buf, size_t size, char *ns, char *key, char *id)
+{
+  snprintf(out_buf, size, "%s:%s:%s", ns ? ns : "", key ? key : "", id ? id : "");
+}
+
+static void _construct_bitmap_key_into(char *out_buf, size_t size, char *ns, char *key, incr_result_t *r)
+{
+  snprintf(out_buf, size, "%" PRIu32 ":%s:%s", r->count, ns ? ns : "", key ? key : "");
+}
+
+incr_result_t *_incr(eng_db_t *db, MDB_txn *txn, char *ns, char *key, char *id)
+{
+  bool put_r;
+  char counter_buffer[512];
+  incr_result_t *r = malloc(sizeof(incr_result_t));
+  r->ok = false;
+  r->count = 0;
+  _construct_counter_key_into(counter_buffer, sizeof(counter_buffer), ns, key, id);
+
+  db_get_result_t *counter = db_get(db->event_counters_db, txn, counter_buffer);
+  switch (counter->status)
+  {
+  case DB_GET_NOT_FOUND:
+    put_r = db_put(db->event_counters_db, txn, counter_buffer, 1, false);
+    if (put_r)
+    {
+      r->ok = true;
+      r->count = 1;
+    }
+    break;
+  case DB_GET_OK:
+    uint32_t new_count = *(uint32_t *)counter->value + 1;
+    put_r = db_put(db->event_counters_db, txn, counter_buffer, new_count, false);
+    if (put_r)
+    {
+      r->ok = true;
+      r->count = new_count;
+    }
+    break;
+  }
+  db_free_get_result(counter);
+  return r;
+}
+
+static bool _upsert_bitmap(eng_db_t *db, MDB_txn *txn, char *ns, char *key, incr_result_t *counter_r)
+{
+  char bitmap_buffer[512];
+  _construct_bitmap_key_into(bitmap_buffer, sizeof(bitmap_buffer), ns, key, counter_r);
+}
+
+void eng_add(api_response_t *r, eng_db_t *db, char *ns, char *key, char *id)
 {
   uint32_t n_id = 0;
   MDB_txn *txn = db_create_txn(db->env, false);
@@ -109,7 +192,33 @@ void eng_set(api_response_t *r, eng_db_t *db, char *ns, char *bitmap, char *id)
   _map_str_id_to_numeric(db, txn, id, &n_id);
   if (!n_id)
   {
+    db_abort_txn(txn);
     r->err_msg = ENG_ID_TRANSL_ERR;
     return;
   }
+  incr_result_t *counter_r = _incr(db, txn, ns, key, id);
+  if (!counter_r->ok)
+  {
+    db_abort_txn(txn);
+    free(counter_r);
+    r->err_msg = ENG_COUNTER_ERR;
+    return;
+  }
+  bool bm_r = _upsert_bitmap(db, txn, ns, key, counter_r);
+  if (!bm_r)
+  {
+    db_abort_txn(txn);
+    free(counter_r);
+    r->err_msg = ENG_BITMAP_ERR;
+    return;
+  }
+  free(counter_r);
+
+  bool txn_r = db_commit_txn(txn);
+  if (!txn_r)
+  {
+    r->err_msg = ENG_TXN_COMMIT_ERR;
+    return;
+  }
+  r->is_ok = true;
 }

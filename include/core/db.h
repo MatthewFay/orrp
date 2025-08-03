@@ -33,15 +33,15 @@ MDB_env *db_create_env(const char *path, size_t map_size, int max_num_dbs);
 MDB_dbi db_open(MDB_env *env, const char *db_name);
 
 // Function to put a key-value pair into the database
-bool db_put(MDB_dbi *db, MDB_txn *txn, const char *key, const void *value, bool auto_commit);
+bool db_put(MDB_dbi db, MDB_txn *txn, const char *key, const void *value, bool auto_commit);
 
 // Function to get a value by key from the database. Remember to free memory returned by db_get using `db_free_get_result`.
-db_get_result_t *db_get(MDB_dbi *db, MDB_txn *txn, const char *key);
+db_get_result_t *db_get(MDB_dbi db, MDB_txn *txn, const char *key);
 
 void db_free_get_result(db_get_result_t *r);
 
 // Function to close and free the database environment
-void db_close(MDB_env *env, MDB_dbi *db);
+void db_close(MDB_env *env, MDB_dbi db);
 
 void db_env_close(MDB_env *env);
 

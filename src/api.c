@@ -4,7 +4,7 @@
 #include "engine.h"
 
 const int MAX_NS_LEN = 128;
-const int MAX_BITMAP_LEN = 128;
+const int MAX_KEY_LEN = 128;
 const int MAX_ID_LEN = 128;
 
 void free_api_response(api_response_t *r)
@@ -24,16 +24,16 @@ static api_response_t *_create_api_resp(enum api_response_type t)
   return r;
 }
 
-static bool _validate_ns_bitmap_id(api_response_t *r, char *ns, char *bitmap, char *id)
+static bool _validate_ns_key_id(api_response_t *r, char *ns, char *key, char *id)
 {
   if (!ns)
   {
     r->err_msg = "Missing namespace";
     return false;
   }
-  if (!bitmap)
+  if (!key)
   {
-    r->err_msg = "Missing bitmap";
+    r->err_msg = "Missing key";
     return false;
   }
   if (!id)
@@ -46,9 +46,9 @@ static bool _validate_ns_bitmap_id(api_response_t *r, char *ns, char *bitmap, ch
     r->err_msg = "Namespace too long";
     return false;
   }
-  if (strlen(bitmap) > MAX_BITMAP_LEN)
+  if (strlen(key) > MAX_KEY_LEN)
   {
-    r->err_msg = "Bitmap too long";
+    r->err_msg = "Key too long";
     return false;
   }
   if (strlen(id) > MAX_ID_LEN)
@@ -59,12 +59,12 @@ static bool _validate_ns_bitmap_id(api_response_t *r, char *ns, char *bitmap, ch
   return true;
 }
 
-api_response_t *api_set(char *ns, char *bitmap, char *id, eng_db_t *db)
+api_response_t *api_add(char *ns, char *key, char *id, eng_db_t *db)
 {
-  api_response_t *r = _create_api_resp(SET);
-  bool valid = _validate_ns_bitmap_id(r, ns, bitmap, id);
+  api_response_t *r = _create_api_resp(ADD);
+  bool valid = _validate_ns_key_id(r, ns, key, id);
   if (!valid)
     return r;
-  eng_set(r, db, ns, bitmap, id);
+  eng_add(r, db, ns, key, id);
   return r;
 }

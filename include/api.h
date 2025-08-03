@@ -3,7 +3,7 @@
 
 enum api_response_type
 {
-  SET
+  ADD
 };
 
 typedef struct api_response_s
@@ -16,5 +16,5 @@ typedef struct api_response_s
 
 void free_api_response(api_response_t *r);
 
-// SET <namespace> <bitmap> <id>
-api_response_t *api_set(char *ns, char *bitmap, char *id, eng_db_t *db);
+// ADD <namespace> <key> <id>
+api_response_t *api_add(char *ns, char *key, char *id, eng_db_t *db);
