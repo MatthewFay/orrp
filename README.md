@@ -33,8 +33,23 @@ To run the application:
 ### Run the Tests
 To compile and run the test suite, use `make test`. This will create the `test_runner` executable in the `bin/` directory and then execute it.
 
-You will see output from the Unity test framework, indicating the tests have passed.
-
 ### Clean the Project
 To remove all compiled object files (from `obj/`) and executables (from `bin/`), use `make clean`.
 
+## Development
+This project is configured for development using the **clangd** language server.
+
+### Language Server Setup
+To enable `clangd` for this project:
+
+1.  **Install `bear`:** Install the `bear` build tool. `bear` will generate a file that tells `clangd` how to build the project.
+    ```sh
+    brew install bear
+    ```
+2.  **Generate `compile_commands.json`:** This file is required by `clangd`. First, clean the project, then run `bear` with the `make` command.
+    ```sh
+    make clean
+    bear -- make
+    ```
+
+**Note:** If you add new source files or change the `Makefile`, you will need to re-run `bear -- make` to update the `compile_commands.json` file.

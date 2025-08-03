@@ -3,8 +3,12 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include "roaring.h"
 
-typedef struct bitmap_s bitmap_t;
+typedef struct bitmap_s
+{
+  roaring_bitmap_t *rb;
+} bitmap_t;
 
 // Function to create a new bitmap
 bitmap_t *bitmap_create();

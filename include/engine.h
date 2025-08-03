@@ -1,7 +1,11 @@
-#include "core/db.h"
-#include "api.h"
-typedef struct eng_db_s
-{
+#ifndef ENG_H
+#define ENG_H
+
+#include "lmdb.h"
+
+struct api_response_s;
+
+typedef struct eng_db_s {
   MDB_env *env;
 
   // Forward mapping from string to integer ID.
@@ -18,4 +22,7 @@ typedef struct eng_db_s
 } eng_db_t;
 
 eng_db_t *eng_init_dbs();
-void eng_add(api_response_t *r, eng_db_t *db, char *ns, char *key, char *id);
+void eng_add(struct api_response_s *r, eng_db_t *db, char *ns, char *key,
+             char *id);
+
+#endif

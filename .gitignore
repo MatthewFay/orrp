@@ -10,6 +10,9 @@
 *.mdb-lock
 /data/
 
+# clangd
+/.cache/
+
 # Prerequisites
 *.d
 
