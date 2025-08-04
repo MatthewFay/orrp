@@ -67,3 +67,40 @@ void *bitmap_serialize(bitmap_t *bm, size_t *out_size) {
   *out_size = total_size;
   return buffer;
 }
+
+bitmap_t *bitmap_deserialize(void *buffer, size_t buffer_size) {
+  if (!buffer)
+    return NULL;
+
+  bitmap_t *b = malloc(sizeof(bitmap_t));
+  if (!b) {
+    return NULL;
+  }
+
+  const char *p = (const char *)buffer;
+
+  // use header to get sizes
+  const bitmap_serialization_header_t *header =
+      (const bitmap_serialization_header_t *)p;
+  p += sizeof(bitmap_serialization_header_t);
+
+  // Basic sanity check to prevent reading beyond the buffer
+  if (sizeof(bitmap_serialization_header_t) + header->roaring_bitmap_size >
+      buffer_size) {
+    free(b);
+    return NULL;
+  }
+
+  if (header->roaring_bitmap_size > 0) {
+    b->rb = roaring_bitmap_portable_deserialize_safe(
+        buffer, header->roaring_bitmap_size);
+    if (!b->rb) {
+      free(b);
+      return NULL;
+    }
+  } else {
+    b->rb = NULL;
+  }
+
+  return b;
+}

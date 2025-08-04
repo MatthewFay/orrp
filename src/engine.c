@@ -205,6 +205,22 @@ incr_result_t *_incr(eng_db_t *db, MDB_txn *txn, char *ns, char *key,
   return r;
 }
 
+static bool _save_bitmap(eng_db_t *db, MDB_txn *txn, db_key_t *b_key,
+                         bitmap_t *bm) {
+  size_t serialized_size;
+  void *buffer = bitmap_serialize(bm, &serialized_size);
+  if (!buffer) {
+    return false;
+  }
+  bool put_r =
+      db_put(db->bitmaps_db, txn, b_key, buffer, serialized_size, false);
+  if (!put_r) {
+    free(buffer);
+    return false;
+  }
+  return true;
+}
+
 static bool _upsert_bitmap(eng_db_t *db, MDB_txn *txn, char *ns, char *key,
                            uint32_t n_id, incr_result_t *counter_r) {
   bool r = false;
@@ -213,27 +229,26 @@ static bool _upsert_bitmap(eng_db_t *db, MDB_txn *txn, char *ns, char *key,
   _construct_bitmap_key_into(bitmap_buffer, sizeof(bitmap_buffer), ns, key,
                              counter_r);
   db_key_t b_key;
-  size_t serialized_size;
 
   b_key.type = DB_KEY_STRING;
   b_key.key.s = bitmap_buffer;
   db_get_result_t *get_r = db_get(db->bitmaps_db, txn, &b_key);
   switch (get_r->status) {
   case DB_GET_OK:
+    bm = bitmap_deserialize(get_r->value, get_r->value_len);
+    if (!bm)
+      break;
+    bitmap_add(bm, n_id);
+    r = _save_bitmap(db, txn, &b_key, bm);
+    if (!r)
+      bitmap_free(bm);
     break;
   case DB_GET_NOT_FOUND:
     bm = bitmap_create();
     bitmap_add(bm, n_id);
-    void *buffer = bitmap_serialize(bm, &serialized_size);
-    if (!buffer) {
+    r = _save_bitmap(db, txn, &b_key, bm);
+    if (!r)
       bitmap_free(bm);
-      break;
-    }
-    r = db_put(db->bitmaps_db, txn, &b_key, buffer, serialized_size, false);
-    if (!r) {
-      bitmap_free(bm);
-      free(buffer);
-    }
     break;
   case DB_GET_ERROR:
     break;
