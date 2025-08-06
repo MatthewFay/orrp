@@ -10,7 +10,10 @@ LDFLAGS =
 
 # Source files
 # Main application sources
-APP_SRCS = src/main.c src/api.c src/engine.c src/core/bitmaps.c src/core/db.c src/networking/parser.c src/networking/server.c
+APP_SRCS = src/main.c src/api.c src/engine.c src/core/bitmaps.c \
+src/core/db.c src/networking/server.c \
+src/query/tokenizer.c src/query/parser.c
+
 # Library sources 
 LIB_SRCS = src/lib/roaring/roaring.c src/lib/lmdb/mdb.c src/lib/lmdb/midl.c
 # Combine all source files

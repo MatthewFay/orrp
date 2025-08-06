@@ -106,12 +106,12 @@
       "-Isrc/lib/lmdb",
       "-c",
       "-o",
-      "obj/src/networking/parser.o",
-      "src/networking/parser.c"
+      "obj/src/networking/server.o",
+      "src/networking/server.c"
     ],
     "directory": "/Users/matthewfay/dev/orrp",
-    "file": "/Users/matthewfay/dev/orrp/src/networking/parser.c",
-    "output": "/Users/matthewfay/dev/orrp/obj/src/networking/parser.o"
+    "file": "/Users/matthewfay/dev/orrp/src/networking/server.c",
+    "output": "/Users/matthewfay/dev/orrp/obj/src/networking/server.o"
   },
   {
     "arguments": [
@@ -125,12 +125,31 @@
       "-Isrc/lib/lmdb",
       "-c",
       "-o",
-      "obj/src/networking/server.o",
-      "src/networking/server.c"
+      "obj/src/query/tokenizer.o",
+      "src/query/tokenizer.c"
     ],
     "directory": "/Users/matthewfay/dev/orrp",
-    "file": "/Users/matthewfay/dev/orrp/src/networking/server.c",
-    "output": "/Users/matthewfay/dev/orrp/obj/src/networking/server.o"
+    "file": "/Users/matthewfay/dev/orrp/src/query/tokenizer.c",
+    "output": "/Users/matthewfay/dev/orrp/obj/src/query/tokenizer.o"
+  },
+  {
+    "arguments": [
+      "/usr/bin/gcc",
+      "-Iinclude",
+      "-Itests/unity",
+      "-Wall",
+      "-Wextra",
+      "-g",
+      "-Isrc/lib/roaring",
+      "-Isrc/lib/lmdb",
+      "-c",
+      "-o",
+      "obj/src/query/parser.o",
+      "src/query/parser.c"
+    ],
+    "directory": "/Users/matthewfay/dev/orrp",
+    "file": "/Users/matthewfay/dev/orrp/src/query/parser.c",
+    "output": "/Users/matthewfay/dev/orrp/obj/src/query/parser.o"
   },
   {
     "arguments": [
