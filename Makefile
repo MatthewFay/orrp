@@ -1,87 +1,94 @@
 # Compiler and flags
 CC = gcc
-CFLAGS = -Iinclude -Itests/unity -Wall -Wextra -g
-# Add include paths for libraries
-CFLAGS += -Isrc/lib/roaring -Isrc/lib/lmdb
+CFLAGS = -Iinclude -Itests/unity -Isrc/lib/roaring -Isrc/lib/lmdb -Wall -Wextra -g
 # LMDB requires the -lrt library for real-time extensions (e.g., mmap) on some systems.
 # On some systems (like macOS), this functionality is part of the standard C library
 # and -lrt is not needed and can cause "library not found" errors.
 LDFLAGS =
 
-# Source files
+# --- SOURCE FILES ---
+
 # Main application sources
 APP_SRCS = src/main.c src/api.c src/engine.c src/core/bitmaps.c \
-src/core/db.c src/networking/server.c \
-src/query/tokenizer.c src/query/parser.c
+           src/core/db.c src/networking/server.c \
+           src/query/tokenizer.c src/query/parser.c
 
-# Library sources 
+# Library sources
 LIB_SRCS = src/lib/roaring/roaring.c src/lib/lmdb/mdb.c src/lib/lmdb/midl.c
-# Combine all source files
-SRCS = $(APP_SRCS) $(LIB_SRCS)
+
+# Unity testing framework source
+UNITY_SRC = tests/unity/unity.c
+
+# --- BUILD ARTIFACTS ---
 
 # Directories for build artifacts
 BIN_DIR = bin
 OBJ_DIR = obj
 
-# Object files for application sources
+# Object files for the main application (used for the final binary)
 APP_OBJS = $(patsubst src/%.c, $(OBJ_DIR)/src/%.o, $(APP_SRCS))
-# Object files for library sources
 LIB_OBJS = $(patsubst src/lib/%.c, $(OBJ_DIR)/lib/%.o, $(LIB_SRCS))
-# Combine all object files
 OBJS = $(APP_OBJS) $(LIB_OBJS)
 
-# Test source files
-TEST_SRCS = tests/test_runner.c tests/test_main.c tests/unity/unity.c
-# Test object files also go into 'obj/tests/'
-TEST_OBJS = $(patsubst tests/%.c, $(OBJ_DIR)/tests/%.o, $(TEST_SRCS))
-
-
-# Target executables
+# Target executable for the main application
 TARGET = $(BIN_DIR)/orrp
-TEST_TARGET = $(BIN_DIR)/test_runner
+
+# --- BUILD RULES ---
 
 # Default target
 all: $(TARGET)
 
 # Rule to create the bin and obj directories
-$(BIN_DIR):
-	@mkdir -p $(BIN_DIR)
-
-# The $(OBJ_DIR) rule now only creates the top-level obj directory.
-# Subdirectories will be created by the compilation rules themselves.
-$(OBJ_DIR):
-	@mkdir -p $(OBJ_DIR)
+$(BIN_DIR) $(OBJ_DIR):
+	@mkdir -p $@
 
 # Build the main application
-$(TARGET): $(BIN_DIR) $(OBJ_DIR) $(OBJS)
+$(TARGET): $(BIN_DIR) $(OBJS)
 	$(CC) $(LDFLAGS) -o $@ $(OBJS)
 
-# Build and run the tests
-test: $(TEST_TARGET)
-	./$(TEST_TARGET)
+# HOW TO ADD A NEW TEST:
+#
+# 1. Let's say you create 'tests/networking/test_server.c'.
+#
+# 2. First, add its target 'bin/test_server' to the main 'test' rule's dependencies:
+#    test: ... bin/test_server
+#
+# 3. Then, add the command to run it:
+#	   ./bin/test_server
+#
+# 4. Finally, copy the rule and modify it for the new test:
+#    bin/test_server: tests/networking/test_server.c src/networking/server.c tests/unity/unity.c | $(BIN_DIR)
+#	     $(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^
 
-$(TEST_TARGET): $(BIN_DIR) $(OBJ_DIR) $(TEST_OBJS)
-	$(CC) $(LDFLAGS) -o $@ $(TEST_OBJS)
+# Main 'test' target: builds and runs all listed test executables
+test: bin/test_tokenizer
+	@echo "--- Running tokenizer test ---"
+	./bin/test_tokenizer
+	@echo "--- All tests finished ---"
 
-# Compile main application source files into object files in obj/src/
+# --- INDIVIDUAL TEST BUILD RULES ---
+
+# Rule to build the tokenizer test executable
+bin/test_tokenizer: tests/query/test_tokenizer.c src/query/tokenizer.c tests/unity/unity.c | $(BIN_DIR)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^
+
+# --- OBJECT FILE COMPILATION ---
+
+# Rule to compile a source file from the 'src' directory
 $(OBJ_DIR)/src/%.o: src/%.c
-	@mkdir -p $(dir $@) # Create the specific output directory for this object file
+	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-# Compile library source files into object files in obj/lib/
+# Rule to compile a source file from a library directory
 $(OBJ_DIR)/lib/%.o: src/lib/%.c
-	@mkdir -p $(dir $@) # Create the specific output directory for this object file
+	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-# Compile test source files into object files in obj/tests/
-$(OBJ_DIR)/tests/%.o: tests/%.c
-	@mkdir -p $(dir $@) # Create the specific output directory for this object file
-	$(CC) $(CFLAGS) -c $< -o $@
+# --- CLEANUP ---
 
-# Clean up build artifacts
 clean:
-	rm -rf $(OBJ_DIR) # Remove the entire obj directory
-	rm -rf $(BIN_DIR) # Remove the entire bin directory
+	rm -rf $(OBJ_DIR)
+	rm -rf $(BIN_DIR)
 
 # Phony targets
 .PHONY: all test clean
