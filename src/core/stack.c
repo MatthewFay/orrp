@@ -22,7 +22,7 @@ bool stack_push(c_stack_t *stack, void *value) {
   return true;
 }
 
-void *pop(c_stack_t *stack) {
+void *stack_pop(c_stack_t *stack) {
   if (stack_is_empty(stack))
     return NULL;
   stack_node_t *temp_node = stack->top;
@@ -42,7 +42,7 @@ void *stack_peek(c_stack_t *stack) {
 // Does not free stored values
 void stack_free(c_stack_t *stack) {
   while (!stack_is_empty(stack)) {
-    pop(stack);
+    stack_pop(stack);
   }
   free(stack);
 }

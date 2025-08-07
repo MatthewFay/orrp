@@ -163,6 +163,25 @@
       "-g",
       "-c",
       "-o",
+      "obj/src/core/stack.o",
+      "src/core/stack.c"
+    ],
+    "directory": "/Users/matthewfay/dev/orrp",
+    "file": "/Users/matthewfay/dev/orrp/src/core/stack.c",
+    "output": "/Users/matthewfay/dev/orrp/obj/src/core/stack.o"
+  },
+  {
+    "arguments": [
+      "/usr/bin/gcc",
+      "-Iinclude",
+      "-Itests/unity",
+      "-Isrc/lib/roaring",
+      "-Isrc/lib/lmdb",
+      "-Wall",
+      "-Wextra",
+      "-g",
+      "-c",
+      "-o",
       "obj/lib/roaring/roaring.o",
       "src/lib/roaring/roaring.c"
     ],

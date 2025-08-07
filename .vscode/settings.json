@@ -9,5 +9,8 @@
   "editor.formatOnSave": true,
   "[c]": {
     "editor.formatOnSave": true
-  }
+  },
+  "clangd.arguments": [
+    "--compile-commands-dir=."
+  ]
 }

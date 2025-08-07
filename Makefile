@@ -11,7 +11,8 @@ LDFLAGS =
 # Main application sources
 APP_SRCS = src/main.c src/api.c src/engine.c src/core/bitmaps.c \
            src/core/db.c src/networking/server.c \
-           src/query/tokenizer.c src/query/parser.c
+           src/query/tokenizer.c src/query/parser.c \
+					 src/core/stack.c
 
 # Library sources
 LIB_SRCS = src/lib/roaring/roaring.c src/lib/lmdb/mdb.c src/lib/lmdb/midl.c
@@ -61,15 +62,21 @@ $(TARGET): $(BIN_DIR) $(OBJS)
 #	     $(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^
 
 # Main 'test' target: builds and runs all listed test executables
-test: bin/test_tokenizer
+test: bin/test_tokenizer bin/test_stack
 	@echo "--- Running tokenizer test ---"
 	./bin/test_tokenizer
+	@echo "--- Running stack test ---"
+	./bin/test_stack
 	@echo "--- All tests finished ---"
 
 # --- INDIVIDUAL TEST BUILD RULES ---
 
 # Rule to build the tokenizer test executable
 bin/test_tokenizer: tests/query/test_tokenizer.c src/query/tokenizer.c tests/unity/unity.c | $(BIN_DIR)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^
+
+# Rule to build the stack test executable
+bin/test_stack: tests/core/test_stack.c src/core/stack.c tests/unity/unity.c | $(BIN_DIR)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^
 
 # --- OBJECT FILE COMPILATION ---
