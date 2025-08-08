@@ -9,13 +9,23 @@ LDFLAGS =
 # --- SOURCE FILES ---
 
 # Main application sources
-APP_SRCS = src/main.c src/api.c src/engine.c src/core/bitmaps.c \
-           src/core/db.c src/networking/server.c \
-           src/query/tokenizer.c src/query/parser.c \
-					 src/core/stack.c
+APP_SRCS = src/main.c \
+			 src/api.c \
+			 src/engine.c \
+			 src/core/bitmaps.c \
+			 src/core/db.c \
+			 src/core/stack.c \
+			 src/core/queue.c \
+			 src/networking/server.c \
+			 src/query/tokenizer.c \
+			 src/query/parser.c
 
 # Library sources
-LIB_SRCS = src/lib/roaring/roaring.c src/lib/lmdb/mdb.c src/lib/lmdb/midl.c
+# Library sources
+LIB_SRCS = \
+	src/lib/roaring/roaring.c \
+	src/lib/lmdb/mdb.c \
+	src/lib/lmdb/midl.c
 
 # Unity testing framework source
 UNITY_SRC = tests/unity/unity.c
