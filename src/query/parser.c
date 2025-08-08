@@ -23,6 +23,8 @@ static ast_node_t *_parse_add(Queue *tokens) {
       _cleanup(t, tokens, cmd_node);
       return NULL;
     }
+    ast_list_append(&(cmd_node->node.cmd->args),
+                    ast_create_identifier_node(t->text_value));
   }
   return cmd_node;
 }
