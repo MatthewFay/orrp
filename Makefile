@@ -82,7 +82,7 @@ test: bin/test_tokenizer bin/test_stack
 # --- INDIVIDUAL TEST BUILD RULES ---
 
 # Rule to build the tokenizer test executable
-bin/test_tokenizer: tests/query/test_tokenizer.c src/query/tokenizer.c tests/unity/unity.c | $(BIN_DIR)
+bin/test_tokenizer: tests/query/test_tokenizer.c src/query/tokenizer.c src/core/queue.c tests/unity/unity.c | $(BIN_DIR)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^
 
 # Rule to build the stack test executable

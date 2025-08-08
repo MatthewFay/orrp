@@ -1,6 +1,7 @@
 #ifndef TOKENZ_H
 #define TOKENZ_H
 
+#include "core/queue.h"
 #include <stdint.h>
 
 extern const int MAX_TOKENS;
@@ -28,11 +29,10 @@ typedef struct token_s {
   token_type type;
   char *text_value;
   uint32_t number_value;
-  struct token_s *next;
 } token_t;
 
-token_t *tok_tokenize(char *input);
+Queue *tok_tokenize(char *input);
 
-void tok_free_tokens(token_t *tokens);
+void tok_free_tokens(Queue *tokens);
 
 #endif // TOKENZ_H
