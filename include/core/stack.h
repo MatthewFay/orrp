@@ -14,7 +14,7 @@ typedef struct stack_s {
   size_t count;
 } c_stack_t;
 
-c_stack_t *stack_create();
+c_stack_t *stack_create(void);
 
 bool stack_is_empty(c_stack_t *stack);
 

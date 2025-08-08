@@ -225,3 +225,8 @@ void tok_free_tokens(Queue *tokens) {
   }
   q_destroy(tokens);
 }
+
+void tok_free(token_t *token) {
+  free(token->text_value);
+  free(token);
+}

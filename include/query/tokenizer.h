@@ -35,4 +35,6 @@ Queue *tok_tokenize(char *input);
 
 void tok_free_tokens(Queue *tokens);
 
+void tok_free(token_t *token);
+
 #endif // TOKENZ_H

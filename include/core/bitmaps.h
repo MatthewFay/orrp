@@ -10,7 +10,7 @@ typedef struct bitmap_s {
 } bitmap_t;
 
 // Function to create a new bitmap
-bitmap_t *bitmap_create();
+bitmap_t *bitmap_create(void);
 
 // Function to add a value to the bitmap
 void bitmap_add(bitmap_t *bm, uint32_t value);

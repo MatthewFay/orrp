@@ -1,7 +1,7 @@
 #include "core/stack.h"
 #include <stdlib.h>
 
-c_stack_t *stack_create() {
+c_stack_t *stack_create(void) {
   c_stack_t *stack = calloc(1, sizeof(c_stack_t));
   if (!stack)
     return NULL;

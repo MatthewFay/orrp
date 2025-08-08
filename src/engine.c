@@ -44,7 +44,7 @@ static void _get_next_n_id(eng_db_t *db, MDB_txn *txn, u_int32_t *n_id) {
 }
 
 // Initialize the databases
-eng_db_t *eng_init_dbs() {
+eng_db_t *eng_init_dbs(void) {
   MDB_dbi id_to_int_db, int_to_id_db, metadata_db, event_counters_db,
       bitmaps_db;
 

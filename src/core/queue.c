@@ -13,7 +13,7 @@ struct Queue {
   int size;
 };
 
-Queue *q_create() {
+Queue *q_create(void) {
   Queue *q = malloc(sizeof(Queue));
   if (!q) {
     return NULL;

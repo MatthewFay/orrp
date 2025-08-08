@@ -163,6 +163,25 @@
       "-g",
       "-c",
       "-o",
+      "obj/src/query/ast.o",
+      "src/query/ast.c"
+    ],
+    "directory": "/Users/matthewfay/dev/orrp",
+    "file": "/Users/matthewfay/dev/orrp/src/query/ast.c",
+    "output": "/Users/matthewfay/dev/orrp/obj/src/query/ast.o"
+  },
+  {
+    "arguments": [
+      "/usr/bin/gcc",
+      "-Iinclude",
+      "-Itests/unity",
+      "-Isrc/lib/roaring",
+      "-Isrc/lib/lmdb",
+      "-Wall",
+      "-Wextra",
+      "-g",
+      "-c",
+      "-o",
       "obj/src/query/tokenizer.o",
       "src/query/tokenizer.c"
     ],

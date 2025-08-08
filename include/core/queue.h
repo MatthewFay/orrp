@@ -10,7 +10,7 @@ typedef struct Queue Queue;
  * @return A pointer to the newly created queue, or NULL if memory allocation
  * fails.
  */
-Queue *q_create();
+Queue *q_create(void);
 
 /**
  * @brief Frees all memory associated with the queue.

@@ -17,6 +17,7 @@ APP_SRCS = src/main.c \
 			 src/core/stack.c \
 			 src/core/queue.c \
 			 src/networking/server.c \
+			 src/query/ast.c \
 			 src/query/tokenizer.c \
 			 src/query/parser.c
 
