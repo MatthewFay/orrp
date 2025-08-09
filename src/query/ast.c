@@ -58,7 +58,10 @@ ast_node_t *ast_create_list_node(ast_node_t *item, ast_node_t *next) {
   return node;
 }
 
+// TODO: return success
 void ast_list_append(ast_node_t **list_head, ast_node_t *item_to_append) {
+  if (!item_to_append)
+    return;
   ast_node_t *new_list_node = ast_create_list_node(item_to_append, NULL);
   if (!new_list_node) {
     return;

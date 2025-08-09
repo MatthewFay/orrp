@@ -43,10 +43,7 @@ void tearDown(void) {
 void test_tokenize_null_or_empty_input(void) {
   TEST_ASSERT_NULL(tok_tokenize(NULL));
   TEST_ASSERT_NULL(tok_tokenize(""));
-  Queue *tokens = tok_tokenize("   \t\n   ");
-  TEST_ASSERT_NOT_NULL(tokens);
-  assert_next_token(tokens, END, NULL, 0);
-  tok_free_tokens(tokens);
+  TEST_ASSERT_NULL(tok_tokenize("   \t\n   "));
 }
 
 // Test simple operators and parentheses
@@ -63,7 +60,6 @@ void test_tokenize_simple_operators(void) {
   assert_next_token(tokens, LTE_OP, NULL, 0);
   assert_next_token(tokens, LT_OP, NULL, 0);
   assert_next_token(tokens, EQ_OP, NULL, 0);
-  assert_next_token(tokens, END, NULL, 0);
 
   // Ensure the queue is properly terminated
   TEST_ASSERT_TRUE(q_empty(tokens));
@@ -80,7 +76,6 @@ void test_tokenize_simple_text_and_case(void) {
 
   assert_next_token(tokens, TEXT, "hello", 0);
   assert_next_token(tokens, TEXT, "world", 0);
-  assert_next_token(tokens, END, NULL, 0);
 
   tok_free_tokens(tokens);
 }
@@ -95,7 +90,6 @@ void test_tokenize_text_with_special_chars(void) {
   assert_next_token(tokens, TEXT, "first-name", 0);
   assert_next_token(tokens, TEXT, "last_name", 0);
   assert_next_token(tokens, TEXT, "user-id_1", 0);
-  assert_next_token(tokens, END, NULL, 0);
 
   tok_free_tokens(tokens);
 }
@@ -110,7 +104,6 @@ void test_tokenize_simple_numbers(void) {
   assert_next_token(tokens, NUMBER, NULL, 123);
   assert_next_token(tokens, NUMBER, NULL, 45678);
   assert_next_token(tokens, NUMBER, NULL, 0);
-  assert_next_token(tokens, END, NULL, 0);
 
   tok_free_tokens(tokens);
 }
@@ -125,7 +118,6 @@ void test_tokenize_keywords(void) {
   assert_next_token(tokens, AND_OP, NULL, 0);
   assert_next_token(tokens, OR_OP, NULL, 0);
   assert_next_token(tokens, NOT_OP, NULL, 0);
-  assert_next_token(tokens, END, NULL, 0);
 
   tok_free_tokens(tokens);
 }
@@ -140,7 +132,6 @@ void test_tokenize_keywords_as_substrings(void) {
   assert_next_token(tokens, TEXT, "sandwiches", 0);
   assert_next_token(tokens, TEXT, "northern", 0);
   assert_next_token(tokens, TEXT, "notorized", 0);
-  assert_next_token(tokens, END, NULL, 0);
 
   tok_free_tokens(tokens);
 }
@@ -165,7 +156,6 @@ void test_tokenize_complex_query(void) {
   assert_next_token(tokens, TEXT, "status", 0);
   assert_next_token(tokens, EQ_OP, NULL, 0);
   assert_next_token(tokens, TEXT, "active", 0);
-  assert_next_token(tokens, END, NULL, 0);
 
   tok_free_tokens(tokens);
 }
@@ -186,7 +176,6 @@ void test_tokenize_operator_at_end_of_string(void) {
   TEST_ASSERT_NOT_NULL(tokens);
   assert_next_token(tokens, TEXT, "value", 0);
   assert_next_token(tokens, GT_OP, NULL, 0);
-  assert_next_token(tokens, END, NULL, 0);
 
   tok_free_tokens(tokens);
 }

@@ -28,12 +28,15 @@ void q_destroy(Queue *q) {
   if (!q)
     return;
 
-  Node *current = q->head;
-  while (current != NULL) {
-    Node *temp = current;
-    current = current->next;
-    free(temp);
+  if (!q_empty(q)) {
+    Node *current = q->head;
+    while (current != NULL) {
+      Node *temp = current;
+      current = current->next;
+      free(temp);
+    }
   }
+
   free(q);
 }
 

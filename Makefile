@@ -73,11 +73,17 @@ $(TARGET): $(BIN_DIR) $(OBJS)
 #	     $(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^
 
 # Main 'test' target: builds and runs all listed test executables
-test: bin/test_tokenizer bin/test_stack
+test: bin/test_tokenizer bin/test_ast bin/test_parser bin/test_stack bin/test_queue
 	@echo "--- Running tokenizer test ---"
 	./bin/test_tokenizer
+	@echo "--- Running ast test ---"
+	./bin/test_ast
+	@echo "--- Running parser test ---"
+	./bin/test_parser
 	@echo "--- Running stack test ---"
 	./bin/test_stack
+	@echo "--- Running queue test ---"
+	./bin/test_queue
 	@echo "--- All tests finished ---"
 
 # --- INDIVIDUAL TEST BUILD RULES ---
@@ -86,9 +92,23 @@ test: bin/test_tokenizer bin/test_stack
 bin/test_tokenizer: tests/query/test_tokenizer.c src/query/tokenizer.c src/core/queue.c tests/unity/unity.c | $(BIN_DIR)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^
 
+# Rule to build the ast test executable
+bin/test_ast: tests/query/test_ast.c src/query/ast.c tests/unity/unity.c | $(BIN_DIR)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^
+
+# Rule to build the parser test executable
+bin/test_parser: tests/query/test_parser.c src/query/parser.c src/core/queue.c src/query/ast.c src/query/tokenizer.c tests/unity/unity.c | $(BIN_DIR)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^
+
 # Rule to build the stack test executable
 bin/test_stack: tests/core/test_stack.c src/core/stack.c tests/unity/unity.c | $(BIN_DIR)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^
+
+# Rule to build the queue test executable
+bin/test_queue: tests/core/test_queue.c src/core/queue.c tests/unity/unity.c | $(BIN_DIR)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^
+
+
 
 # --- OBJECT FILE COMPILATION ---
 

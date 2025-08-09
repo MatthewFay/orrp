@@ -22,7 +22,6 @@ typedef enum {
   GTE_OP,
   LTE_OP,
   EQ_OP,
-  END
 } token_type;
 
 typedef struct token_s {

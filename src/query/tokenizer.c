@@ -204,12 +204,10 @@ Queue *tok_tokenize(char *input) {
     }
   }
 
-  token_t *end_t = _create_token(END, NULL, 0);
-  if (!end_t) {
-    tok_free_tokens(q);
+  if (q_empty(q)) {
+    q_destroy(q);
     return NULL;
   }
-  q_enqueue(q, end_t);
 
   return q;
 }
@@ -220,8 +218,7 @@ void tok_free_tokens(Queue *tokens) {
   token_t *t;
   while (!q_empty(tokens)) {
     t = q_dequeue(tokens);
-    free(t->text_value);
-    free(t);
+    tok_free(t);
   }
   q_destroy(tokens);
 }
