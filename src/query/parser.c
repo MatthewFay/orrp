@@ -5,12 +5,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-static void _cleanup(token_t *token, Queue *tokens, ast_node_t *ast) {
-  tok_free(token);
-  tok_free_tokens(tokens);
-  ast_free(ast);
-}
-
 static ast_node_t *_parse_add(Queue *tokens) {
   if (q_size(tokens) != 3)
     return NULL;
@@ -22,6 +16,7 @@ static ast_node_t *_parse_add(Queue *tokens) {
     token_t *t = q_dequeue(tokens);
     if (t->type != TEXT || t->text_value == NULL) {
       free(t);
+      ast_free(cmd_node);
       return NULL;
     }
     ast_list_append(&(cmd_node->node.cmd->args),
@@ -41,7 +36,8 @@ ast_node_t *parse(Queue *tokens) {
   }
   token_t *cmd_token = q_dequeue(tokens);
   if (cmd_token->type != TEXT || cmd_token->text_value == NULL) {
-    _cleanup(cmd_token, tokens, NULL);
+    tok_free(cmd_token);
+    tok_free_tokens(tokens);
     return NULL;
   }
 
@@ -49,12 +45,15 @@ ast_node_t *parse(Queue *tokens) {
 
   if (strcmp("add", cmd_token->text_value) == 0) {
     ast = _parse_add(tokens);
-  }
-
-  if (strcmp("query", cmd_token->text_value) == 0) {
+  } else if (strcmp("query", cmd_token->text_value) == 0) {
     ast = _parse_exp(tokens);
+  } else {
+    // Unrecognized command, free the token and queue
+    tok_free(cmd_token);
+    tok_free_tokens(tokens);
+    return NULL;
   }
-
-  _cleanup(cmd_token, tokens, NULL);
+  tok_free(cmd_token);
+  tok_free_tokens(tokens);
   return ast;
 }
