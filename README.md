@@ -8,6 +8,7 @@ The project is organized into the following directories:
 orrp/
 ├── bin/                # Compiled executable files
 ├── include/            # Public header files (.h)
+├── lib/                # Libraries
 ├── obj/                # Intermediate object files (.o) generated during compilation
 │   ├── src/            # Object files for main application source
 │   └── tests/          # Object files for test source
@@ -15,7 +16,6 @@ orrp/
 ├── tests/              # Test files and testing framework
 │   ├── unity/          # Unity test framework source
 │   ├── test_main.c     # Individual test cases
-│   └── test_runner.c   # Main entry point for tests
 ├── Makefile            # Build script for compiling and testing
 └── README.md           # Documentation
 ```
@@ -31,7 +31,7 @@ To run the application:
 `./bin/orrp`
 
 ### Run the Tests
-To compile and run the test suite, use `make test`. This will create the `test_runner` executable in the `bin/` directory and then execute it.
+To compile and run the test suite, use `make test`. This will create the test executables in the `bin/` directory and then execute them.
 
 ### Clean the Project
 To remove all compiled object files (from `obj/`) and executables (from `bin/`), use `make clean`.
