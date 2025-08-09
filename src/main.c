@@ -6,6 +6,7 @@
 
 int main() {
   // --- Initialize Logging ---
+  // TODO: Log to file
   log_set_level(LOG_DEBUG);
   log_set_quiet(0); // Ensure logs are not quiet
 

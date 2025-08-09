@@ -25,6 +25,8 @@
 
 // --- Globals ---
 static uv_loop_t *loop;
+static uv_tcp_t server_handle;    // Main server handle
+static uv_signal_t signal_handle; // Signal handler for SIGINT
 static int active_connections = 0;
 
 // --- Client State Structure ---
@@ -83,6 +85,13 @@ void alloc_buffer(uv_handle_t *handle, size_t suggested_size, uv_buf_t *buf) {
 }
 
 /**
+ * @brief Callback for closing rejected connections (due to max connections).
+ * This is used to free the temporary handle allocated to reject a connection.
+ * @param handle The handle that was closed.
+ */
+void on_rejected_close(uv_handle_t *handle) { free(handle); }
+
+/**
  * @brief Callback function for when a handle is fully closed.
  * A cleanup callback. After we tell libuv to close a handle
  * (like a client connection), it performs the close operation
@@ -93,9 +102,15 @@ void alloc_buffer(uv_handle_t *handle, size_t suggested_size, uv_buf_t *buf) {
  */
 void on_close(uv_handle_t *handle) {
   client_t *client = handle->data;
-  log_info("Client %d connection closed.", client->client_id);
-  active_connections--;
-  free(client);
+  // During shutdown, client can be NULL if a timer is closed after its client
+  if (client) {
+    log_info("Client %d connection closed.", client->client_id);
+    active_connections--;
+    // Set data to NULL to prevent double-free if timer's on_close runs second
+    client->handle.data = NULL;
+    client->timeout_timer.data = NULL;
+    free(client);
+  }
 }
 
 /**
@@ -303,7 +318,8 @@ void on_new_connection(uv_stream_t *server, int status) {
     if (temp_client) {
       uv_tcp_init(loop, temp_client);
       if (uv_accept(server, (uv_stream_t *)temp_client) == 0) {
-        uv_close((uv_handle_t *)temp_client, on_close); // Close and free handle
+        // Use a dedicated close callback that just frees the handle
+        uv_close((uv_handle_t *)temp_client, on_rejected_close);
       } else {
         free(temp_client);
       }
@@ -343,6 +359,48 @@ void on_new_connection(uv_stream_t *server, int status) {
 }
 
 /**
+ * @brief Iterates over all active handles and closes them.
+ * This function is used during graceful shutdown to close all client
+ * connections and their associated timers.
+ * @param handle The handle to inspect.
+ * @param arg User-provided argument (not used here).
+ */
+static void close_walk_cb(uv_handle_t *handle, void *arg) {
+  (void)arg;
+  // We want to close all handles that are not the main server listener
+  // or the signal handler, as they are handled separately.
+  if (handle != (uv_handle_t *)&server_handle &&
+      handle != (uv_handle_t *)&signal_handle) {
+    if (!uv_is_closing(handle)) {
+      log_debug("Shutdown: closing handle of type %s",
+                uv_handle_type_name(handle->type));
+      // on_close is safe for both client TCP and timer handles
+      uv_close(handle, on_close);
+    }
+  }
+}
+
+/**
+ * @brief Callback for handling SIGINT (Ctrl+C).
+ * This function initiates the graceful shutdown procedure.
+ * @param handle The signal handle.
+ * @param signum The signal number (SIGINT).
+ */
+static void on_signal(uv_signal_t *handle, int signum) {
+  (void)signum;
+  log_warn("SIGINT received, initiating graceful shutdown...");
+
+  // 1. Stop the signal handler to prevent multiple shutdown signals
+  uv_signal_stop(handle);
+
+  // 2. Stop accepting new connections by closing the server handle
+  uv_close((uv_handle_t *)&server_handle, NULL);
+
+  // 3. Close all other active handles (clients, timers)
+  uv_walk(loop, close_walk_cb, NULL);
+}
+
+/**
  * @brief Starts the database server and runs the event loop.
  * The main public function. It initializes libuv, sets up the
  * TCP listener on the specified host and port, and starts the
@@ -354,8 +412,11 @@ void on_new_connection(uv_stream_t *server, int status) {
  */
 void start_server(const char *host, int port) {
   loop = uv_default_loop();
-  uv_tcp_t server_handle;
   uv_tcp_init(loop, &server_handle);
+
+  // Initialize and start the signal handler for SIGINT
+  uv_signal_init(loop, &signal_handle);
+  uv_signal_start(&signal_handle, on_signal, SIGINT);
 
   struct sockaddr_in addr;
   uv_ip4_addr(host, port, &addr);
@@ -373,9 +434,12 @@ void start_server(const char *host, int port) {
            MAX_CONCURRENT_CONNECTIONS, CONNECTION_IDLE_TIMEOUT,
            MAX_COMMAND_LENGTH);
 
+  // This call blocks until all handles are closed
   uv_run(loop, UV_RUN_DEFAULT);
 
   // This part is only reached when the loop is stopped
+  // Ensure all events are processed before closing the loop
+  uv_run(loop, UV_RUN_ONCE);
   uv_loop_close(loop);
-  log_info("Server shutting down.");
+  log_info("Server shut down cleanly.");
 }
