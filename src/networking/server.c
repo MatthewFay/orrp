@@ -36,7 +36,11 @@ typedef struct {
   uv_timer_t timeout_timer;
   char read_buffer[READ_BUFFER_SIZE];
   int buffer_len;
-  int client_id; // Simple counter for logging
+  int client_id;
+  // --- Reference counter for associated handles ---
+  // This counter tracks the number of open handles (TCP and timer) for this
+  // client. The client struct is only freed when this count reaches zero.
+  int open_handles;
 } client_t;
 
 // Forward declarations for callbacks
@@ -53,6 +57,24 @@ typedef struct {
 } write_req_t;
 
 /**
+ * @brief Helper function to close all handles associated with a client.
+ * This ensures that both the TCP and timer handles are closed, which is
+ * crucial for the reference counting in on_close to work correctly.
+ *
+ * @param client The client to close.
+ */
+static void close_client_connection(client_t *client) {
+  // Use uv_is_closing to prevent calling uv_close on a handle that is
+  // already in the process of closing.
+  if (!uv_is_closing((uv_handle_t *)&client->handle)) {
+    uv_close((uv_handle_t *)&client->handle, on_close);
+  }
+  if (!uv_is_closing((uv_handle_t *)&client->timeout_timer)) {
+    uv_close((uv_handle_t *)&client->timeout_timer, on_close);
+  }
+}
+
+/**
  * @brief Callback function for when a client's idle timer fires.
  *
  * @param timer The timer handle that fired.
@@ -61,7 +83,8 @@ void on_timeout(uv_timer_t *timer) {
   client_t *client = timer->data;
   log_warn("Client %d timed out due to inactivity. Closing connection.",
            client->client_id);
-  uv_close((uv_handle_t *)&client->handle, on_close);
+  // --- Close all of the client's handles ---
+  close_client_connection(client);
 }
 
 /**
@@ -98,17 +121,23 @@ void on_rejected_close(uv_handle_t *handle) { free(handle); }
  * asynchronously. When it's fully done, it calls on_close so we can
  * free any memory associated with that client.
  *
+ * This function acts as a reference counter. A client has two handles
+ * (TCP and timer). We only free the client's memory after BOTH handles have
+ * been successfully closed and this callback has been fired for each of them.
+ *
  * @param handle The handle that was closed.
  */
 void on_close(uv_handle_t *handle) {
   client_t *client = handle->data;
-  // During shutdown, client can be NULL if a timer is closed after its client
-  if (client) {
-    log_info("Client %d connection closed.", client->client_id);
+  if (!client) {
+    return;
+  }
+
+  client->open_handles--;
+  if (client->open_handles == 0) {
+    log_info("Client %d connection fully closed and resources freed.",
+             client->client_id);
     active_connections--;
-    // Set data to NULL to prevent double-free if timer's on_close runs second
-    client->handle.data = NULL;
-    client->timeout_timer.data = NULL;
     free(client);
   }
 }
@@ -181,7 +210,6 @@ void on_write(uv_write_t *req, int status) {
 void process_one_command(client_t *client, char *command) {
   // Trim trailing newline/carriage return if present
   command[strcspn(command, "\r\n")] = 0;
-
   log_debug("Client %d sent command: '%s'", client->client_id, command);
 
   // ===================================================================
@@ -229,7 +257,8 @@ void process_data_buffer(client_t *client) {
                 "%d). Closing connection.",
                 client->client_id, command_len, MAX_COMMAND_LENGTH);
       send_response(client, "ERROR: Command too long\n");
-      uv_close((uv_handle_t *)&client->handle, on_close);
+      // --- Close all of the client's handles ---
+      close_client_connection(client);
       return;
     }
 
@@ -255,7 +284,8 @@ void process_data_buffer(client_t *client) {
               "malformed command. Closing.",
               client->client_id);
     send_response(client, "ERROR: Command buffer overflow\n");
-    uv_close((uv_handle_t *)&client->handle, on_close);
+    // --- Close all of the client's handles ---
+    close_client_connection(client);
   }
 }
 
@@ -288,7 +318,8 @@ void on_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
       log_error("Read error: %s", uv_strerror(nread));
     }
     // Client disconnected (EOF) or read error, close the connection
-    uv_close((uv_handle_t *)stream, on_close);
+    // --- Close all of the client's handles ---
+    close_client_connection(client);
   }
   // nread == 0 is possible, just means nothing to read right now.
 }
@@ -333,20 +364,23 @@ void on_new_connection(uv_stream_t *server, int status) {
     log_fatal("Failed to allocate memory for new client");
     return;
   }
-  client->client_id = active_connections; // Simple ID for logging
+  client->client_id =
+      active_connections; // TODO: use UUID. For now, Simple ID for logging
 
-  // Initialize the client's TCP handle
+  // --- Initialize the TCP handle and increment the handle counter ---
   uv_tcp_init(loop, &client->handle);
   client->handle.data = client; // Link client state to the handle
+  client->open_handles = 1;
 
   // Accept the connection
   if (uv_accept(server, (uv_stream_t *)&client->handle) == 0) {
     active_connections++;
     log_info("New client connected. Total connections: %d", active_connections);
 
-    // Initialize and start the idle timeout timer
-    client->timeout_timer.data = client;
+    // --- Initialize the timer handle and increment the handle counter ---
     uv_timer_init(loop, &client->timeout_timer);
+    client->timeout_timer.data = client;
+    client->open_handles++;
     uv_timer_start(&client->timeout_timer, on_timeout, CONNECTION_IDLE_TIMEOUT,
                    0);
 
@@ -354,12 +388,14 @@ void on_new_connection(uv_stream_t *server, int status) {
     uv_read_start((uv_stream_t *)&client->handle, alloc_buffer, on_read);
   } else {
     log_error("Failed to accept client connection.");
+    // --- Close the single handle that was opened. The refcount logic in
+    // --- on_close will correctly free the client struct. ---
     uv_close((uv_handle_t *)&client->handle, on_close);
   }
 }
 
 /**
- * @brief Iterates over all active handles and closes them.
+ * @brief Iterates over all active handles and closes them during shutdown.
  * This function is used during graceful shutdown to close all client
  * connections and their associated timers.
  * @param handle The handle to inspect.
@@ -374,15 +410,15 @@ static void close_walk_cb(uv_handle_t *handle, void *arg) {
     if (!uv_is_closing(handle)) {
       log_debug("Shutdown: closing handle of type %s",
                 uv_handle_type_name(handle->type));
-      // on_close is safe for both client TCP and timer handles
+      // `on_close` handles being called for any handle type
+      // associated with a client (TCP or timer).
       uv_close(handle, on_close);
     }
   }
 }
 
 /**
- * @brief Callback for handling SIGINT (Ctrl+C).
- * This function initiates the graceful shutdown procedure.
+ * @brief Callback for handling SIGINT (Ctrl+C) for graceful shutdown.
  * @param handle The signal handle.
  * @param signum The signal number (SIGINT).
  */
