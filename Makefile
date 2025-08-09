@@ -1,6 +1,6 @@
 # Compiler and flags
 CC = gcc
-CFLAGS = -Iinclude -Itests/unity -Isrc/lib/roaring -Isrc/lib/lmdb -Wall -Wextra -g
+CFLAGS = -Iinclude -Itests/unity -Ilib/roaring -Ilib/lmdb -Wall -Wextra -g
 # LMDB requires the -lrt library for real-time extensions (e.g., mmap) on some systems.
 # On some systems (like macOS), this functionality is part of the standard C library
 # and -lrt is not needed and can cause "library not found" errors.
@@ -24,9 +24,9 @@ APP_SRCS = src/main.c \
 # Library sources
 # Library sources
 LIB_SRCS = \
-	src/lib/roaring/roaring.c \
-	src/lib/lmdb/mdb.c \
-	src/lib/lmdb/midl.c
+	lib/roaring/roaring.c \
+	lib/lmdb/mdb.c \
+	lib/lmdb/midl.c
 
 # Unity testing framework source
 UNITY_SRC = tests/unity/unity.c
@@ -39,7 +39,7 @@ OBJ_DIR = obj
 
 # Object files for the main application (used for the final binary)
 APP_OBJS = $(patsubst src/%.c, $(OBJ_DIR)/src/%.o, $(APP_SRCS))
-LIB_OBJS = $(patsubst src/lib/%.c, $(OBJ_DIR)/lib/%.o, $(LIB_SRCS))
+LIB_OBJS = $(patsubst lib/%.c, $(OBJ_DIR)/lib/%.o, $(LIB_SRCS))
 OBJS = $(APP_OBJS) $(LIB_OBJS)
 
 # Target executable for the main application
@@ -118,7 +118,7 @@ $(OBJ_DIR)/src/%.o: src/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 # Rule to compile a source file from a library directory
-$(OBJ_DIR)/lib/%.o: src/lib/%.c
+$(OBJ_DIR)/lib/%.o: lib/%.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 
