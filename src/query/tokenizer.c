@@ -79,6 +79,7 @@ static void _to_lowercase(char *dest, const char *src, size_t max_len) {
 }
 
 // Return tokens from input string.
+// TODO: Create an iterator/stream, i.e. get_next_token()
 Queue *tok_tokenize(char *input) {
   int num_tokens = 0;
   size_t i = 0;
@@ -224,6 +225,8 @@ void tok_free_tokens(Queue *tokens) {
 }
 
 void tok_free(token_t *token) {
+  if (!token)
+    return;
   free(token->text_value);
   free(token);
 }

@@ -1,5 +1,5 @@
 # orrp
-orrp is a high-performance database engine.
+orrp is a high-performance database.
 
 ## Project Structure
 The project is organized into the following directories:
