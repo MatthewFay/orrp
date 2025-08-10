@@ -22,6 +22,7 @@ typedef struct eng_db_s {
 } eng_db_t;
 
 eng_db_t *eng_init_dbs(void);
+void eng_close_dbs(eng_db_t *db);
 void eng_add(struct api_response_s *r, eng_db_t *db, char *ns, char *key,
              char *id);
 

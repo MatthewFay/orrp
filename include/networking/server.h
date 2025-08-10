@@ -1,6 +1,8 @@
 #ifndef SERVER_H
 #define SERVER_H
 
+#include "uv.h"
+
 /**
  * @brief Starts the database server and runs the libuv event loop.
  *
@@ -12,6 +14,6 @@
  * interfaces.
  * @param port The port number to listen on.
  */
-void start_server(const char *host, int port);
+void start_server(const char *host, int port, uv_loop_t *loop);
 
 #endif // SERVER_H

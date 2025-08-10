@@ -97,6 +97,36 @@ eng_db_t *eng_init_dbs(void) {
   return ok ? db : NULL;
 }
 
+/**
+ * @brief Cleans up and closes all database resources.
+ *
+ * This function is the counterpart to eng_init_dbs. It closes all opened
+ * LMDB database handles, closes the main environment, and frees the memory
+ * allocated for the database container struct. It's safe to call this
+ * function with a NULL pointer.
+ *
+ * @param db A pointer to the database instance to be destroyed.
+ */
+void eng_close_dbs(eng_db_t *db) {
+  if (!db) {
+    return;
+  }
+
+  // The environment must be valid to close the database handles.
+  if (db->env) {
+    mdb_dbi_close(db->env, db->bitmaps_db);
+    mdb_dbi_close(db->env, db->event_counters_db);
+    mdb_dbi_close(db->env, db->metadata_db);
+    mdb_dbi_close(db->env, db->int_to_id_db);
+    mdb_dbi_close(db->env, db->id_to_int_db);
+
+    // After all other resources are freed, close the main environment.
+    mdb_env_close(db->env);
+  }
+
+  free(db);
+}
+
 static bool _map(eng_db_t *db, MDB_txn *txn, const char *id, uint32_t n_id) {
   db_key_t id_key;
   id_key.type = DB_KEY_STRING;

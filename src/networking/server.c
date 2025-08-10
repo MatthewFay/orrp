@@ -47,37 +47,11 @@
 #define SERVER_BACKLOG 511              // Listen backlog connections
 
 // --- Globals ---
-static uv_loop_t *loop;
 static uv_tcp_t server_handle;    // Main server handle
 static uv_signal_t signal_handle; // Signal handler for SIGINT
 static int active_connections = 0;
 static long long next_client_id =
     0; // Use a rolling ID for better logging. TODO: Consider UUID
-
-// Opaque parsed AST/result object returned by parser. Implementation defined by
-// you.
-typedef struct parsed_request_s parsed_request_t;
-
-// Parse command into parsed_request_t. Thread-safe; returns heap-allocated
-// parsed_request_t or NULL on parse error. Caller must free parsed_request_t
-// with free_parsed_request().
-extern parsed_request_t *parse_command_to_ast(const char *command);
-
-// Execute a read request (worker thread may call this). Returns heap-allocated
-// response or NULL on error.
-extern char *execute_read_request(parsed_request_t *req);
-
-// Execute a write request. MUST be called only by the single writer thread.
-// Returns heap-allocated response or NULL.
-extern char *execute_write_request(parsed_request_t *req);
-
-// Free parsed_request_t
-extern void free_parsed_request(parsed_request_t *req);
-
-// Inspect parsed_request_t: 1 if write, 0 if read.
-extern int parsed_request_is_write(const parsed_request_t *req);
-
-// -------------------- End external API declarations --------------------
 
 /*
  * Client structure
@@ -538,6 +512,7 @@ static void completion_async_cb(uv_async_t *handle) {
  * @param command The null-terminated command string.
  */
 void process_one_command(client_t *client, char *command) {
+  uv_loop_t *loop = client->handle.loop;
   size_t cmd_len = strlen(command);
 
   // Trim trailing CR/LF.
@@ -690,6 +665,8 @@ void on_new_connection(uv_stream_t *server, int status) {
     return;
   }
 
+  uv_loop_t *loop = server->loop;
+
   if (active_connections >= MAX_CONCURRENT_CONNECTIONS) {
     log_warn("Max connections reached (%d). Rejecting new connection.",
              MAX_CONCURRENT_CONNECTIONS);
@@ -771,6 +748,8 @@ static void initiate_shutdown(void) {
 
   log_warn("Shutdown initiated...");
 
+  uv_loop_t *loop = server_handle.loop;
+
   // Close the signal handle so the loop can exit cleanly.
   uv_close((uv_handle_t *)&signal_handle, NULL);
 
@@ -811,10 +790,9 @@ static void on_signal(uv_signal_t *handle, int signum) {
  *
  * @param host The IP address to bind to (e.g., "0.0.0.0").
  * @param port The port to listen on.
+ * @param loop Main event loop. `loop->data` is set to initialized database.
  */
-void start_server(const char *host, int port) {
-  loop = uv_default_loop();
-
+void start_server(const char *host, int port, uv_loop_t *loop) {
   uv_mutex_init(&writer_queue_mutex);
   uv_cond_init(&writer_queue_cond);
   uv_mutex_init(&completion_mutex);
