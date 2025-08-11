@@ -2,6 +2,7 @@
 #include "api.h"
 #include "core/bitmaps.h"
 #include "core/db.h"
+#include "log.h"
 #include <inttypes.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -34,12 +35,15 @@ static void _get_next_n_id(eng_db_t *db, MDB_txn *txn, u_int32_t *n_id) {
   key.key.s = NEXT_ID_KEY;
   db_get_result_t *next = db_get(db->metadata_db, txn, &key);
   if (next->status == DB_GET_OK) {
-    u_int32_t next_id_val = *(u_int32_t *)next->value + 1;
-    r = db_put(db->metadata_db, txn, &key, &next_id_val, sizeof(u_int32_t),
+    u_int32_t next_id_val = *(u_int32_t *)next->value;
+    u_int32_t next_id_val_incr = next_id_val + 1;
+    r = db_put(db->metadata_db, txn, &key, &next_id_val_incr, sizeof(u_int32_t),
                false);
-    *n_id = r ? *(u_int32_t *)next : 0;
+    *n_id = r ? next_id_val : 0;
+  } else {
+    log_error("Unable to get next numeric id");
+    *n_id = 0; // Should only happen if DB has not been initialized!
   }
-  *n_id = 0; // Should only happen if DB has not been initialized!
   db_free_get_result(next);
 }
 

@@ -9,7 +9,7 @@ CFLAGS = -Iinclude \
 		 -Ilib/lmdb \
 		 -Ilib/log.c \
 		 -Ilib/libuv/include \
-		 -Wall -Wextra -g -O2
+		 -Wall -Wextra -g -O0 # TODO: Seperate release (with optimizations) + debug builds
 
 # LDFLAGS: Linker flags
 # Note: LMDB requires the -lrt library for real-time extensions (e.g., mmap) on some systems.
