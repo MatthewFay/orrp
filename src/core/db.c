@@ -64,9 +64,9 @@ bool db_open(MDB_env *env, const char *db_name, MDB_dbi *db_out) {
     return false;
   }
 
-  // Open a database (dbi) - will be created if it doesn't exist
-  // 0: Default flags
-  rc = mdb_dbi_open(txn, db_name, 0, &db);
+  // Open a database (dbi) - will be created if it doesn't exist (MDB_CREATE
+  // flag)
+  rc = mdb_dbi_open(txn, db_name, MDB_CREATE, &db);
   if (rc != 0) {
     fprintf(stderr, "mdb_dbi_open failed: %s\n", mdb_strerror(rc));
     mdb_txn_abort(txn);

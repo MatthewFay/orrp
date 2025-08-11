@@ -9,7 +9,10 @@
  * =====================================================================================
  */
 
+// TODO: Split this file into multiple smaller modules
+
 #include "networking/server.h"
+#include "api.h"
 #include "core/queue.h"
 #include "log.h"
 #include "query/parser.h"
@@ -248,7 +251,7 @@ typedef struct {
   uv_work_t req;
   client_t *client;
   char *command;
-  char *result;
+  api_response_t *result;
   work_status_t status;
 } work_ctx_t;
 
@@ -259,7 +262,7 @@ typedef struct writer_task_s {
 } writer_task_t;
 
 typedef struct completion_item_s {
-  char *result;
+  api_response_t *result;
   work_ctx_t *ctx;
   struct completion_item_s *next;
 } completion_item_t;
@@ -339,7 +342,8 @@ static void writer_thread_main(void *arg) {
       continue;
 
     // Execute the write request (e.g., LMDB transaction)
-    // char *result = execute_write_request(task->parsed);
+    api_response_t *r =
+        api_exec(task->parsed->ast, task->ctx->client->handle.loop->data);
     parse_free_result(task->parsed);
 
     // Create completion item and enqueue it.
@@ -353,13 +357,16 @@ static void writer_thread_main(void *arg) {
                 "Dropping task for client %lld. This will leak the work "
                 "context and the client may hang.",
                 task->ctx->client->client_id);
-      // free(result); // Free the result we got from the DB engine.
-      free(task); // Free the task container.
-      continue;   // The original work_ctx will be leaked.
+      free_api_response(r); // Free the result we got from the DB engine.
+      free(task);           // Free the task container.
+      continue;             // The original work_ctx will be leaked.
     }
 
-    // c->result = result; // May be NULL, indicating an error during execution.
+    c->result = r; // May be NULL, indicating an error during execution.
     c->ctx = task->ctx;
+    c->ctx->status = (c->ctx->result && c->ctx->result->is_ok)
+                         ? WORK_STATUS_DONE_OK
+                         : WORK_STATUS_DONE_ERR;
 
     uv_mutex_lock(&completion_mutex);
     completion_push_locked(c);
@@ -387,45 +394,39 @@ static void decrement_work_and_cleanup(client_t *client) {
 /* Background worker: runs in libuv thread-pool */
 static void work_cb(uv_work_t *req) {
   work_ctx_t *ctx = (work_ctx_t *)req;
-  ctx->status = WORK_STATUS_DONE_ERR;
+  ctx->status = WORK_STATUS_DONE_ERR; // Default to error
 
-  Queue *tokens = tok_tokenize(ctx->command);
+  // All resources that need cleanup
+  Queue *tokens = NULL;
+  parse_result_t *parsed = NULL;
+  writer_task_t *w = NULL;
+
+  tokens = tok_tokenize(ctx->command);
   if (!tokens) {
-    // lexical analysis error.
-    ctx->result = NULL; // No result to send.
-    // Let after_work_cb handle cleanup.
-    free(ctx->command);
-    ctx->command = NULL;
-    return;
+    log_debug("Lexical error for client %lld", ctx->client->client_id);
+    goto cleanup;
   }
 
-  parse_result_t *parsed = parse(tokens);
+  parsed = parse(tokens);
   if (parsed->type == OP_TYPE_ERROR) {
-    // Parse error.
-    ctx->result = NULL; // No result to send.
-    // Let after_work_cb handle cleanup.
-    free(ctx->command);
-    ctx->command = NULL;
-    return;
+    log_debug("Parse error for client %lld", ctx->client->client_id);
+    goto cleanup;
   }
 
+  // Dispatch
   if (parsed->type == OP_TYPE_WRITE) {
-    writer_task_t *w = malloc(sizeof(writer_task_t));
+    w = malloc(sizeof(writer_task_t));
     if (!w) {
       log_error("work_cb: OOM failed to allocate writer_task for client %lld",
                 ctx->client->client_id);
-      parse_free_result(parsed);
-      ctx->result = NULL; // Mark as error.
-      free(ctx->command);
-      ctx->command = NULL;
-      return;
+      goto cleanup;
     }
     w->parsed = parsed;
     w->ctx = ctx;
 
-    // Ownership of ctx->command is transferred and will be freed by the worker.
-    free(ctx->command);
-    ctx->command = NULL;
+    // The writer now owns the parsed result, so we NULL it out
+    // to prevent it from being freed in our cleanup block.
+    parsed = NULL;
 
     ctx->status = WORK_STATUS_PENDING_WRITE;
 
@@ -433,18 +434,28 @@ static void work_cb(uv_work_t *req) {
     writer_queue_push_locked(w);
     uv_cond_signal(&writer_queue_cond);
     uv_mutex_unlock(&writer_queue_mutex);
-    // Return immediately. after_work_cb will see PENDING_WRITE and do nothing.
-    return;
-  } else {
-    // Read request: execute directly in worker thread.
-    // ctx->result = execute_read_request(parsed);
-    parse_free_result(parsed);
-    ctx->status = (ctx->result) ? WORK_STATUS_DONE_OK : WORK_STATUS_DONE_ERR;
-    // Free the command now that it has been processed.
+
+    // For the write path, we are done. Free command and return.
+    // The writer_task will be freed by the writer thread.
     free(ctx->command);
     ctx->command = NULL;
     return;
+  } else { // Read path
+    // ctx->result = execute_read_request(parsed);
+    ctx->status = (ctx->result && ctx->result->is_ok) ? WORK_STATUS_DONE_OK
+                                                      : WORK_STATUS_DONE_ERR;
+    goto cleanup;
   }
+
+cleanup:
+  // Centralized cleanup point for all error and read paths.
+  free(ctx->command);
+  ctx->command = NULL;
+
+  if (parsed) {
+    parse_free_result(parsed);
+  }
+  // Note: 'w' is not freed here because its ownership is transferred.
 }
 
 /* after_work_cb: runs on the loop thread after work_cb completes */
@@ -464,7 +475,8 @@ static void after_work_cb(uv_work_t *req, int status) {
   } else if (ctx->status != WORK_STATUS_DONE_OK) {
     send_response(client, "ERROR: Invalid command or execution failed\n");
   } else {
-    send_response(client, ctx->result);
+    // send_response(client, ctx->result);
+    send_response(client, "OK read");
   }
 
   free(ctx->result);
@@ -489,8 +501,9 @@ static void completion_async_cb(uv_async_t *handle) {
     work_ctx_t *ctx = it->ctx;
     client_t *client = ctx->client;
 
-    if (it->result) {
-      send_response(client, it->result);
+    if (it->result && it->result->is_ok) {
+      // send_response(client, it->result);
+      send_response(client, "OK\n");
     } else {
       send_response(client, "ERROR: Write operation failed\n");
     }
@@ -505,8 +518,6 @@ static void completion_async_cb(uv_async_t *handle) {
 
 /**
  * @brief Processes a single, complete command from a client.
- * Core logic. It takes a single, complete command string and
- * is where we call our tokenizer and parser.
  *
  * @param client The client who sent the command.
  * @param command The null-terminated command string.

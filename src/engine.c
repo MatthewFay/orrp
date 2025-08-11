@@ -8,7 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-const char *MDB_PATH = "data/database.mdb";
+const char *MDB_PATH = "database.mdb";
 const size_t DB_SIZE = 1048576;
 const int MAX_NUM_DBS = 5;
 

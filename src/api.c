@@ -1,5 +1,6 @@
 #include "api.h"
 #include "engine.h"
+#include "query/ast.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -12,12 +13,12 @@ void free_api_response(api_response_t *r) {
   free(r);
 }
 
-static api_response_t *_create_api_resp(enum api_response_type t) {
+static api_response_t *_create_api_resp(enum api_op_type op_type) {
   api_response_t *r = malloc(sizeof(api_response_t));
   r->is_ok = false; // Default to false
   r->data = NULL;
   r->err_msg = NULL;
-  r->type = t;
+  r->op_type = op_type;
   return r;
 }
 
@@ -50,11 +51,45 @@ static bool _validate_ns_key_id(api_response_t *r, char *ns, char *key,
   return true;
 }
 
-api_response_t *api_add(char *ns, char *key, char *id, eng_db_t *db) {
-  api_response_t *r = _create_api_resp(ADD);
+static api_response_t *_api_add(ast_node_t *ast, eng_db_t *db,
+                                api_response_t *r) {
+  r->op_type = API_ADD;
+  char *ns = ast->node.cmd->args[0].node.id->value;
+  char *key = ast->node.cmd->args[1].node.id->value;
+  char *id = ast->node.cmd->args[2].node.id->value;
+
   bool valid = _validate_ns_key_id(r, ns, key, id);
-  if (!valid)
+  if (!valid) {
+    r->err_msg = "Invalid arguments to ADD.";
     return r;
+  }
   eng_add(r, db, ns, key, id);
   return r;
+}
+
+// The single entry point into the API/Engine layer.
+api_response_t *api_exec(ast_node_t *ast, eng_db_t *db) {
+  api_response_t *r = _create_api_resp(API_INVALID);
+
+  if (!ast || !ast->type || ast->type != COMMAND_NODE) {
+    r->err_msg = "Invalid AST provided.";
+    return r;
+  }
+
+  // Dispatch based on the command type in the AST root.
+  switch (ast->node.cmd->cmd_type) {
+  case ADD:
+    return _api_add(ast, db, r);
+
+  case QUERY:
+    return r;
+
+    // Add new commands here in the future.
+    // case COMMAND_NEW:
+    //     return handle_new_command(ast, db);
+
+  default:
+    r->err_msg = "Unknown command type.";
+    return r;
+  }
 }
