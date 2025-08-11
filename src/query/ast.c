@@ -145,3 +145,38 @@ ast_node_t *ast_create_command_node(ast_command_t cmd_type, ast_node_t *args,
   node->node.cmd->exp = exp;
   return node;
 }
+
+/**
+ * @brief Safely retrieves the string value of a command argument by its index.
+ *
+ * This helper function traverses the expected AST structure for a command:
+ * CommandNode -> List of Arguments -> Argument Node -> Identifier Node -> Value
+ *
+ * @param command_node A pointer to the command node.
+ * @param index The zero-based index of the argument to retrieve (0, 1, 2, ...).
+ * @return A pointer to the argument's string value on success, or NULL if
+ * the argument doesn't exist, the structure is invalid, or any
+ * intermediate pointer is NULL.
+ */
+char *ast_get_command_arg(const ast_command_node_t *command_node, int index) {
+  if (!command_node || !command_node->args ||
+      command_node->args->type != LIST_NODE) {
+    return NULL;
+  }
+
+  ast_list_node_t *curr_list_node = command_node->args->node.list;
+
+  for (int i = 0; i < index; ++i) {
+    if (!curr_list_node || !curr_list_node->next) {
+      return NULL; // Index is out of bounds
+    }
+    curr_list_node = curr_list_node->next->node.list;
+  }
+
+  if (!curr_list_node || !curr_list_node->item ||
+      curr_list_node->item->type != IDENTIFIER_NODE) {
+    return NULL;
+  }
+
+  return curr_list_node->item->node.id->value;
+}

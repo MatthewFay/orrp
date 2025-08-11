@@ -69,4 +69,6 @@ ast_node_t *ast_create_command_node(ast_command_t cmd_type, ast_node_t *args,
 ast_node_t *ast_create_list_node(ast_node_t *item, ast_node_t *next);
 void ast_list_append(ast_node_t **list_head, ast_node_t *item_to_append);
 
+char *ast_get_command_arg(const ast_command_node_t *command_node, int index);
+
 #endif // AST_H

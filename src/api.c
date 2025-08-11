@@ -54,9 +54,10 @@ static bool _validate_ns_key_id(api_response_t *r, char *ns, char *key,
 static api_response_t *_api_add(ast_node_t *ast, eng_db_t *db,
                                 api_response_t *r) {
   r->op_type = API_ADD;
-  char *ns = ast->node.cmd->args[0].node.id->value;
-  char *key = ast->node.cmd->args[1].node.id->value;
-  char *id = ast->node.cmd->args[2].node.id->value;
+
+  char *ns = ast_get_command_arg(ast->node.cmd, 0);
+  char *key = ast_get_command_arg(ast->node.cmd, 1);
+  char *id = ast_get_command_arg(ast->node.cmd, 2);
 
   bool valid = _validate_ns_key_id(r, ns, key, id);
   if (!valid) {
@@ -71,7 +72,7 @@ static api_response_t *_api_add(ast_node_t *ast, eng_db_t *db,
 api_response_t *api_exec(ast_node_t *ast, eng_db_t *db) {
   api_response_t *r = _create_api_resp(API_INVALID);
 
-  if (!ast || !ast->type || ast->type != COMMAND_NODE) {
+  if (!ast || ast->type != COMMAND_NODE) {
     r->err_msg = "Invalid AST provided.";
     return r;
   }
