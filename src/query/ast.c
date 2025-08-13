@@ -79,6 +79,7 @@ void ast_list_append(ast_node_t **list_head, ast_node_t *item_to_append) {
   current->node.list->next = new_list_node;
 }
 
+// Duplicates `value`
 ast_node_t *ast_create_identifier_node(const char *value) {
   ast_node_t *node = malloc(sizeof(ast_node_t));
   if (!node)
