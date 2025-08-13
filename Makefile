@@ -136,7 +136,7 @@ bin/test_ast: tests/query/test_ast.c src/query/ast.c tests/unity/unity.c | $(BIN
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 # Rule to build the parser test executable
-bin/test_parser: tests/query/test_parser.c src/query/parser.c src/core/queue.c src/query/ast.c src/query/tokenizer.c tests/unity/unity.c | $(BIN_DIR)
+bin/test_parser: tests/query/test_parser.c src/query/parser.c src/core/queue.c src/core/stack.c src/query/ast.c src/query/tokenizer.c tests/unity/unity.c | $(BIN_DIR)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 # Rule to build the stack test executable
