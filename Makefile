@@ -125,6 +125,9 @@ test: bin/test_tokenizer bin/test_ast bin/test_parser bin/test_stack bin/test_qu
 	./bin/test_queue
 	@echo "--- All tests finished ---"
 
+# 'test_build' target: builds all listed test executables (for debugging purposes)
+test_build: bin/test_tokenizer bin/test_ast bin/test_parser bin/test_stack bin/test_queue
+
 # --- INDIVIDUAL TEST BUILD RULES ---
 
 # Rule to build the tokenizer test executable

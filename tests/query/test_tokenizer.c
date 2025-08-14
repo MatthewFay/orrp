@@ -67,29 +67,29 @@ void test_tokenize_simple_operators(void) {
   tok_free_tokens(tokens);
 }
 
-// Test simple text tokens, ensuring they are converted to lowercase
-void test_tokenize_simple_text_and_case(void) {
+// Test simple identifier tokens, ensuring they are converted to lowercase
+void test_tokenize_simple_identifier_and_case(void) {
   char input[] = "HeLlO wORLD";
   Queue *tokens = tok_tokenize(input);
 
   TEST_ASSERT_NOT_NULL(tokens);
 
-  assert_next_token(tokens, TEXT, "hello", 0);
-  assert_next_token(tokens, TEXT, "world", 0);
+  assert_next_token(tokens, IDENTIFIER, "hello", 0);
+  assert_next_token(tokens, IDENTIFIER, "world", 0);
 
   tok_free_tokens(tokens);
 }
 
-// Test text containing valid special characters
-void test_tokenize_text_with_special_chars(void) {
+// Test identifier containing valid special characters
+void test_tokenize_identifier_with_special_chars(void) {
   char input[] = "first-name last_name user-id_1";
   Queue *tokens = tok_tokenize(input);
 
   TEST_ASSERT_NOT_NULL(tokens);
 
-  assert_next_token(tokens, TEXT, "first-name", 0);
-  assert_next_token(tokens, TEXT, "last_name", 0);
-  assert_next_token(tokens, TEXT, "user-id_1", 0);
+  assert_next_token(tokens, IDENTIFIER, "first-name", 0);
+  assert_next_token(tokens, IDENTIFIER, "last_name", 0);
+  assert_next_token(tokens, IDENTIFIER, "user-id_1", 0);
 
   tok_free_tokens(tokens);
 }
@@ -108,9 +108,9 @@ void test_tokenize_simple_numbers(void) {
   tok_free_tokens(tokens);
 }
 
-// Test keywords (and, or, not) are identified correctly
+// Test keywords (and, or, not, add, query) are identified correctly
 void test_tokenize_keywords(void) {
-  char input[] = "AND or Not";
+  char input[] = "AND or Not add query";
   Queue *tokens = tok_tokenize(input);
 
   TEST_ASSERT_NOT_NULL(tokens);
@@ -118,20 +118,24 @@ void test_tokenize_keywords(void) {
   assert_next_token(tokens, AND_OP, NULL, 0);
   assert_next_token(tokens, OR_OP, NULL, 0);
   assert_next_token(tokens, NOT_OP, NULL, 0);
+  assert_next_token(tokens, ADD_CMD, NULL, 0);
+  assert_next_token(tokens, QUERY_CMD, NULL, 0);
 
   tok_free_tokens(tokens);
 }
 
-// Test that substrings of keywords are treated as text
+// Test that substrings of keywords are treated as identifiers
 void test_tokenize_keywords_as_substrings(void) {
-  char input[] = "sandwiches northern notorized";
+  char input[] = "sandwiches northern notorized additional queryable";
   Queue *tokens = tok_tokenize(input);
 
   TEST_ASSERT_NOT_NULL(tokens);
 
-  assert_next_token(tokens, TEXT, "sandwiches", 0);
-  assert_next_token(tokens, TEXT, "northern", 0);
-  assert_next_token(tokens, TEXT, "notorized", 0);
+  assert_next_token(tokens, IDENTIFIER, "sandwiches", 0);
+  assert_next_token(tokens, IDENTIFIER, "northern", 0);
+  assert_next_token(tokens, IDENTIFIER, "notorized", 0);
+  assert_next_token(tokens, IDENTIFIER, "additional", 0);
+  assert_next_token(tokens, IDENTIFIER, "queryable", 0);
 
   tok_free_tokens(tokens);
 }
@@ -144,18 +148,18 @@ void test_tokenize_complex_query(void) {
   TEST_ASSERT_NOT_NULL(tokens);
 
   assert_next_token(tokens, LPAREN, NULL, 0);
-  assert_next_token(tokens, TEXT, "name", 0);
+  assert_next_token(tokens, IDENTIFIER, "name", 0);
   assert_next_token(tokens, EQ_OP, NULL, 0);
-  assert_next_token(tokens, TEXT, "john", 0);
+  assert_next_token(tokens, IDENTIFIER, "john", 0);
   assert_next_token(tokens, AND_OP, NULL, 0);
-  assert_next_token(tokens, TEXT, "age", 0);
+  assert_next_token(tokens, IDENTIFIER, "age", 0);
   assert_next_token(tokens, GTE_OP, NULL, 0);
   assert_next_token(tokens, NUMBER, NULL, 30);
   assert_next_token(tokens, RPAREN, NULL, 0);
   assert_next_token(tokens, OR_OP, NULL, 0);
-  assert_next_token(tokens, TEXT, "status", 0);
+  assert_next_token(tokens, IDENTIFIER, "status", 0);
   assert_next_token(tokens, EQ_OP, NULL, 0);
-  assert_next_token(tokens, TEXT, "active", 0);
+  assert_next_token(tokens, IDENTIFIER, "active", 0);
 
   tok_free_tokens(tokens);
 }
@@ -174,7 +178,7 @@ void test_tokenize_operator_at_end_of_string(void) {
   Queue *tokens = tok_tokenize(input);
 
   TEST_ASSERT_NOT_NULL(tokens);
-  assert_next_token(tokens, TEXT, "value", 0);
+  assert_next_token(tokens, IDENTIFIER, "value", 0);
   assert_next_token(tokens, GT_OP, NULL, 0);
 
   tok_free_tokens(tokens);
@@ -194,8 +198,8 @@ void test_tokenize_number_length_limits(void) {
   TEST_ASSERT_NULL(tokens_fail);
 }
 
-// Test text length limits
-void test_tokenize_text_length_limits(void) {
+// Test identifier length limits
+void test_tokenize_identifier_length_limits(void) {
   // This test is a bit slow but necessary for checking boundaries.
   // We create a string exactly at the limit.
   char *long_text_ok = malloc(MAX_TEXT_VAL_LEN + 1);
@@ -238,8 +242,8 @@ int main(void) {
 
   RUN_TEST(test_tokenize_null_or_empty_input);
   RUN_TEST(test_tokenize_simple_operators);
-  RUN_TEST(test_tokenize_simple_text_and_case);
-  RUN_TEST(test_tokenize_text_with_special_chars);
+  RUN_TEST(test_tokenize_simple_identifier_and_case);
+  RUN_TEST(test_tokenize_identifier_with_special_chars);
   RUN_TEST(test_tokenize_simple_numbers);
   RUN_TEST(test_tokenize_keywords);
   RUN_TEST(test_tokenize_keywords_as_substrings);
@@ -247,7 +251,7 @@ int main(void) {
   RUN_TEST(test_tokenize_invalid_character);
   RUN_TEST(test_tokenize_operator_at_end_of_string);
   RUN_TEST(test_tokenize_number_length_limits);
-  RUN_TEST(test_tokenize_text_length_limits);
+  RUN_TEST(test_tokenize_identifier_length_limits);
   RUN_TEST(test_tokenize_total_char_limit);
 
   return UNITY_END();

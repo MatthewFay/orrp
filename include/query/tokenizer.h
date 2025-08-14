@@ -10,13 +10,20 @@ extern const int MAX_NUMBERS_SEQ;
 extern const int MAX_TOTAL_CHARS;
 
 typedef enum {
-  TEXT,
-  NUMBER,
-  LPAREN,
-  RPAREN,
+  // --- Keywords ---
+  ADD_CMD,
+  QUERY_CMD,
   AND_OP,
   OR_OP,
   NOT_OP,
+
+  // --- Identifier ---
+  IDENTIFIER, // For names like 'analytics', 'login_2025_01_01'
+
+  // --- Literals & Symbols ---
+  NUMBER,
+  LPAREN,
+  RPAREN,
   GT_OP,
   LT_OP,
   GTE_OP,

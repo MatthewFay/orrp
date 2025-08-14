@@ -16,6 +16,22 @@
         "$gcc"
       ],
       "detail": "Build the orrp executable using Makefile."
+    },
+    {
+      "label": "build-tests",
+      "type": "shell",
+      "command": "make",
+      "args": [
+        "test_build"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": [
+        "$gcc"
+      ],
+      "detail": "Build the orrp tests using Makefile.",
     }
   ]
 }

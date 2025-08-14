@@ -19,6 +19,32 @@
           "text": "settings set target.inline-breakpoint-strategy always"
         }
       ]
+    },
+    {
+      "name": "Debug test executable",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/bin/test_${input:testBinary}",
+      "args": [],
+      "stopAtEntry": false,
+      "cwd": "${workspaceFolder}",
+      "environment": [],
+      "externalConsole": false,
+      "MIMode": "lldb",
+      "preLaunchTask": "build-tests",
+      "setupCommands": [
+        {
+          "description": "Enable pretty-printing for lldb",
+          "text": "settings set target.inline-breakpoint-strategy always"
+        }
+      ],
+    }
+  ],
+  "inputs": [
+    {
+      "id": "testBinary",
+      "type": "promptString",
+      "description": "Enter the test binary name (e.g., parser)"
     }
   ]
 }

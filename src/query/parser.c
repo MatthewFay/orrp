@@ -18,10 +18,10 @@ static void _parse_add(Queue *tokens, parse_result_t *r) {
   }
   while (!q_empty(tokens)) {
     token_t *t = q_dequeue(tokens);
-    if (!t || t->type != TEXT || t->text_value == NULL) {
+    if (!t || t->type != IDENTIFIER || t->text_value == NULL) {
       tok_free(t);
       ast_free(cmd_node);
-      r->error_message = "Invalid argument token for ADD";
+      r->error_message = "Invalid argument type for ADD";
       return;
     }
     ast_list_append(&(cmd_node->node.cmd->args),
@@ -151,7 +151,7 @@ static ast_node_t *_parse_exp(Queue *tokens, parse_result_t *r) {
           tok_free(current_token);
           return cleanup_stacks_and_return_null(value_stack, op_stack);
         }
-      } else if (current_token->type == IDENTIFIER_NODE ||
+      } else if (current_token->type == IDENTIFIER ||
                  current_token->type == LPAREN) {
         ast_node_t *node = parse_factor(tokens, r);
         if (!node)
@@ -277,7 +277,7 @@ static ast_node_t *parse_factor(Queue *tokens, parse_result_t *r) {
     return node;
   }
 
-  case IDENTIFIER_NODE: {
+  case IDENTIFIER: {
     token = q_dequeue(tokens);
     node = ast_create_identifier_node(token->text_value);
     tok_free(token);
@@ -300,7 +300,7 @@ static void _parse_query(Queue *tokens, parse_result_t *r) {
 
   // --- 1. Parse the MANDATORY first argument (e.g., 'analytics') ---
   token_t *arg_token = q_dequeue(tokens);
-  if (!arg_token || arg_token->type != TEXT) {
+  if (!arg_token || arg_token->type != IDENTIFIER) {
     tok_free(arg_token);
     ast_free(cmd_node);
     r->error_message = "Invalid syntax: Expected an argument after QUERY";
@@ -323,7 +323,7 @@ static void _parse_query(Queue *tokens, parse_result_t *r) {
   // --- 3. If not the end, it MUST be an expression ---
   // Peek at the next token to see if it can legally start an expression.
   token_t *next_token = q_peek(tokens);
-  if (next_token->type == IDENTIFIER_NODE || next_token->type == NOT_OP ||
+  if (next_token->type == IDENTIFIER || next_token->type == NOT_OP ||
       next_token->type == LPAREN) {
 
     // It looks like an expression, so parse it.
@@ -367,6 +367,20 @@ static parse_result_t *_create_result(void) {
   return r;
 }
 
+static bool _is_token_a_command(const token_t *token) {
+  if (!token) {
+    return false;
+  }
+
+  switch (token->type) {
+  case QUERY_CMD:
+  case ADD_CMD:
+    return true;
+  default:
+    return false;
+  }
+}
+
 parse_result_t *parse(Queue *tokens) {
   parse_result_t *r = _create_result();
   if (!tokens)
@@ -376,15 +390,15 @@ parse_result_t *parse(Queue *tokens) {
     return r;
   }
   token_t *cmd_token = q_dequeue(tokens);
-  if (!cmd_token || cmd_token->type != TEXT || cmd_token->text_value == NULL) {
+  if (!cmd_token || !_is_token_a_command(cmd_token)) {
     tok_free_tokens(tokens);
     r->error_message = "Invalid command";
     return r;
   }
 
-  if (strcmp("add", cmd_token->text_value) == 0) {
+  if (cmd_token->type == ADD_CMD) {
     _parse_add(tokens, r);
-  } else if (strcmp("query", cmd_token->text_value) == 0) {
+  } else if (cmd_token->type == QUERY_CMD) {
     _parse_query(tokens, r);
   } else {
     tok_free(cmd_token);

@@ -186,8 +186,17 @@ Queue *tok_tokenize(char *input) {
           free(lower_text_value);
           if (!_enqueue(q, &num_tokens, NOT_OP, &t, &i, 0, NULL, 0))
             return NULL;
+        } else if (strcmp(lower_text_value, "add") == 0) {
+          free(lower_text_value);
+          if (!_enqueue(q, &num_tokens, ADD_CMD, &t, &i, 0, NULL, 0))
+            return NULL;
+        } else if (strcmp(lower_text_value, "query") == 0) {
+          free(lower_text_value);
+          if (!_enqueue(q, &num_tokens, QUERY_CMD, &t, &i, 0, NULL, 0))
+            return NULL;
         } else {
-          if (!_enqueue(q, &num_tokens, TEXT, &t, &i, 0, lower_text_value, 0)) {
+          if (!_enqueue(q, &num_tokens, IDENTIFIER, &t, &i, 0, lower_text_value,
+                        0)) {
             free(lower_text_value);
             return NULL;
           }
