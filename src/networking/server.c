@@ -452,6 +452,9 @@ cleanup:
   free(ctx->command);
   ctx->command = NULL;
 
+  tok_clear_all(tokens);
+  q_destroy(tokens);
+
   if (parsed) {
     parse_free_result(parsed);
   }

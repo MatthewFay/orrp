@@ -25,16 +25,16 @@ Queue *q_create(void) {
 }
 
 void q_destroy(Queue *q) {
-  if (!q)
+  if (!q) {
     return;
+  }
 
-  if (!q_empty(q)) {
-    Node *current = q->head;
-    while (current != NULL) {
-      Node *temp = current;
-      current = current->next;
-      free(temp);
-    }
+  Node *current = q->head;
+  while (current != NULL) {
+    Node *temp = current;
+    current = current->next;
+    // NOTE: We do NOT free temp->value. That is the user's responsibility.
+    free(temp);
   }
 
   free(q);

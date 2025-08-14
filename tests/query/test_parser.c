@@ -8,30 +8,17 @@
 
 // --- Test Infrastructure ---
 
-// A struct to hold state for each test, managed by setUp and tearDown.
-typedef struct {
-  Queue *tokens;
-  parse_result_t *result;
-} TestState;
+// No global state: each test manages its own tokens/result.
+void setUp(void) {}
+void tearDown(void) {}
 
-static TestState g_test;
-
-// This runs before each test.
-void setUp(void) {
-  g_test.tokens = q_create();
-  g_test.result = NULL;
-}
-
-// This runs after each test, ensuring everything is cleaned up.
-void tearDown(void) { parse_free_result(g_test.result); }
-
-// A robust helper to add a token of any type to the current test's queue.
-static void _add_token(token_type type, const char *text) {
+// Helper to add a token to a given queue.
+static void _add_token(Queue *tokens, token_type type, const char *text) {
   token_t *t = malloc(sizeof(token_t));
   t->type = type;
   t->text_value = text ? strdup(text) : NULL;
   t->number_value = 0;
-  q_enqueue(g_test.tokens, t);
+  q_enqueue(tokens, t);
 }
 
 // --- Assertion Helpers ---
@@ -66,17 +53,17 @@ static void _assert_identifier_node(ast_node_t *node,
 // --- ADD Command Tests ---
 
 void test_parse_add_command_happy_path(void) {
-  // Build tokens: ADD foo bar baz
-  _add_token(ADD_CMD, NULL);
-  _add_token(IDENTIFIER, "foo");
-  _add_token(IDENTIFIER, "bar");
-  _add_token(IDENTIFIER, "baz");
+  Queue *tokens = q_create();
+  _add_token(tokens, ADD_CMD, NULL);
+  _add_token(tokens, IDENTIFIER, "foo");
+  _add_token(tokens, IDENTIFIER, "bar");
+  _add_token(tokens, IDENTIFIER, "baz");
 
-  g_test.result = parse(g_test.tokens);
-  _assert_success(g_test.result);
-  TEST_ASSERT_EQUAL(OP_TYPE_WRITE, g_test.result->type);
+  parse_result_t *result = parse(tokens);
+  _assert_success(result);
+  TEST_ASSERT_EQUAL(OP_TYPE_WRITE, result->type);
 
-  ast_node_t *ast = g_test.result->ast;
+  ast_node_t *ast = result->ast;
   TEST_ASSERT_EQUAL(COMMAND_NODE, ast->type);
   TEST_ASSERT_EQUAL(ADD, ast->node.cmd->cmd_type);
 
@@ -95,90 +82,111 @@ void test_parse_add_command_happy_path(void) {
 
   arg_node = arg_node->node.list->next;
   TEST_ASSERT_NULL(arg_node); // End of list
+
+  parse_free_result(result);
+  q_destroy(tokens);
 }
 
 void test_parse_add_fails_with_too_few_args(void) {
-  _add_token(ADD_CMD, NULL);
-  _add_token(IDENTIFIER, "foo");
-  _add_token(IDENTIFIER, "bar");
+  Queue *tokens = q_create();
+  _add_token(tokens, ADD_CMD, NULL);
+  _add_token(tokens, IDENTIFIER, "foo");
+  _add_token(tokens, IDENTIFIER, "bar");
 
-  g_test.result = parse(g_test.tokens);
-  _assert_error(g_test.result, "Wrong number of arguments for ADD");
+  parse_result_t *result = parse(tokens);
+  _assert_error(result, "Wrong number of arguments for ADD");
+  parse_free_result(result);
+  q_destroy(tokens);
 }
 
 void test_parse_add_fails_with_too_many_args(void) {
-  _add_token(ADD_CMD, NULL);
-  _add_token(IDENTIFIER, "foo");
-  _add_token(IDENTIFIER, "bar");
-  _add_token(IDENTIFIER, "baz");
-  _add_token(IDENTIFIER, "qux"); // The extra argument
+  Queue *tokens = q_create();
+  _add_token(tokens, ADD_CMD, NULL);
+  _add_token(tokens, IDENTIFIER, "foo");
+  _add_token(tokens, IDENTIFIER, "bar");
+  _add_token(tokens, IDENTIFIER, "baz");
+  _add_token(tokens, IDENTIFIER, "qux"); // The extra argument
 
-  g_test.result = parse(g_test.tokens);
-  _assert_error(g_test.result, "Wrong number of arguments for ADD");
+  parse_result_t *result = parse(tokens);
+  _assert_error(result, "Wrong number of arguments for ADD");
+  parse_free_result(result);
+  q_destroy(tokens);
 }
 
 void test_parse_add_fails_with_wrong_arg_type(void) {
-  _add_token(ADD_CMD, NULL);
-  _add_token(IDENTIFIER, "foo");
-  _add_token(NUMBER, NULL); // Should be an IDENTIFIER
-  _add_token(IDENTIFIER, "baz");
+  Queue *tokens = q_create();
+  _add_token(tokens, ADD_CMD, NULL);
+  _add_token(tokens, IDENTIFIER, "foo");
+  _add_token(tokens, NUMBER, NULL); // Should be an IDENTIFIER
+  _add_token(tokens, IDENTIFIER, "baz");
 
-  g_test.result = parse(g_test.tokens);
-  _assert_error(g_test.result, "Invalid argument type for ADD");
+  parse_result_t *result = parse(tokens);
+  _assert_error(result, "Invalid argument type for ADD");
+  parse_free_result(result);
+  q_destroy(tokens);
 }
 
 // --- QUERY Command Tests ---
 
 void test_parse_query_simple_no_expression(void) {
-  _add_token(QUERY_CMD, NULL);
-  _add_token(IDENTIFIER, "analytics");
+  Queue *tokens = q_create();
+  _add_token(tokens, QUERY_CMD, NULL);
+  _add_token(tokens, IDENTIFIER, "analytics");
 
-  g_test.result = parse(g_test.tokens);
-  _assert_success(g_test.result);
-  TEST_ASSERT_EQUAL(OP_TYPE_READ, g_test.result->type);
+  parse_result_t *result = parse(tokens);
+  _assert_success(result);
+  TEST_ASSERT_EQUAL(OP_TYPE_READ, result->type);
 
-  ast_node_t *ast = g_test.result->ast;
+  ast_node_t *ast = result->ast;
   TEST_ASSERT_EQUAL(COMMAND_NODE, ast->type);
   TEST_ASSERT_EQUAL(QUERY, ast->node.cmd->cmd_type);
 
   // Check arg and ensure expression is NULL
   _assert_identifier_node(ast->node.cmd->args->node.list->item, "analytics");
   TEST_ASSERT_NULL(ast->node.cmd->exp);
+
+  parse_free_result(result);
+  q_destroy(tokens);
 }
 
 void test_parse_query_simple_expression(void) {
-  _add_token(QUERY_CMD, NULL);
-  _add_token(IDENTIFIER, "analytics");
-  _add_token(IDENTIFIER, "login_2025");
+  Queue *tokens = q_create();
+  _add_token(tokens, QUERY_CMD, NULL);
+  _add_token(tokens, IDENTIFIER, "analytics");
+  _add_token(tokens, IDENTIFIER, "login_2025");
 
-  g_test.result = parse(g_test.tokens);
-  _assert_success(g_test.result);
+  parse_result_t *result = parse(tokens);
+  _assert_success(result);
 
-  ast_node_t *ast = g_test.result->ast;
+  ast_node_t *ast = result->ast;
   _assert_identifier_node(ast->node.cmd->args->node.list->item, "analytics");
   _assert_identifier_node(ast->node.cmd->exp, "login_2025");
+
+  parse_free_result(result);
+  q_destroy(tokens);
 }
 
 void test_parse_query_precedence_and_grouping(void) {
+  Queue *tokens = q_create();
   // Test: QUERY analytics A OR B AND NOT (C OR D)
   // Expected AST: OR(A, AND(B, NOT(OR(C, D))))
-  _add_token(QUERY_CMD, NULL);
-  _add_token(IDENTIFIER, "analytics");
-  _add_token(IDENTIFIER, "A");
-  _add_token(OR_OP, NULL);
-  _add_token(IDENTIFIER, "B");
-  _add_token(AND_OP, NULL);
-  _add_token(NOT_OP, NULL);
-  _add_token(LPAREN, NULL);
-  _add_token(IDENTIFIER, "C");
-  _add_token(OR_OP, NULL);
-  _add_token(IDENTIFIER, "D");
-  _add_token(RPAREN, NULL);
+  _add_token(tokens, QUERY_CMD, NULL);
+  _add_token(tokens, IDENTIFIER, "analytics");
+  _add_token(tokens, IDENTIFIER, "A");
+  _add_token(tokens, OR_OP, NULL);
+  _add_token(tokens, IDENTIFIER, "B");
+  _add_token(tokens, AND_OP, NULL);
+  _add_token(tokens, NOT_OP, NULL);
+  _add_token(tokens, LPAREN, NULL);
+  _add_token(tokens, IDENTIFIER, "C");
+  _add_token(tokens, OR_OP, NULL);
+  _add_token(tokens, IDENTIFIER, "D");
+  _add_token(tokens, RPAREN, NULL);
 
-  g_test.result = parse(g_test.tokens);
-  _assert_success(g_test.result);
+  parse_result_t *result = parse(tokens);
+  _assert_success(result);
 
-  ast_node_t *exp = g_test.result->ast->node.cmd->exp;
+  ast_node_t *exp = result->ast->node.cmd->exp;
   TEST_ASSERT_NOT_NULL(exp);
 
   // Top level should be OR because it has lower precedence
@@ -207,57 +215,73 @@ void test_parse_query_precedence_and_grouping(void) {
 
   _assert_identifier_node(inner_or_node->node.logical->left_operand, "C");
   _assert_identifier_node(inner_or_node->node.logical->right_operand, "D");
+
+  parse_free_result(result);
+  q_destroy(tokens);
 }
 
 // --- General Parser and Edge Case Tests ---
 
 void test_parse_fails_on_null_input(void) {
-  // Can't use setup here as we are passing NULL directly
-  g_test.result = parse(NULL);
-  _assert_error(g_test.result, "Invalid input: token queue is NULL.");
+  parse_result_t *result = parse(NULL);
+  _assert_error(result, "Invalid input: token queue is NULL.");
+  parse_free_result(result);
 }
 
 void test_parse_fails_on_empty_input(void) {
-  // setUp provides an empty queue, so we don't need to add tokens
-  g_test.result = parse(g_test.tokens);
-  _assert_error(g_test.result, "Invalid input: token queue is empty.");
+  Queue *tokens = q_create();
+  parse_result_t *result = parse(tokens);
+  _assert_error(result, "Invalid input: token queue is empty.");
+  parse_free_result(result);
+  q_destroy(tokens);
 }
 
 void test_parse_fails_on_invalid_command(void) {
-  _add_token(IDENTIFIER, "JUMP"); // Not a valid command
-  _add_token(IDENTIFIER, "foo");
+  Queue *tokens = q_create();
+  _add_token(tokens, IDENTIFIER, "JUMP"); // Not a valid command
+  _add_token(tokens, IDENTIFIER, "foo");
 
-  g_test.result = parse(g_test.tokens);
-  _assert_error(g_test.result, "Invalid command.");
+  parse_result_t *result = parse(tokens);
+  _assert_error(result, "Invalid command.");
+  parse_free_result(result);
+  q_destroy(tokens);
 }
 
 void test_parse_query_fails_on_missing_argument(void) {
-  _add_token(QUERY_CMD, NULL);
+  Queue *tokens = q_create();
+  _add_token(tokens, QUERY_CMD, NULL);
 
-  g_test.result = parse(g_test.tokens);
-  _assert_error(g_test.result,
-                "Invalid syntax: Expected an argument after QUERY");
+  parse_result_t *result = parse(tokens);
+  _assert_error(result, "Invalid syntax: Expected an argument after QUERY");
+  parse_free_result(result);
+  q_destroy(tokens);
 }
 
 void test_parse_query_fails_on_trailing_tokens(void) {
-  _add_token(QUERY_CMD, NULL);
-  _add_token(IDENTIFIER, "analytics");
-  _add_token(IDENTIFIER, "login_ok");
-  _add_token(IDENTIFIER, "extra_token_is_error"); // This should not be here
+  Queue *tokens = q_create();
+  _add_token(tokens, QUERY_CMD, NULL);
+  _add_token(tokens, IDENTIFIER, "analytics");
+  _add_token(tokens, IDENTIFIER, "login_ok");
+  _add_token(tokens, IDENTIFIER,
+             "extra_token_is_error"); // This should not be here
 
-  g_test.result = parse(g_test.tokens);
-  _assert_error(g_test.result,
-                "Invalid syntax: Unexpected token after expression");
+  parse_result_t *result = parse(tokens);
+  _assert_error(result, "Syntax error: Unexpected token, expected operator.");
+  parse_free_result(result);
+  q_destroy(tokens);
 }
 
 void test_parse_query_fails_on_mismatched_parenthesis(void) {
-  _add_token(QUERY_CMD, NULL);
-  _add_token(IDENTIFIER, "analytics");
-  _add_token(LPAREN, NULL);
-  _add_token(IDENTIFIER, "A");
+  Queue *tokens = q_create();
+  _add_token(tokens, QUERY_CMD, NULL);
+  _add_token(tokens, IDENTIFIER, "analytics");
+  _add_token(tokens, LPAREN, NULL);
+  _add_token(tokens, IDENTIFIER, "A");
 
-  g_test.result = parse(g_test.tokens);
-  _assert_error(g_test.result, "Mismatched parentheses");
+  parse_result_t *result = parse(tokens);
+  _assert_error(result, "Mismatched parentheses");
+  parse_free_result(result);
+  q_destroy(tokens);
 }
 
 int main(void) {

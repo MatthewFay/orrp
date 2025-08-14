@@ -105,8 +105,6 @@ static associativity get_associativity(token_type type) {
   return LEFT;
 }
 
-static ast_node_t *parse_factor(Queue *tokens, parse_result_t *r);
-
 static void *cleanup_stacks_and_return_null(c_stack_t *value_stack,
                                             c_stack_t *op_stack) {
   while (!stack_is_empty(value_stack))
@@ -120,9 +118,8 @@ static void *cleanup_stacks_and_return_null(c_stack_t *value_stack,
 
 // Expression parser:  Shunting-Yard
 static ast_node_t *_parse_exp(Queue *tokens, parse_result_t *r) {
-  (void)r;
-  c_stack_t *value_stack = stack_create(); // Holds AST Nodes (Operands)
-  c_stack_t *op_stack = stack_create();    // Holds operators and parens
+  c_stack_t *value_stack = stack_create();
+  c_stack_t *op_stack = stack_create();
   if (!value_stack || !op_stack) {
     stack_free(value_stack);
     stack_free(op_stack);
@@ -130,57 +127,48 @@ static ast_node_t *_parse_exp(Queue *tokens, parse_result_t *r) {
     return NULL;
   }
 
-  token_t *t = q_peek(tokens);
-  if (!t) {
-    r->error_message = "Unexpected end of query";
-    return cleanup_stacks_and_return_null(value_stack, op_stack);
-  }
-
-  // Is the next token an operand or prefix operator?
-  bool expect_operand_or_prefix_op = true;
+  // A state flag to track whether we expect an operand (like an identifier or
+  // '(') or an operator (like 'AND' or ')').
+  bool expect_operand = true;
 
   while (!q_empty(tokens)) {
-    token_t *current_token = q_peek(tokens);
+    token_t *token = q_peek(tokens);
 
-    if (expect_operand_or_prefix_op) {
-      if (current_token->type == NOT_OP) {
-        // It's a prefix NOT operator. Push it and continue expecting an
-        // operand.
-        current_token = q_dequeue(tokens);
-        if (!stack_push(op_stack, current_token)) {
-          tok_free(current_token);
-          return cleanup_stacks_and_return_null(value_stack, op_stack);
-        }
-      } else if (current_token->type == IDENTIFIER ||
-                 current_token->type == LPAREN) {
-        ast_node_t *node = parse_factor(tokens, r);
-        if (!node)
-          return cleanup_stacks_and_return_null(value_stack, op_stack);
-        if (!stack_push(value_stack, node)) {
+    if (expect_operand) {
+      if (token->type == IDENTIFIER) {
+        token_t *id_to_push = q_dequeue(tokens);
+
+        ast_node_t *node = ast_create_identifier_node(id_to_push->text_value);
+        tok_free(id_to_push);
+        if (!node || !stack_push(value_stack, node)) {
           ast_free(node);
           return cleanup_stacks_and_return_null(value_stack, op_stack);
         }
-        expect_operand_or_prefix_op =
-            false; // We just saw an operand, next we expect an operator
+        expect_operand = false; // After an operand, we expect an operator.
+      } else if (token->type == NOT_OP || token->type == LPAREN) {
+        token_t *op_to_push = q_dequeue(tokens);
+        if (!stack_push(op_stack, op_to_push)) {
+          tok_free(op_to_push);
+          return cleanup_stacks_and_return_null(value_stack, op_stack);
+        }
+        expect_operand =
+            true; // After a prefix op or '(', we expect an operand.
       } else {
-        // If we expect an operand but get something else (like AND, OR,
-        // RPAREN), it's a syntax error.
-        break; // Break the loop to let final checks handle the error.
+        r->error_message = "Syntax error: Unexpected token, expected operand.";
+        return cleanup_stacks_and_return_null(value_stack, op_stack);
       }
-    } else {
-      // we expect a binary operator (AND, OR) or a right parenthesis
-      if (current_token->type == AND_OP || current_token->type == OR_OP) {
-        token_t *op1 = current_token;
+    } else { // We expect a binary operator or a right parenthesis
+      if (token->type == AND_OP || token->type == OR_OP) {
+        token_t *op1 = token;
         while (!stack_is_empty(op_stack)) {
           token_t *op2 = stack_peek(op_stack);
-          if (op2->type == LPAREN) {
+          if (op2->type == LPAREN)
             break;
-          }
-          // **This is the key precedence/associativity logic**
-          if (_get_precedence(op2->type) > _get_precedence(op1->type) ||
-              (_get_precedence(op2->type) == _get_precedence(op1->type) &&
-               get_associativity(op1->type) == LEFT)) {
 
+          if ((get_associativity(op1->type) == LEFT &&
+               _get_precedence(op2->type) >= _get_precedence(op1->type)) ||
+              (get_associativity(op1->type) == RIGHT &&
+               _get_precedence(op2->type) > _get_precedence(op1->type))) {
             if (!_apply_operator(value_stack, op_stack)) {
               return cleanup_stacks_and_return_null(value_stack, op_stack);
             }
@@ -188,13 +176,13 @@ static ast_node_t *_parse_exp(Queue *tokens, parse_result_t *r) {
             break;
           }
         }
-        if (!stack_push(op_stack, q_dequeue(tokens))) {
-          tok_free(q_dequeue(tokens));
+        token_t *op_to_push = q_dequeue(tokens);
+        if (!stack_push(op_stack, op_to_push)) {
+          tok_free(op_to_push);
           return cleanup_stacks_and_return_null(value_stack, op_stack);
         }
-        expect_operand_or_prefix_op =
-            true; // After a binary op, we need another operand
-      } else if (current_token->type == RPAREN) {
+        expect_operand = true; // After a binary op, we expect an operand.
+      } else if (token->type == RPAREN) {
         bool found_lparen = false;
         while (!stack_is_empty(op_stack)) {
           if (((token_t *)stack_peek(op_stack))->type == LPAREN) {
@@ -211,19 +199,16 @@ static ast_node_t *_parse_exp(Queue *tokens, parse_result_t *r) {
           return cleanup_stacks_and_return_null(value_stack, op_stack);
         }
         tok_free(q_dequeue(tokens)); // Consume and discard the ')'
-        // After a ')', we expect a binary operator
-        expect_operand_or_prefix_op = false;
+        expect_operand = false; // After a ')', we expect a binary operator.
       } else {
-        // If we see anything else (like another IDENTIFIER), break the loop.
-        // This allows parsing of `A B` to stop after `A`.
-        break;
+        r->error_message = "Syntax error: Unexpected token, expected operator.";
+        return cleanup_stacks_and_return_null(value_stack, op_stack);
       }
     }
   }
 
-  // Apply any remaining operators on the stack.
+  // --- Final Unwinding ---
   while (!stack_is_empty(op_stack)) {
-    // Check for mismatched parens
     if (((token_t *)stack_peek(op_stack))->type == LPAREN) {
       r->error_message = "Mismatched parentheses";
       return cleanup_stacks_and_return_null(value_stack, op_stack);
@@ -232,63 +217,18 @@ static ast_node_t *_parse_exp(Queue *tokens, parse_result_t *r) {
       return cleanup_stacks_and_return_null(value_stack, op_stack);
     }
   }
-  // Final result should be the only thing on the value stack
+
   ast_node_t *exp_tree = stack_pop(value_stack);
   if (!stack_is_empty(value_stack)) {
     ast_free(exp_tree);
     r->error_message = "Invalid expression structure";
     return cleanup_stacks_and_return_null(value_stack, op_stack);
   }
+
   stack_free(value_stack);
   stack_free(op_stack);
 
   return exp_tree;
-}
-
-// parse operands (identifiers or parenthesized sub-expressions)
-static ast_node_t *parse_factor(Queue *tokens, parse_result_t *r) {
-  token_t *token = q_peek(tokens);
-  if (!token)
-    return NULL;
-
-  ast_node_t *node = NULL;
-
-  switch (token->type) {
-
-  case LPAREN: {
-    token = q_dequeue(tokens); // Consume '('
-    tok_free(token);           // Free it immediately
-
-    node = _parse_exp(tokens, r);
-    if (!node) {
-      return NULL; // Error in sub-expression, nothing to clean here
-    }
-
-    // After a sub-expression, we must find a ')'
-    token = q_dequeue(tokens);
-    if (!token || token->type != RPAREN) {
-      ast_free(node); // We have an orphaned sub-expression
-      if (token)
-        tok_free(token);
-      r->error_message = "Mismatched parentheses";
-      return NULL;
-    }
-    tok_free(token);
-    return node;
-  }
-
-  case IDENTIFIER: {
-    token = q_dequeue(tokens);
-    node = ast_create_identifier_node(token->text_value);
-    tok_free(token);
-    return node;
-  }
-
-  default:
-    // Unexpected token type for a factor
-    r->error_message = "Unexpected token in expression";
-    return NULL;
-  }
 }
 
 static void _parse_query(Queue *tokens, parse_result_t *r) {
@@ -383,16 +323,18 @@ static bool _is_token_a_command(const token_t *token) {
 
 parse_result_t *parse(Queue *tokens) {
   parse_result_t *r = _create_result();
-  if (!tokens)
+  if (!tokens) {
+    r->error_message = "Invalid input: token queue is NULL.";
     return r;
+  }
   if (q_empty(tokens)) {
-    tok_free_tokens(tokens);
+    r->error_message = "Invalid input: token queue is empty.";
     return r;
   }
   token_t *cmd_token = q_dequeue(tokens);
   if (!cmd_token || !_is_token_a_command(cmd_token)) {
-    tok_free_tokens(tokens);
-    r->error_message = "Invalid command";
+    tok_clear_all(tokens);
+    r->error_message = "Invalid command.";
     return r;
   }
 
@@ -402,12 +344,12 @@ parse_result_t *parse(Queue *tokens) {
     _parse_query(tokens, r);
   } else {
     tok_free(cmd_token);
-    tok_free_tokens(tokens);
+    tok_clear_all(tokens);
     r->error_message = "Unrecognized command";
     return r;
   }
   tok_free(cmd_token);
-  tok_free_tokens(tokens);
+  tok_clear_all(tokens);
   return r;
 }
 

@@ -1,3 +1,4 @@
+#include "core/queue.h"
 #include "query/tokenizer.h"
 #include "unity.h"
 #include <stdlib.h>
@@ -64,7 +65,8 @@ void test_tokenize_simple_operators(void) {
   // Ensure the queue is properly terminated
   TEST_ASSERT_TRUE(q_empty(tokens));
 
-  tok_free_tokens(tokens);
+  tok_clear_all(tokens);
+  q_destroy(tokens);
 }
 
 // Test simple identifier tokens, ensuring they are converted to lowercase
@@ -77,7 +79,8 @@ void test_tokenize_simple_identifier_and_case(void) {
   assert_next_token(tokens, IDENTIFIER, "hello", 0);
   assert_next_token(tokens, IDENTIFIER, "world", 0);
 
-  tok_free_tokens(tokens);
+  tok_clear_all(tokens);
+  q_destroy(tokens);
 }
 
 // Test identifier containing valid special characters
@@ -91,7 +94,8 @@ void test_tokenize_identifier_with_special_chars(void) {
   assert_next_token(tokens, IDENTIFIER, "last_name", 0);
   assert_next_token(tokens, IDENTIFIER, "user-id_1", 0);
 
-  tok_free_tokens(tokens);
+  tok_clear_all(tokens);
+  q_destroy(tokens);
 }
 
 // Test simple number tokens
@@ -105,7 +109,8 @@ void test_tokenize_simple_numbers(void) {
   assert_next_token(tokens, NUMBER, NULL, 45678);
   assert_next_token(tokens, NUMBER, NULL, 0);
 
-  tok_free_tokens(tokens);
+  tok_clear_all(tokens);
+  q_destroy(tokens);
 }
 
 // Test keywords (and, or, not, add, query) are identified correctly
@@ -121,7 +126,8 @@ void test_tokenize_keywords(void) {
   assert_next_token(tokens, ADD_CMD, NULL, 0);
   assert_next_token(tokens, QUERY_CMD, NULL, 0);
 
-  tok_free_tokens(tokens);
+  tok_clear_all(tokens);
+  q_destroy(tokens);
 }
 
 // Test that substrings of keywords are treated as identifiers
@@ -137,7 +143,8 @@ void test_tokenize_keywords_as_substrings(void) {
   assert_next_token(tokens, IDENTIFIER, "additional", 0);
   assert_next_token(tokens, IDENTIFIER, "queryable", 0);
 
-  tok_free_tokens(tokens);
+  tok_clear_all(tokens);
+  q_destroy(tokens);
 }
 
 // Test a more complex, realistic query
@@ -161,7 +168,8 @@ void test_tokenize_complex_query(void) {
   assert_next_token(tokens, EQ_OP, NULL, 0);
   assert_next_token(tokens, IDENTIFIER, "active", 0);
 
-  tok_free_tokens(tokens);
+  tok_clear_all(tokens);
+  q_destroy(tokens);
 }
 
 // Test that an invalid character causes tokenization to fail
@@ -181,7 +189,8 @@ void test_tokenize_operator_at_end_of_string(void) {
   assert_next_token(tokens, IDENTIFIER, "value", 0);
   assert_next_token(tokens, GT_OP, NULL, 0);
 
-  tok_free_tokens(tokens);
+  tok_clear_all(tokens);
+  q_destroy(tokens);
 }
 
 // Test number length limits
@@ -190,7 +199,8 @@ void test_tokenize_number_length_limits(void) {
   char input_ok[] = "999999999";
   Queue *tokens_ok = tok_tokenize(input_ok);
   TEST_ASSERT_NOT_NULL(tokens_ok);
-  tok_free_tokens(tokens_ok);
+  tok_clear_all(tokens_ok);
+  q_destroy(tokens_ok);
 
   // A 10-digit number should fail because it exceeds MAX_NUMBERS_SEQ
   char input_fail[] = "1000000000";
@@ -209,7 +219,9 @@ void test_tokenize_identifier_length_limits(void) {
 
   Queue *tokens_ok = tok_tokenize(long_text_ok);
   TEST_ASSERT_NOT_NULL(tokens_ok);
-  tok_free_tokens(tokens_ok);
+  tok_clear_all(tokens_ok);
+  q_destroy(tokens_ok);
+
   free(long_text_ok);
 
   // Now create a string that is one character too long.

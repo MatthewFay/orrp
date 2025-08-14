@@ -39,7 +39,7 @@ typedef struct token_s {
 
 Queue *tok_tokenize(char *input);
 
-void tok_free_tokens(Queue *tokens);
+void tok_clear_all(Queue *tokens);
 
 void tok_free(token_t *token);
 

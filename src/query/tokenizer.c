@@ -33,12 +33,15 @@ static bool _enqueue(Queue *q, int *num_tokens, token_type type,
                      token_t **out_token, size_t *i, int incr_i,
                      char *text_value, uint32_t number_value) {
   if (_max_toks(*num_tokens)) {
-    tok_free_tokens(q);
+    tok_clear_all(q);
+    q_destroy(q);
     return false;
   }
   *out_token = _create_token(type, text_value, number_value);
   if (!*out_token) {
-    tok_free_tokens(q);
+    tok_clear_all(q);
+    q_destroy(q);
+
     return false;
   }
   q_enqueue(q, *out_token);
@@ -149,12 +152,16 @@ Queue *tok_tokenize(char *input) {
       }
       size_t len = end - start;
       if (len > MAX_TEXT_VAL_LEN || (all_digits && len > MAX_NUMBERS_SEQ)) {
-        tok_free_tokens(q);
+        tok_clear_all(q);
+        q_destroy(q);
+
         return NULL;
       }
       char *val = malloc(sizeof(char) * (len + 1));
       if (!val) {
-        tok_free_tokens(q);
+        tok_clear_all(q);
+        q_destroy(q);
+
         return NULL;
       }
       strncpy(val, &input[start], len);
@@ -168,7 +175,9 @@ Queue *tok_tokenize(char *input) {
       } else {
         char *lower_text_value = malloc(len + 1);
         if (!lower_text_value) {
-          tok_free_tokens(q);
+          tok_clear_all(q);
+          q_destroy(q);
+
           free(val);
           return NULL;
         }
@@ -209,7 +218,9 @@ Queue *tok_tokenize(char *input) {
 
     else {
       // invalid character
-      tok_free_tokens(q);
+      tok_clear_all(q);
+      q_destroy(q);
+
       return NULL;
     }
   }
@@ -222,7 +233,7 @@ Queue *tok_tokenize(char *input) {
   return q;
 }
 
-void tok_free_tokens(Queue *tokens) {
+void tok_clear_all(Queue *tokens) {
   if (!tokens)
     return;
   token_t *t;
@@ -230,7 +241,6 @@ void tok_free_tokens(Queue *tokens) {
     t = q_dequeue(tokens);
     tok_free(t);
   }
-  q_destroy(tokens);
 }
 
 void tok_free(token_t *token) {
