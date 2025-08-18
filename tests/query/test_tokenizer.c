@@ -23,7 +23,7 @@ static void assert_next_token(Queue *tokens, token_type expected_type,
   }
 
   // If the token is a number, check its value
-  if (expected_type == NUMBER) {
+  if (expected_type == TOKEN_LITERAL_NUMBER) {
     TEST_ASSERT_EQUAL_UINT32(expected_number, token->number_value);
   }
 
@@ -49,18 +49,20 @@ void test_tokenize_null_or_empty_input(void) {
 
 // Test simple operators and parentheses
 void test_tokenize_simple_operators(void) {
-  char input[] = "() >= > <= < =";
+  char input[] = "() >= > <= < = : +";
   Queue *tokens = tok_tokenize(input);
 
   TEST_ASSERT_NOT_NULL(tokens);
 
-  assert_next_token(tokens, LPAREN, NULL, 0);
-  assert_next_token(tokens, RPAREN, NULL, 0);
-  assert_next_token(tokens, GTE_OP, NULL, 0);
-  assert_next_token(tokens, GT_OP, NULL, 0);
-  assert_next_token(tokens, LTE_OP, NULL, 0);
-  assert_next_token(tokens, LT_OP, NULL, 0);
-  assert_next_token(tokens, EQ_OP, NULL, 0);
+  assert_next_token(tokens, TOKEN_SYM_LPAREN, NULL, 0);
+  assert_next_token(tokens, TOKEN_SYM_RPAREN, NULL, 0);
+  assert_next_token(tokens, TOKEN_OP_GTE, NULL, 0);
+  assert_next_token(tokens, TOKEN_OP_GT, NULL, 0);
+  assert_next_token(tokens, TOKEN_OP_LTE, NULL, 0);
+  assert_next_token(tokens, TOKEN_OP_LT, NULL, 0);
+  assert_next_token(tokens, TOKEN_OP_EQ, NULL, 0);
+  assert_next_token(tokens, TOKEN_SYM_COLON, NULL, 0);
+  assert_next_token(tokens, TOKEN_SYM_PLUS, NULL, 0);
 
   // Ensure the queue is properly terminated
   TEST_ASSERT_TRUE(q_empty(tokens));
@@ -76,8 +78,8 @@ void test_tokenize_simple_identifier_and_case(void) {
 
   TEST_ASSERT_NOT_NULL(tokens);
 
-  assert_next_token(tokens, IDENTIFIER, "hello", 0);
-  assert_next_token(tokens, IDENTIFIER, "world", 0);
+  assert_next_token(tokens, TOKEN_IDENTIFER, "hello", 0);
+  assert_next_token(tokens, TOKEN_IDENTIFER, "world", 0);
 
   tok_clear_all(tokens);
   q_destroy(tokens);
@@ -90,9 +92,9 @@ void test_tokenize_identifier_with_special_chars(void) {
 
   TEST_ASSERT_NOT_NULL(tokens);
 
-  assert_next_token(tokens, IDENTIFIER, "first-name", 0);
-  assert_next_token(tokens, IDENTIFIER, "last_name", 0);
-  assert_next_token(tokens, IDENTIFIER, "user-id_1", 0);
+  assert_next_token(tokens, TOKEN_IDENTIFER, "first-name", 0);
+  assert_next_token(tokens, TOKEN_IDENTIFER, "last_name", 0);
+  assert_next_token(tokens, TOKEN_IDENTIFER, "user-id_1", 0);
 
   tok_clear_all(tokens);
   q_destroy(tokens);
@@ -105,26 +107,28 @@ void test_tokenize_simple_numbers(void) {
 
   TEST_ASSERT_NOT_NULL(tokens);
 
-  assert_next_token(tokens, NUMBER, NULL, 123);
-  assert_next_token(tokens, NUMBER, NULL, 45678);
-  assert_next_token(tokens, NUMBER, NULL, 0);
+  assert_next_token(tokens, TOKEN_LITERAL_NUMBER, NULL, 123);
+  assert_next_token(tokens, TOKEN_LITERAL_NUMBER, NULL, 45678);
+  assert_next_token(tokens, TOKEN_LITERAL_NUMBER, NULL, 0);
 
   tok_clear_all(tokens);
   q_destroy(tokens);
 }
 
-// Test keywords (and, or, not, add, query) are identified correctly
+// Test keywords (and, or, not, tag, query, in, id) are identified correctly
 void test_tokenize_keywords(void) {
-  char input[] = "AND or Not add query";
+  char input[] = "AND or Not tag query in id";
   Queue *tokens = tok_tokenize(input);
 
   TEST_ASSERT_NOT_NULL(tokens);
 
-  assert_next_token(tokens, AND_OP, NULL, 0);
-  assert_next_token(tokens, OR_OP, NULL, 0);
-  assert_next_token(tokens, NOT_OP, NULL, 0);
-  assert_next_token(tokens, ADD_CMD, NULL, 0);
-  assert_next_token(tokens, QUERY_CMD, NULL, 0);
+  assert_next_token(tokens, TOKEN_OP_AND, NULL, 0);
+  assert_next_token(tokens, TOKEN_OP_OR, NULL, 0);
+  assert_next_token(tokens, TOKEN_OP_NOT, NULL, 0);
+  assert_next_token(tokens, TOKEN_CMD_TAG, NULL, 0);
+  assert_next_token(tokens, TOKEN_CMD_QUERY, NULL, 0);
+  assert_next_token(tokens, TOKEN_KW_IN, NULL, 0);
+  assert_next_token(tokens, TOKEN_KW_ID, NULL, 0);
 
   tok_clear_all(tokens);
   q_destroy(tokens);
@@ -137,11 +141,11 @@ void test_tokenize_keywords_as_substrings(void) {
 
   TEST_ASSERT_NOT_NULL(tokens);
 
-  assert_next_token(tokens, IDENTIFIER, "sandwiches", 0);
-  assert_next_token(tokens, IDENTIFIER, "northern", 0);
-  assert_next_token(tokens, IDENTIFIER, "notorized", 0);
-  assert_next_token(tokens, IDENTIFIER, "additional", 0);
-  assert_next_token(tokens, IDENTIFIER, "queryable", 0);
+  assert_next_token(tokens, TOKEN_IDENTIFER, "sandwiches", 0);
+  assert_next_token(tokens, TOKEN_IDENTIFER, "northern", 0);
+  assert_next_token(tokens, TOKEN_IDENTIFER, "notorized", 0);
+  assert_next_token(tokens, TOKEN_IDENTIFER, "additional", 0);
+  assert_next_token(tokens, TOKEN_IDENTIFER, "queryable", 0);
 
   tok_clear_all(tokens);
   q_destroy(tokens);
@@ -154,19 +158,19 @@ void test_tokenize_complex_query(void) {
 
   TEST_ASSERT_NOT_NULL(tokens);
 
-  assert_next_token(tokens, LPAREN, NULL, 0);
-  assert_next_token(tokens, IDENTIFIER, "name", 0);
-  assert_next_token(tokens, EQ_OP, NULL, 0);
-  assert_next_token(tokens, IDENTIFIER, "john", 0);
-  assert_next_token(tokens, AND_OP, NULL, 0);
-  assert_next_token(tokens, IDENTIFIER, "age", 0);
-  assert_next_token(tokens, GTE_OP, NULL, 0);
-  assert_next_token(tokens, NUMBER, NULL, 30);
-  assert_next_token(tokens, RPAREN, NULL, 0);
-  assert_next_token(tokens, OR_OP, NULL, 0);
-  assert_next_token(tokens, IDENTIFIER, "status", 0);
-  assert_next_token(tokens, EQ_OP, NULL, 0);
-  assert_next_token(tokens, IDENTIFIER, "active", 0);
+  assert_next_token(tokens, TOKEN_SYM_LPAREN, NULL, 0);
+  assert_next_token(tokens, TOKEN_IDENTIFER, "name", 0);
+  assert_next_token(tokens, TOKEN_OP_EQ, NULL, 0);
+  assert_next_token(tokens, TOKEN_IDENTIFER, "john", 0);
+  assert_next_token(tokens, TOKEN_OP_AND, NULL, 0);
+  assert_next_token(tokens, TOKEN_IDENTIFER, "age", 0);
+  assert_next_token(tokens, TOKEN_OP_GTE, NULL, 0);
+  assert_next_token(tokens, TOKEN_LITERAL_NUMBER, NULL, 30);
+  assert_next_token(tokens, TOKEN_SYM_RPAREN, NULL, 0);
+  assert_next_token(tokens, TOKEN_OP_OR, NULL, 0);
+  assert_next_token(tokens, TOKEN_IDENTIFER, "status", 0);
+  assert_next_token(tokens, TOKEN_OP_EQ, NULL, 0);
+  assert_next_token(tokens, TOKEN_IDENTIFER, "active", 0);
 
   tok_clear_all(tokens);
   q_destroy(tokens);
@@ -186,8 +190,8 @@ void test_tokenize_operator_at_end_of_string(void) {
   Queue *tokens = tok_tokenize(input);
 
   TEST_ASSERT_NOT_NULL(tokens);
-  assert_next_token(tokens, IDENTIFIER, "value", 0);
-  assert_next_token(tokens, GT_OP, NULL, 0);
+  assert_next_token(tokens, TOKEN_IDENTIFER, "value", 0);
+  assert_next_token(tokens, TOKEN_OP_GT, NULL, 0);
 
   tok_clear_all(tokens);
   q_destroy(tokens);
@@ -199,6 +203,7 @@ void test_tokenize_number_length_limits(void) {
   char input_ok[] = "999999999";
   Queue *tokens_ok = tok_tokenize(input_ok);
   TEST_ASSERT_NOT_NULL(tokens_ok);
+  assert_next_token(tokens_ok, TOKEN_LITERAL_NUMBER, NULL, 999999999);
   tok_clear_all(tokens_ok);
   q_destroy(tokens_ok);
 
@@ -219,6 +224,7 @@ void test_tokenize_identifier_length_limits(void) {
 
   Queue *tokens_ok = tok_tokenize(long_text_ok);
   TEST_ASSERT_NOT_NULL(tokens_ok);
+  assert_next_token(tokens_ok, TOKEN_IDENTIFER, long_text_ok, 0);
   tok_clear_all(tokens_ok);
   q_destroy(tokens_ok);
 
@@ -248,6 +254,68 @@ void test_tokenize_total_char_limit(void) {
   free(big_input);
 }
 
+// Test quoted string literals, including edge cases
+void test_tokenize_quoted_strings(void) {
+  char input[] = "\"Hello World\" \"CaseSensitive\"";
+  Queue *tokens = tok_tokenize(input);
+  TEST_ASSERT_NOT_NULL(tokens);
+  assert_next_token(tokens, TOKEN_LITERAL_STRING, "Hello World", 0);
+  assert_next_token(tokens, TOKEN_LITERAL_STRING, "CaseSensitive", 0);
+  tok_clear_all(tokens);
+  q_destroy(tokens);
+
+  // Unclosed quote should fail
+  char input2[] = "\"unterminated";
+  Queue *tokens2 = tok_tokenize(input2);
+  TEST_ASSERT_NULL(tokens2);
+}
+
+// Test mix of all token types in one input
+void test_tokenize_all_token_types(void) {
+  char input[] =
+      "tag in id ( ) : + \"str\" 42 and or not query >= > <= < = identifier";
+  Queue *tokens = tok_tokenize(input);
+  TEST_ASSERT_NOT_NULL(tokens);
+  assert_next_token(tokens, TOKEN_CMD_TAG, NULL, 0);
+  assert_next_token(tokens, TOKEN_KW_IN, NULL, 0);
+  assert_next_token(tokens, TOKEN_KW_ID, NULL, 0);
+  assert_next_token(tokens, TOKEN_SYM_LPAREN, NULL, 0);
+  assert_next_token(tokens, TOKEN_SYM_RPAREN, NULL, 0);
+  assert_next_token(tokens, TOKEN_SYM_COLON, NULL, 0);
+  assert_next_token(tokens, TOKEN_SYM_PLUS, NULL, 0);
+  assert_next_token(tokens, TOKEN_LITERAL_STRING, "str", 0);
+  assert_next_token(tokens, TOKEN_LITERAL_NUMBER, NULL, 42);
+  assert_next_token(tokens, TOKEN_OP_AND, NULL, 0);
+  assert_next_token(tokens, TOKEN_OP_OR, NULL, 0);
+  assert_next_token(tokens, TOKEN_OP_NOT, NULL, 0);
+  assert_next_token(tokens, TOKEN_CMD_QUERY, NULL, 0);
+  assert_next_token(tokens, TOKEN_OP_GTE, NULL, 0);
+  assert_next_token(tokens, TOKEN_OP_GT, NULL, 0);
+  assert_next_token(tokens, TOKEN_OP_LTE, NULL, 0);
+  assert_next_token(tokens, TOKEN_OP_LT, NULL, 0);
+  assert_next_token(tokens, TOKEN_OP_EQ, NULL, 0);
+  assert_next_token(tokens, TOKEN_IDENTIFER, "identifier", 0);
+  tok_clear_all(tokens);
+  q_destroy(tokens);
+}
+
+// Test that a quoted string with only digits is not treated as a number
+void test_tokenize_quoted_digits(void) {
+  char input[] = "\"12345\"";
+  Queue *tokens = tok_tokenize(input);
+  TEST_ASSERT_NOT_NULL(tokens);
+  assert_next_token(tokens, TOKEN_LITERAL_STRING, "12345", 0);
+  tok_clear_all(tokens);
+  q_destroy(tokens);
+}
+
+// Test that a string with only whitespace is ignored
+void test_tokenize_whitespace_only(void) {
+  char input[] = "   \t\n   ";
+  Queue *tokens = tok_tokenize(input);
+  TEST_ASSERT_NULL(tokens);
+}
+
 // Main function to run the tests
 int main(void) {
   UNITY_BEGIN();
@@ -265,6 +333,10 @@ int main(void) {
   RUN_TEST(test_tokenize_number_length_limits);
   RUN_TEST(test_tokenize_identifier_length_limits);
   RUN_TEST(test_tokenize_total_char_limit);
+  RUN_TEST(test_tokenize_quoted_strings);
+  RUN_TEST(test_tokenize_all_token_types);
+  RUN_TEST(test_tokenize_quoted_digits);
+  RUN_TEST(test_tokenize_whitespace_only);
 
   return UNITY_END();
 }

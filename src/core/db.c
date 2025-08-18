@@ -1,5 +1,6 @@
 #include "core/db.h"
 #include "lmdb.h"
+
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -193,7 +194,11 @@ db_get_result_t *db_get(MDB_dbi db, MDB_txn *txn, db_key_t *key) {
   return r;
 }
 
-void db_close(MDB_env *env, MDB_dbi db) { mdb_dbi_close(env, db); }
+void db_close(MDB_env *env, MDB_dbi db) {
+  if (env && db) {
+    mdb_dbi_close(env, db);
+  }
+}
 
 void db_env_close(MDB_env *env) {
   if (env) {

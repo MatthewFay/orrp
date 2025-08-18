@@ -17,6 +17,6 @@ typedef struct api_response_s {
 void free_api_response(api_response_t *r);
 
 // The single entry point into the API/Engine layer.
-api_response_t *api_exec(ast_node_t *ast, eng_db_t *db);
+api_response_t *api_exec(ast_node_t *ast, eng_context_t *ctx);
 
 #endif // API_H

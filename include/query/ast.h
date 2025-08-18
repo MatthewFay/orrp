@@ -2,23 +2,61 @@
 #define AST_H
 
 #include <stdbool.h>
+#include <stdint.h>
 
 typedef struct ast_node_s ast_node_t;
-typedef struct ast_command_node_s ast_command_node_t;
-typedef struct ast_list_node_s ast_list_node_t;
 
 typedef enum {
   COMMAND_NODE,
+  TAG_NODE,
+  LITERAL_NODE,
+  COMPARISON_NODE,
   LOGICAL_NODE,
   NOT_NODE,
-  IDENTIFIER_NODE,
-  LIST_NODE
 } ast_node_type;
 
-typedef struct ast_list_node_s {
-  ast_node_t *item; // A pointer to the node in this position
-  ast_node_t *next; // A pointer to the next list node (or NULL)
-} ast_list_node_t;
+// An enum for all known, special-purpose tag keys
+typedef enum {
+  KEY_IN,
+  KEY_ENTITY,
+  KEY_EXP,
+  KEY_TAKE,
+  KEY_CURSOR
+} ast_reserved_key_t;
+
+typedef enum { TAG_KEY_RESERVED, TAG_KEY_CUSTOM } ast_tag_key_type_t;
+
+typedef struct {
+  ast_tag_key_type_t key_type;
+  union {
+    ast_reserved_key_t reserved_key;
+    char *custom_key;
+  };
+  ast_node_t *value;
+  bool is_counter;
+} ast_tag_node_t;
+
+// Represents a string or number value.
+typedef enum { LITERAL_STRING, LITERAL_NUMBER } ast_literal_type_t;
+
+typedef struct {
+  ast_literal_type_t type;
+  union {
+    char *string_value;
+    uint32_t number_value;
+  };
+} ast_literal_node_t;
+
+typedef enum { OP_GT, OP_LT, OP_GTE, OP_LTE, OP_EQ } ast_comparison_op_t;
+
+typedef struct {
+  ast_comparison_op_t op;
+  // This node's type tells the engine what to query.
+  // If its type is NODE_TAG, it's a full tag comparison
+  // Future version: If its type is NODE_LITERAL, it's a key-only comparison
+  ast_node_t *key;
+  ast_node_t *value; // The number being compared against (e.g., 3)
+} ast_comparison_node_t;
 
 typedef struct ast_not_node_s {
   ast_node_t *operand;
@@ -36,27 +74,28 @@ typedef struct ast_logical_node_s {
   ast_node_t *right_operand;
 } ast_logical_node_t;
 
-typedef enum {
-  ADD,
-  QUERY,
-} ast_command_t;
+typedef enum { CMD_EVENT, CMD_QUERY } ast_command_type_t;
 
-typedef struct ast_command_node_s {
-  ast_command_t cmd_type;
-  ast_node_t *args;
-  ast_node_t *exp;
+// The root of the AST. It contains a pointer to the head of a linked list of
+// tags.
+typedef struct {
+  ast_command_type_t type;
+  ast_node_t
+      *tags; // The first tag in the list (an ast_node_t of type NODE_TAG)
 } ast_command_node_t;
 
-typedef struct ast_node_s {
+struct ast_node_s {
   ast_node_type type;
   union {
-    ast_command_node_t *cmd;
-    ast_logical_node_t *logical;
-    ast_identifier_node_t *id;
-    ast_not_node_t *not_op;
-    ast_list_node_t *list;
-  } node;
-} ast_node_t;
+    ast_command_node_t command;
+    ast_tag_node_t tag;
+    ast_literal_node_t literal;
+    ast_logical_node_t logical;
+    ast_comparison_node_t comparison;
+    ast_not_node_t not_op;
+  };
+  ast_node_t *next; // Pointer to the next node in a list (e.g., the next tag)
+};
 
 void ast_free(ast_node_t *ast);
 

@@ -10,25 +10,33 @@ extern const int MAX_NUMBERS_SEQ;
 extern const int MAX_TOTAL_CHARS;
 
 typedef enum {
-  // --- Keywords ---
-  ADD_CMD,
-  QUERY_CMD,
-  AND_OP,
-  OR_OP,
-  NOT_OP,
+  // --- Commands ---
+  TOKEN_CMD_TAG,
+  TOKEN_CMD_QUERY,
 
-  // --- Identifier ---
-  IDENTIFIER, // For names like 'analytics', 'login_2025_01_01'
+  // --- Reserved Keywords ---
+  TOKEN_KW_IN,
+  TOKEN_KW_ID,
 
-  // --- Literals & Symbols ---
-  NUMBER,
-  LPAREN,
-  RPAREN,
-  GT_OP,
-  LT_OP,
-  GTE_OP,
-  LTE_OP,
-  EQ_OP,
+  TOKEN_IDENTIFER,
+
+  // --- Literals (Values) ---
+  TOKEN_LITERAL_STRING,
+  TOKEN_LITERAL_NUMBER,
+
+  // --- Operators & Symbols ---
+  TOKEN_OP_AND,
+  TOKEN_OP_OR,
+  TOKEN_OP_NOT,
+  TOKEN_OP_GT,
+  TOKEN_OP_GTE,
+  TOKEN_OP_EQ,
+  TOKEN_OP_LTE,
+  TOKEN_OP_LT,
+  TOKEN_SYM_COLON,
+  TOKEN_SYM_LPAREN,
+  TOKEN_SYM_RPAREN,
+  TOKEN_SYM_PLUS
 } token_type;
 
 typedef struct token_s {

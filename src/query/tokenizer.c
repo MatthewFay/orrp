@@ -12,20 +12,44 @@ const int MAX_TEXT_VAL_LEN = 256;
 const int MAX_NUMBERS_SEQ = 9;
 const int MAX_TOTAL_CHARS = 2048;
 
+void tok_clear_all(Queue *tokens) {
+  if (!tokens)
+    return;
+  token_t *t;
+  while (!q_empty(tokens)) {
+    t = q_dequeue(tokens);
+    tok_free(t);
+  }
+}
+
+void tok_free(token_t *token) {
+  if (!token)
+    return;
+  free(token->text_value);
+  free(token);
+}
+
+static void *_cleanup_on_err(Queue *q) {
+  tok_clear_all(q);
+  q_destroy(q);
+  return NULL;
+}
+
 static token_t *_create_token(token_type type, char *text_value,
                               uint32_t number_value) {
   token_t *t = malloc(sizeof(token_t));
   if (!t)
     return NULL;
   t->type = type;
-  t->text_value = text_value;
+  t->text_value = strdup(text_value);
   t->number_value = number_value;
   return t;
 }
 
 static bool _max_toks(int num_tokens) { return num_tokens >= MAX_TOKENS; }
 
-static bool _valid_char(char c) {
+// Any char other than these must be enclosed in quotes.
+static bool _valid_unenclosed_char(char c) {
   return c == '_' || c == '-' || isalnum((unsigned char)c);
 }
 
@@ -33,14 +57,12 @@ static bool _enqueue(Queue *q, int *num_tokens, token_type type,
                      token_t **out_token, size_t *i, int incr_i,
                      char *text_value, uint32_t number_value) {
   if (_max_toks(*num_tokens)) {
-    tok_clear_all(q);
-    q_destroy(q);
+    _cleanup_on_err(q);
     return false;
   }
   *out_token = _create_token(type, text_value, number_value);
   if (!*out_token) {
-    tok_clear_all(q);
-    q_destroy(q);
+    _cleanup_on_err(q);
 
     return false;
   }
@@ -81,6 +103,15 @@ static void _to_lowercase(char *dest, const char *src, size_t max_len) {
   dest[i] = '\0';
 }
 
+struct {
+  const char *kw;
+  token_type type;
+} kw_map[] = {
+    {"and", TOKEN_OP_AND},  {"or", TOKEN_OP_OR},        {"not", TOKEN_OP_NOT},
+    {"tag", TOKEN_CMD_TAG}, {"query", TOKEN_CMD_QUERY}, {"in", TOKEN_KW_IN},
+    {"id", TOKEN_KW_ID},
+};
+
 // Return tokens from input string.
 // TODO: Create an iterator/stream, i.e. get_next_token()
 Queue *tok_tokenize(char *input) {
@@ -106,106 +137,117 @@ Queue *tok_tokenize(char *input) {
     }
 
     else if (c == '(') {
-      if (!_enqueue(q, &num_tokens, LPAREN, &t, &i, 1, NULL, 0))
+      if (!_enqueue(q, &num_tokens, TOKEN_SYM_LPAREN, &t, &i, 1, NULL, 0))
         return NULL;
     }
 
     else if (c == ')') {
-      if (!_enqueue(q, &num_tokens, RPAREN, &t, &i, 1, NULL, 0))
+      if (!_enqueue(q, &num_tokens, TOKEN_SYM_RPAREN, &t, &i, 1, NULL, 0))
         return NULL;
     }
 
     else if (c == '>' && has_next_char && input[i + 1] == '=') {
-      if (!_enqueue(q, &num_tokens, GTE_OP, &t, &i, 2, NULL, 0))
+      if (!_enqueue(q, &num_tokens, TOKEN_OP_GTE, &t, &i, 2, NULL, 0))
         return NULL;
     }
 
     else if (c == '>') {
-      if (!_enqueue(q, &num_tokens, GT_OP, &t, &i, 1, NULL, 0))
+      if (!_enqueue(q, &num_tokens, TOKEN_OP_GT, &t, &i, 1, NULL, 0))
         return NULL;
     }
 
     else if (c == '<' && has_next_char && input[i + 1] == '=') {
-      if (!_enqueue(q, &num_tokens, LTE_OP, &t, &i, 2, NULL, 0))
+      if (!_enqueue(q, &num_tokens, TOKEN_OP_LTE, &t, &i, 2, NULL, 0))
         return NULL;
     }
 
     else if (c == '<') {
-      if (!_enqueue(q, &num_tokens, LT_OP, &t, &i, 1, NULL, 0))
+      if (!_enqueue(q, &num_tokens, TOKEN_OP_LT, &t, &i, 1, NULL, 0))
         return NULL;
     }
 
     else if (c == '=') {
-      if (!_enqueue(q, &num_tokens, EQ_OP, &t, &i, 1, NULL, 0))
+      if (!_enqueue(q, &num_tokens, TOKEN_OP_EQ, &t, &i, 1, NULL, 0))
         return NULL;
     }
 
-    else if (_valid_char(c)) {
+    else if (c == ':') {
+      if (!_enqueue(q, &num_tokens, TOKEN_SYM_COLON, &t, &i, 1, NULL, 0))
+        return NULL;
+    }
+
+    else if (c == '+') {
+      if (!_enqueue(q, &num_tokens, TOKEN_SYM_PLUS, &t, &i, 1, NULL, 0))
+        return NULL;
+    }
+
+    else if (c == '"' || _valid_unenclosed_char(c)) {
+      bool quotes = false;
+      char *val = NULL;
+      bool all_digits = true;
+
+      if (c == '"') {
+        quotes = true;
+        i++;
+      }
 
       start = i;
       end = start;
-      bool all_digits = true;
-      while (input[end] && _valid_char(input[end])) {
+      while (input[end] && quotes ? input[end] != '"'
+                                  : _valid_unenclosed_char(input[end])) {
         if (!isdigit((unsigned char)input[end]))
           all_digits = false;
         ++end;
       }
+
       size_t len = end - start;
-      if (len > MAX_TEXT_VAL_LEN || (all_digits && len > MAX_NUMBERS_SEQ)) {
-        tok_clear_all(q);
-        q_destroy(q);
-
-        return NULL;
+      if (len == 0 || len > MAX_TEXT_VAL_LEN ||
+          (all_digits && len > MAX_NUMBERS_SEQ)) {
+        return _cleanup_on_err(q);
       }
-      char *val = malloc(sizeof(char) * (len + 1));
+      val = malloc(sizeof(char) * (len + 1));
       if (!val) {
-        tok_clear_all(q);
-        q_destroy(q);
-
-        return NULL;
+        return _cleanup_on_err(q);
       }
       strncpy(val, &input[start], len);
       val[len] = '\0';
 
-      if (all_digits) {
+      i = quotes ? end + 1 : end;
+
+      if (quotes) {
+        // Quoted values are case-sensitive
+        if (!_enqueue(q, &num_tokens, TOKEN_LITERAL_STRING, &t, &i, 0, val, 0))
+          return NULL;
+      } else if (all_digits) {
         uint32_t n_val = _parse_uint32(val, len);
         free(val);
-        if (!_enqueue(q, &num_tokens, NUMBER, &t, &i, 0, NULL, n_val))
+        if (!_enqueue(q, &num_tokens, TOKEN_LITERAL_NUMBER, &t, &i, 0, NULL,
+                      n_val))
           return NULL;
       } else {
         char *lower_text_value = malloc(len + 1);
         if (!lower_text_value) {
-          tok_clear_all(q);
-          q_destroy(q);
+          _cleanup_on_err(q);
 
           free(val);
           return NULL;
         }
         _to_lowercase(lower_text_value, val, len + 1);
         free(val);
-        if (strcmp(lower_text_value, "and") == 0) {
-          free(lower_text_value);
-          if (!_enqueue(q, &num_tokens, AND_OP, &t, &i, 0, NULL, 0))
-            return NULL;
-        } else if (strcmp(lower_text_value, "or") == 0) {
-          free(lower_text_value);
-          if (!_enqueue(q, &num_tokens, OR_OP, &t, &i, 0, NULL, 0))
-            return NULL;
-        } else if (strcmp(lower_text_value, "not") == 0) {
-          free(lower_text_value);
-          if (!_enqueue(q, &num_tokens, NOT_OP, &t, &i, 0, NULL, 0))
-            return NULL;
-        } else if (strcmp(lower_text_value, "add") == 0) {
-          free(lower_text_value);
-          if (!_enqueue(q, &num_tokens, ADD_CMD, &t, &i, 0, NULL, 0))
-            return NULL;
-        } else if (strcmp(lower_text_value, "query") == 0) {
-          free(lower_text_value);
-          if (!_enqueue(q, &num_tokens, QUERY_CMD, &t, &i, 0, NULL, 0))
-            return NULL;
-        } else {
-          if (!_enqueue(q, &num_tokens, IDENTIFIER, &t, &i, 0, lower_text_value,
-                        0)) {
+
+        bool matched = false;
+        for (size_t k = 0; k < sizeof(kw_map) / sizeof(kw_map[0]); ++k) {
+          if (strcmp(lower_text_value, kw_map[k].kw) == 0) {
+            free(lower_text_value);
+            if (!_enqueue(q, &num_tokens, kw_map[k].type, &t, &i, 0, NULL, 0))
+              return NULL;
+            matched = true;
+            break;
+          }
+        }
+        if (!matched) {
+          if (!_enqueue(q, &num_tokens, TOKEN_IDENTIFER, &t, &i, 0,
+                        lower_text_value, 0)) {
             free(lower_text_value);
             return NULL;
           }
@@ -213,15 +255,11 @@ Queue *tok_tokenize(char *input) {
       }
 
       i = end;
-
     }
 
     else {
       // invalid character
-      tok_clear_all(q);
-      q_destroy(q);
-
-      return NULL;
+      return _cleanup_on_err(q);
     }
   }
 
@@ -231,21 +269,4 @@ Queue *tok_tokenize(char *input) {
   }
 
   return q;
-}
-
-void tok_clear_all(Queue *tokens) {
-  if (!tokens)
-    return;
-  token_t *t;
-  while (!q_empty(tokens)) {
-    t = q_dequeue(tokens);
-    tok_free(t);
-  }
-}
-
-void tok_free(token_t *token) {
-  if (!token)
-    return;
-  free(token->text_value);
-  free(token);
 }

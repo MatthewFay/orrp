@@ -3,13 +3,15 @@
 # --- Compiler and Flags ---
 CC = gcc
 # Compiler flags
+# TODO: Seperate release (with optimizations) + debug builds
 CFLAGS = -Iinclude \
-		 -Itests/unity \
-		 -Ilib/roaring \
-		 -Ilib/lmdb \
-		 -Ilib/log.c \
-		 -Ilib/libuv/include \
-		 -Wall -Wextra -g -O0 # TODO: Seperate release (with optimizations) + debug builds
+	 -Itests/unity \
+	 -Ilib/roaring \
+	 -Ilib/lmdb \
+	 -Ilib/log.c \
+	 -Ilib/libuv/include \
+	 -Ilib/uthash \
+	 -Wall -Wextra -g -O0
 
 # LDFLAGS: Linker flags
 # Note: LMDB requires the -lrt library for real-time extensions (e.g., mmap) on some systems.

@@ -51,7 +51,7 @@ static bool _validate_ns_key_id(api_response_t *r, char *ns, char *key,
   return true;
 }
 
-static api_response_t *_api_add(ast_node_t *ast, eng_db_t *db,
+static api_response_t *_api_add(ast_node_t *ast, eng_context_t *ctx,
                                 api_response_t *r) {
   r->op_type = API_ADD;
 
@@ -64,12 +64,12 @@ static api_response_t *_api_add(ast_node_t *ast, eng_db_t *db,
     r->err_msg = "Invalid arguments to ADD.";
     return r;
   }
-  eng_add(r, db, ns, key, id);
+  eng_add(r, ctx, ns, key, id);
   return r;
 }
 
 // The single entry point into the API/Engine layer.
-api_response_t *api_exec(ast_node_t *ast, eng_db_t *db) {
+api_response_t *api_exec(ast_node_t *ast, eng_context_t *ctx) {
   api_response_t *r = _create_api_resp(API_INVALID);
 
   if (!ast || ast->type != COMMAND_NODE) {
@@ -80,7 +80,7 @@ api_response_t *api_exec(ast_node_t *ast, eng_db_t *db) {
   // Dispatch based on the command type in the AST root.
   switch (ast->node.cmd->cmd_type) {
   case ADD:
-    return _api_add(ast, db, r);
+    return _api_add(ast, ctx, r);
 
   case QUERY:
     return r;

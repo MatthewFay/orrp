@@ -30,6 +30,7 @@ bool db_commit_txn(MDB_txn *txn);
 
 // --- DB Operations --- //
 
+// For `path`: Caller needs to ensure that directory is created before calling.
 MDB_env *db_create_env(const char *path, size_t map_size, int max_num_dbs);
 
 // Function to open a database
