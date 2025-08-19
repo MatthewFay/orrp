@@ -115,9 +115,9 @@ void test_tokenize_simple_numbers(void) {
   q_destroy(tokens);
 }
 
-// Test keywords (and, or, not, tag, query, in, id) are identified correctly
+// Test keywords (and, or, not, event, query, in, id) are identified correctly
 void test_tokenize_keywords(void) {
-  char input[] = "AND or Not tag query in id";
+  char input[] = "AND or Not event query in id";
   Queue *tokens = tok_tokenize(input);
 
   TEST_ASSERT_NOT_NULL(tokens);
@@ -125,7 +125,7 @@ void test_tokenize_keywords(void) {
   assert_next_token(tokens, TOKEN_OP_AND, NULL, 0);
   assert_next_token(tokens, TOKEN_OP_OR, NULL, 0);
   assert_next_token(tokens, TOKEN_OP_NOT, NULL, 0);
-  assert_next_token(tokens, TOKEN_CMD_TAG, NULL, 0);
+  assert_next_token(tokens, TOKEN_CMD_EVENT, NULL, 0);
   assert_next_token(tokens, TOKEN_CMD_QUERY, NULL, 0);
   assert_next_token(tokens, TOKEN_KW_IN, NULL, 0);
   assert_next_token(tokens, TOKEN_KW_ID, NULL, 0);
@@ -273,10 +273,10 @@ void test_tokenize_quoted_strings(void) {
 // Test mix of all token types in one input
 void test_tokenize_all_token_types(void) {
   char input[] =
-      "tag in id ( ) : + \"str\" 42 and or not query >= > <= < = identifier";
+      "event in id ( ) : + \"str\" 42 and or not query >= > <= < = identifier";
   Queue *tokens = tok_tokenize(input);
   TEST_ASSERT_NOT_NULL(tokens);
-  assert_next_token(tokens, TOKEN_CMD_TAG, NULL, 0);
+  assert_next_token(tokens, TOKEN_CMD_EVENT, NULL, 0);
   assert_next_token(tokens, TOKEN_KW_IN, NULL, 0);
   assert_next_token(tokens, TOKEN_KW_ID, NULL, 0);
   assert_next_token(tokens, TOKEN_SYM_LPAREN, NULL, 0);

@@ -108,7 +108,7 @@ struct {
   token_type type;
 } kw_map[] = {
     {"and", TOKEN_OP_AND},       {"or", TOKEN_OP_OR},
-    {"not", TOKEN_OP_NOT},       {"tag", TOKEN_CMD_TAG},
+    {"not", TOKEN_OP_NOT},       {"event", TOKEN_CMD_EVENT},
     {"query", TOKEN_CMD_QUERY},  {"in", TOKEN_KW_IN},
     {"id", TOKEN_KW_ID},         {"entity", TOKEN_KW_ENTITY},
     {"cursor", TOKEN_KW_CURSOR}, {"take", TOKEN_KW_TAKE},

@@ -11,7 +11,7 @@ extern const int MAX_TOTAL_CHARS;
 
 typedef enum {
   // --- Commands ---
-  TOKEN_CMD_TAG,
+  TOKEN_CMD_EVENT,
   TOKEN_CMD_QUERY,
 
   // --- Reserved Keywords ---
