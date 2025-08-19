@@ -21,7 +21,8 @@ typedef enum {
   KEY_ENTITY,
   KEY_EXP,
   KEY_TAKE,
-  KEY_CURSOR
+  KEY_CURSOR,
+  KEY_ID, // event id, for idempotency
 } ast_reserved_key_t;
 
 typedef enum { TAG_KEY_RESERVED, TAG_KEY_CUSTOM } ast_tag_key_type_t;
@@ -62,10 +63,6 @@ typedef struct ast_not_node_s {
   ast_node_t *operand;
 } ast_not_node_t;
 
-typedef struct ast_identifier_node_s {
-  char *value;
-} ast_identifier_node_t;
-
 typedef enum { AND, OR } ast_logical_node_op_t;
 
 typedef struct ast_logical_node_s {
@@ -97,17 +94,28 @@ struct ast_node_s {
   ast_node_t *next; // Pointer to the next node in a list (e.g., the next tag)
 };
 
-void ast_free(ast_node_t *ast);
+//==============================================================================
+// Function Declarations
+//==============================================================================
 
-ast_node_t *ast_create_identifier_node(const char *value);
+// Memory management
+void ast_free(ast_node_t *node);
+
+// Node creation
+ast_node_t *ast_create_command_node(ast_command_type_t type, ast_node_t *tags);
+ast_node_t *ast_create_tag_node(ast_reserved_key_t key, ast_node_t *value,
+                                bool is_counter);
+ast_node_t *ast_create_custom_tag_node(const char *key, ast_node_t *value,
+                                       bool is_counter);
+ast_node_t *ast_create_string_literal_node(const char *value);
+ast_node_t *ast_create_number_literal_node(uint32_t value);
+ast_node_t *ast_create_comparison_node(ast_comparison_op_t op, ast_node_t *key,
+                                       ast_node_t *value);
 ast_node_t *ast_create_logical_node(ast_logical_node_op_t op, ast_node_t *left,
                                     ast_node_t *right);
 ast_node_t *ast_create_not_node(ast_node_t *operand);
-ast_node_t *ast_create_command_node(ast_command_t cmd_type, ast_node_t *args,
-                                    ast_node_t *exp);
-ast_node_t *ast_create_list_node(ast_node_t *item, ast_node_t *next);
-void ast_list_append(ast_node_t **list_head, ast_node_t *item_to_append);
 
-char *ast_get_command_arg(const ast_command_node_t *command_node, int index);
+// List manipulation
+void ast_append_node(ast_node_t **list_head, ast_node_t *node_to_append);
 
 #endif // AST_H

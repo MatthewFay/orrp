@@ -161,8 +161,18 @@ This data structure makes range queries extremely efficient. Let's assume B(N) i
 
 The following features are explicitly deferred from V1 to keep the initial implementation focused.
 
-* **Idempotency**: Will be implemented using a request hashing/checksum approach within each data container to avoid duplicate writes during client retries.
+* **Idempotency**: Will be implemented using an event id (`id:<event id>`) passed from client.
 * **Namespaces**: Support for `namespace::key:value` to avoid tag key collisions.
 * **Request/Correlation ID**: Allowing clients to pass an ID that is returned with the response, to help map asynchronous requests.
 * **Conditional/Bulk Writes**: Advanced write commands like `EVENT ... if:(expression)` or creating events from query results.
 * Comparison query (counts) using tag key. For example, we have tag "viewed_product:prod123". Querying on "viewed_product" > 3
+
+## 9. Testing
+
+* Unit tests using Unity
+* Integration tests using client (TBD tech)
+* Valgrind for memory testing
+
+## 10. SDK
+
+* In future, will build a client SDK.

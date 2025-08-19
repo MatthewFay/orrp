@@ -16,9 +16,13 @@ typedef enum {
 
   // --- Reserved Keywords ---
   TOKEN_KW_IN,
-  TOKEN_KW_ID,
+  TOKEN_KW_ID, // event id, for idempotency
+  TOKEN_KW_ENTITY,
+  TOKEN_KW_TAKE,
+  TOKEN_KW_CURSOR,
+  TOKEN_KW_EXP,
 
-  TOKEN_IDENTIFER,
+  TOKEN_IDENTIFER, // unquoted text
 
   // --- Literals (Values) ---
   TOKEN_LITERAL_STRING,

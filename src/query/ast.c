@@ -2,182 +2,201 @@
 #include <stdlib.h>
 #include <string.h>
 
-void ast_free(ast_node_t *ast) {
-  if (!ast)
+/**
+ * @brief Recursively frees an AST node and all its children.
+ *
+ * This function traverses the AST, freeing each node and its specific contents.
+ * It also handles freeing linked lists of nodes (like tags) by recursively
+ * calling itself on the `next` pointer.
+ *
+ * @param node The root node of the AST (or sub-tree) to free.
+ */
+void ast_free(ast_node_t *node) {
+  if (!node) {
     return;
-  switch (ast->type) {
+  }
+
+  // Free the specific data within the node based on its type
+  switch (node->type) {
   case COMMAND_NODE:
-    if (ast->node.cmd) {
-      ast_free(ast->node.cmd->args);
-      ast_free(ast->node.cmd->exp);
-      free(ast->node.cmd);
+    ast_free(node->command.tags); // Free the linked list of tags
+    break;
+  case TAG_NODE:
+    if (node->tag.key_type == TAG_KEY_CUSTOM) {
+      free(node->tag.custom_key); // Free string copied for custom key
     }
+    ast_free(node->tag.value);
+    break;
+  case LITERAL_NODE:
+    if (node->literal.type == LITERAL_STRING) {
+      free(node->literal.string_value); // Free string copied for literal
+    }
+    break;
+  case COMPARISON_NODE:
+    ast_free(node->comparison.key);
+    ast_free(node->comparison.value);
     break;
   case LOGICAL_NODE:
-    if (ast->node.logical) {
-      ast_free(ast->node.logical->left_operand);
-      ast_free(ast->node.logical->right_operand);
-      free(ast->node.logical);
-    }
+    ast_free(node->logical.left_operand);
+    ast_free(node->logical.right_operand);
     break;
   case NOT_NODE:
-    if (ast->node.not_op) {
-      ast_free(ast->node.not_op->operand);
-      free(ast->node.not_op);
-    }
-    break;
-  case IDENTIFIER_NODE:
-    if (ast->node.id) {
-      free(ast->node.id->value);
-      free(ast->node.id);
-    }
-    break;
-  case LIST_NODE:
-    if (ast->node.list) {
-      ast_free(ast->node.list->item);
-      ast_free(ast->node.list->next);
-      free(ast->node.list);
-    }
+    ast_free(node->not_op.operand);
     break;
   }
-  free(ast);
+
+  // Free the next node in the list, if one exists
+  ast_free(node->next);
+
+  // Finally, free the node structure itself
+  free(node);
 }
 
-ast_node_t *ast_create_list_node(ast_node_t *item, ast_node_t *next) {
-  ast_node_t *node = malloc(sizeof(ast_node_t));
-  if (!node)
-    return NULL;
-  node->type = LIST_NODE;
-  node->node.list = malloc(sizeof(ast_list_node_t));
-  if (!node->node.list) {
-    free(node);
-    return NULL;
-  }
-  node->node.list->item = item;
-  node->node.list->next = next;
-  return node;
-}
-
-// TODO: return success
-void ast_list_append(ast_node_t **list_head, ast_node_t *item_to_append) {
-  if (!item_to_append)
-    return;
-  ast_node_t *new_list_node = ast_create_list_node(item_to_append, NULL);
-  if (!new_list_node) {
+/**
+ * @brief Appends a node to the end of a linked list of nodes.
+ *
+ * @param list_head A pointer to the head of the list.
+ * @param node_to_append The node to add to the end of the list.
+ */
+void ast_append_node(ast_node_t **list_head, ast_node_t *node_to_append) {
+  if (!node_to_append) {
     return;
   }
+  node_to_append->next = NULL;
 
   if (!*list_head) {
-    *list_head = new_list_node;
+    *list_head = node_to_append;
     return;
   }
 
   ast_node_t *current = *list_head;
-  while (current->node.list->next) {
-    current = current->node.list->next;
+  while (current->next) {
+    current = current->next;
   }
-  current->node.list->next = new_list_node;
+  current->next = node_to_append;
 }
 
-// Duplicates `value`
-ast_node_t *ast_create_identifier_node(const char *value) {
+//==============================================================================
+// Node Creation Functions
+//==============================================================================
+
+ast_node_t *ast_create_command_node(ast_command_type_t type, ast_node_t *tags) {
   ast_node_t *node = malloc(sizeof(ast_node_t));
-  if (!node)
+  if (!node) {
     return NULL;
-  node->type = IDENTIFIER_NODE;
-  node->node.id = malloc(sizeof(ast_identifier_node_t));
-  if (!node->node.id) {
+  }
+
+  node->type = COMMAND_NODE;
+  node->next = NULL;
+  node->command.type = type;
+  node->command.tags = tags;
+  return node;
+}
+
+ast_node_t *ast_create_tag_node(ast_reserved_key_t key, ast_node_t *value,
+                                bool is_counter) {
+  ast_node_t *node = malloc(sizeof(ast_node_t));
+  if (!node) {
+    return NULL;
+  }
+
+  node->type = TAG_NODE;
+  node->next = NULL;
+  node->tag.key_type = TAG_KEY_RESERVED;
+  node->tag.reserved_key = key;
+  node->tag.value = value;
+  node->tag.is_counter = is_counter;
+  return node;
+}
+
+ast_node_t *ast_create_custom_tag_node(const char *key, ast_node_t *value,
+                                       bool is_counter) {
+  ast_node_t *node = malloc(sizeof(ast_node_t));
+  if (!node) {
+    return NULL;
+  }
+
+  node->type = TAG_NODE;
+  node->next = NULL;
+  node->tag.key_type = TAG_KEY_CUSTOM;
+  node->tag.custom_key = strdup(key);
+  if (!node->tag.custom_key) {
     free(node);
     return NULL;
   }
-  node->node.id->value = strdup(value);
-  if (!node->node.id->value) {
-    free(node->node.id);
+  node->tag.value = value;
+  node->tag.is_counter = is_counter;
+  return node;
+}
+
+ast_node_t *ast_create_string_literal_node(const char *value) {
+  ast_node_t *node = malloc(sizeof(ast_node_t));
+  if (!node) {
+    return NULL;
+  }
+
+  node->type = LITERAL_NODE;
+  node->next = NULL;
+  node->literal.type = LITERAL_STRING;
+  node->literal.string_value = strdup(value);
+  if (!node->literal.string_value) {
     free(node);
     return NULL;
   }
+  return node;
+}
+
+ast_node_t *ast_create_number_literal_node(uint32_t value) {
+  ast_node_t *node = malloc(sizeof(ast_node_t));
+  if (!node) {
+    return NULL;
+  }
+
+  node->type = LITERAL_NODE;
+  node->next = NULL;
+  node->literal.type = LITERAL_NUMBER;
+  node->literal.number_value = value;
+  return node;
+}
+
+ast_node_t *ast_create_comparison_node(ast_comparison_op_t op, ast_node_t *key,
+                                       ast_node_t *value) {
+  ast_node_t *node = malloc(sizeof(ast_node_t));
+  if (!node) {
+    return NULL;
+  }
+
+  node->type = COMPARISON_NODE;
+  node->next = NULL;
+  node->comparison.op = op;
+  node->comparison.key = key;
+  node->comparison.value = value;
   return node;
 }
 
 ast_node_t *ast_create_logical_node(ast_logical_node_op_t op, ast_node_t *left,
                                     ast_node_t *right) {
   ast_node_t *node = malloc(sizeof(ast_node_t));
-  if (!node)
-    return NULL;
-  node->type = LOGICAL_NODE;
-  node->node.logical = malloc(sizeof(ast_logical_node_t));
-  if (!node->node.logical) {
-    free(node);
+  if (!node) {
     return NULL;
   }
-  node->node.logical->op = op;
-  node->node.logical->left_operand = left;
-  node->node.logical->right_operand = right;
+
+  node->type = LOGICAL_NODE;
+  node->next = NULL;
+  node->logical.op = op;
+  node->logical.left_operand = left;
+  node->logical.right_operand = right;
   return node;
 }
 
 ast_node_t *ast_create_not_node(ast_node_t *operand) {
   ast_node_t *node = malloc(sizeof(ast_node_t));
-  if (!node)
+  if (!node) {
     return NULL;
+  }
+
   node->type = NOT_NODE;
-  node->node.not_op = malloc(sizeof(ast_not_node_t));
-  if (!node->node.not_op) {
-    free(node);
-    return NULL;
-  }
-  node->node.not_op->operand = operand;
+  node->next = NULL;
+  node->not_op.operand = operand;
   return node;
-}
-
-ast_node_t *ast_create_command_node(ast_command_t cmd_type, ast_node_t *args,
-                                    ast_node_t *exp) {
-  ast_node_t *node = malloc(sizeof(ast_node_t));
-  if (!node)
-    return NULL;
-  node->type = COMMAND_NODE;
-  node->node.cmd = malloc(sizeof(ast_command_node_t));
-  if (!node->node.cmd) {
-    free(node);
-    return NULL;
-  }
-  node->node.cmd->cmd_type = cmd_type;
-  node->node.cmd->args = args;
-  node->node.cmd->exp = exp;
-  return node;
-}
-
-/**
- * @brief Safely retrieves the string value of a command argument by its index.
- *
- * This helper function traverses the expected AST structure for a command:
- * CommandNode -> List of Arguments -> Argument Node -> Identifier Node -> Value
- *
- * @param command_node A pointer to the command node.
- * @param index The zero-based index of the argument to retrieve (0, 1, 2, ...).
- * @return A pointer to the argument's string value on success, or NULL if
- * the argument doesn't exist, the structure is invalid, or any
- * intermediate pointer is NULL.
- */
-char *ast_get_command_arg(const ast_command_node_t *command_node, int index) {
-  if (!command_node || !command_node->args ||
-      command_node->args->type != LIST_NODE) {
-    return NULL;
-  }
-
-  ast_list_node_t *curr_list_node = command_node->args->node.list;
-
-  for (int i = 0; i < index; ++i) {
-    if (!curr_list_node || !curr_list_node->next) {
-      return NULL; // Index is out of bounds
-    }
-    curr_list_node = curr_list_node->next->node.list;
-  }
-
-  if (!curr_list_node || !curr_list_node->item ||
-      curr_list_node->item->type != IDENTIFIER_NODE) {
-    return NULL;
-  }
-
-  return curr_list_node->item->node.id->value;
 }
