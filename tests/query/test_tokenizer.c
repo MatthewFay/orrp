@@ -268,6 +268,16 @@ void test_tokenize_quoted_strings(void) {
   char input2[] = "\"unterminated";
   Queue *tokens2 = tok_tokenize(input2);
   TEST_ASSERT_NULL(tokens2);
+
+  // Escapes are not allowed: quoted string with a backslash is invalid
+  char input3[] = "\"Hello\\World\"";
+  Queue *tokens3 = tok_tokenize(input3);
+  TEST_ASSERT_NULL(tokens3);
+
+  // Quoted string with a quote inside is invalid
+  char input4[] = "\"Hello\"World\"";
+  Queue *tokens4 = tok_tokenize(input4);
+  TEST_ASSERT_NULL(tokens4);
 }
 
 // Test mix of all token types in one input

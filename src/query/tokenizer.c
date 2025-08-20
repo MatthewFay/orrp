@@ -8,7 +8,7 @@
 #include <string.h>
 
 const int MAX_TOKENS = 256;
-const int MAX_TEXT_VAL_LEN = 256;
+const int MAX_TEXT_VAL_LEN = 128;
 const int MAX_NUMBERS_SEQ = 9;
 const int MAX_TOTAL_CHARS = 2048;
 
@@ -48,9 +48,14 @@ static token_t *_create_token(token_type type, char *text_value,
 
 static bool _max_toks(int num_tokens) { return num_tokens >= MAX_TOKENS; }
 
-// Any char other than these must be enclosed in quotes.
+// Characters allowed in an unquoted identifier.
 static bool _valid_unenclosed_char(char c) {
-  return c == '_' || c == '-' || isalnum((unsigned char)c);
+  return isalnum((unsigned char)c) || c == '_' || c == '-';
+}
+
+// A whitelist for characters allowed within a quoted string.
+static bool _valid_enclosed_char(char c) {
+  return _valid_unenclosed_char(c) || c == ' ';
 }
 
 static bool _enqueue(Queue *q, int *num_tokens, token_type type,
@@ -63,7 +68,6 @@ static bool _enqueue(Queue *q, int *num_tokens, token_type type,
   *out_token = _create_token(type, text_value, number_value);
   if (!*out_token) {
     _cleanup_on_err(q);
-
     return false;
   }
   q_enqueue(q, *out_token);
@@ -91,7 +95,6 @@ static uint32_t _parse_uint32(const char *str, size_t len) {
   if (*endptr != '\0' || value > UINT32_MAX) {
     return 0;
   }
-
   return (uint32_t)value;
 }
 
@@ -120,8 +123,6 @@ struct {
 Queue *tok_tokenize(char *input) {
   int num_tokens = 0;
   size_t i = 0;
-  size_t start = 0;
-  size_t end = 0;
   if (!input)
     return NULL;
   size_t input_len = strlen(input);
@@ -184,76 +185,68 @@ Queue *tok_tokenize(char *input) {
         return NULL;
     }
 
+    // --- UNIFIED PARSING LOGIC FOR STRINGS AND IDENTIFIERS ---
     else if (c == '"' || _valid_unenclosed_char(c)) {
-      bool quotes = false;
       char *val = NULL;
-      bool all_digits = true;
+      size_t start, end;
 
-      if (c == '"') {
-        quotes = true;
-        i++;
+      bool quotes = (c == '"');
+      start = i + (quotes ? 1 : 0); // Content starts after the quote
+      end = start;
+
+      // Find the end of the token
+      while (end < input_len) {
+        char current_char = input[end];
+        if (quotes) {
+          if (current_char == '"')
+            break; // End of quoted string
+          if (!_valid_enclosed_char(current_char))
+            return _cleanup_on_err(q);
+        } else {
+          if (!_valid_unenclosed_char(current_char))
+            break; // End of identifier
+        }
+        end++;
       }
 
+      if (quotes && (end >= input_len || input[end] != '"')) {
+        return _cleanup_on_err(q); // Unterminated quoted string
+      }
+
+      size_t len = end - start;
+      if (len == 0 || len > MAX_TEXT_VAL_LEN) {
+        return _cleanup_on_err(q);
+      }
+
+      // Extract the token value
+      val = malloc(len + 1);
+      if (!val)
+        return _cleanup_on_err(q);
+      strncpy(val, &input[start], len);
+      val[len] = '\0';
+
+      // Process and enqueue the token
       if (quotes) {
-        // Parse quoted string with escape support
-        size_t bufcap = MAX_TEXT_VAL_LEN + 1;
-        val = malloc(bufcap);
-        if (!val)
-          return _cleanup_on_err(q);
-        size_t vpos = 0;
-        bool closed = false;
-        while (input[i] && vpos < MAX_TEXT_VAL_LEN) {
-          if (input[i] == '\\') {
-            i++;
-            if (!input[i])
-              break;
-            if (input[i] == '"' || input[i] == '\\') {
-              val[vpos++] = input[i++];
-            } else {
-              // Accept any escaped char as literal (e.g. \n -> n)
-              val[vpos++] = input[i++];
-            }
-          } else if (input[i] == '"') {
-            closed = true;
-            i++;
-            break;
-          } else {
-            val[vpos++] = input[i++];
-          }
-        }
-        val[vpos] = '\0';
-        if (!closed || vpos == 0) {
-          free(val);
-          return _cleanup_on_err(q);
-        }
+        i = end + 1; // Move past the closing quote
         if (!_enqueue(q, &num_tokens, TOKEN_LITERAL_STRING, &t, &i, 0, val,
                       0)) {
           free(val);
           return NULL;
         }
-        // i is already at the next char after closing quote
+        free(val);
       } else {
-        start = i;
-        end = start;
-        while (input[end] && _valid_unenclosed_char(input[end])) {
-          if (!isdigit((unsigned char)input[end]))
+        i = end; // Move to the end of the identifier
+        bool all_digits = true;
+        for (size_t k = 0; k < len; k++) {
+          if (!isdigit((unsigned char)val[k])) {
             all_digits = false;
-          ++end;
+            break;
+          }
         }
-        size_t len = end - start;
-        if (len == 0 || len > MAX_TEXT_VAL_LEN ||
-            (all_digits && len > MAX_NUMBERS_SEQ)) {
-          return _cleanup_on_err(q);
-        }
-        val = malloc(sizeof(char) * (len + 1));
-        if (!val) {
-          return _cleanup_on_err(q);
-        }
-        strncpy(val, &input[start], len);
-        val[len] = '\0';
-        i = end;
 
         if (all_digits) {
+          if (len > MAX_NUMBERS_SEQ)
+            return _cleanup_on_err(q);
           uint32_t n_val = _parse_uint32(val, len);
           free(val);
           if (!_enqueue(q, &num_tokens, TOKEN_LITERAL_NUMBER, &t, &i, 0, NULL,
@@ -262,9 +255,8 @@ Queue *tok_tokenize(char *input) {
         } else {
           char *lower_text_value = malloc(len + 1);
           if (!lower_text_value) {
-            _cleanup_on_err(q);
             free(val);
-            return NULL;
+            return _cleanup_on_err(q);
           }
           _to_lowercase(lower_text_value, val, len + 1);
           free(val);

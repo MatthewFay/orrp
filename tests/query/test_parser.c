@@ -8,459 +8,279 @@
 
 // --- Test Infrastructure ---
 
-// No global state: each test manages its own tokens/result.
 void setUp(void) {}
 void tearDown(void) {}
 
-// Helper to add a token to a given queue.
-static void _add_token(Queue *tokens, token_type type, const char *text) {
-  token_t *t = malloc(sizeof(token_t));
-  t->type = type;
-  t->text_value = text ? strdup(text) : NULL;
-  t->number_value = 0;
-  q_enqueue(tokens, t);
+// Helper to run the tokenizer and parser on a raw string.
+static parse_result_t *_parse_string(const char *input_str) {
+  Queue *tokens = tok_tokenize((char *)input_str);
+  // The parser takes ownership of and frees the tokens queue
+  return parse(tokens);
 }
 
 // --- Assertion Helpers ---
 
-// Asserts that the parsing was successful.
 static void _assert_success(parse_result_t *result) {
-  TEST_ASSERT_NOT_NULL(result);
+  TEST_ASSERT_NOT_NULL_MESSAGE(result, "Result should not be NULL");
+  if (result->error_message) {
+    TEST_FAIL_MESSAGE(result->error_message);
+  }
   TEST_ASSERT_NOT_EQUAL(OP_TYPE_ERROR, result->type);
   TEST_ASSERT_NOT_NULL(result->ast);
-  TEST_ASSERT_NULL(result->error_message);
 }
 
-// Asserts that the parsing failed with a specific error message.
-static void _assert_error(parse_result_t *result, const char *expected_msg) {
-  TEST_ASSERT_NOT_NULL(result);
+static void _assert_error(parse_result_t *result) {
+  TEST_ASSERT_NOT_NULL_MESSAGE(result, "Result should not be NULL");
   TEST_ASSERT_EQUAL(OP_TYPE_ERROR, result->type);
   TEST_ASSERT_NULL(result->ast);
-  TEST_ASSERT_NOT_NULL(result->error_message);
-  if (expected_msg) {
-    TEST_ASSERT_EQUAL_STRING(expected_msg, result->error_message);
+  // We don't check for a specific message, just that an error occurred.
+}
+
+// Finds a tag in an AST by its reserved key.
+static ast_node_t *_find_tag_by_key(ast_node_t *ast, ast_reserved_key_t key) {
+  TEST_ASSERT_NOT_NULL(ast);
+  ast_node_t *tag = ast->command.tags;
+  while (tag) {
+    if (tag->tag.key_type == TAG_KEY_RESERVED && tag->tag.reserved_key == key) {
+      return tag;
+    }
+    tag = tag->next;
   }
+  return NULL;
 }
 
-// Helper to check if a node is the identifier we expect.
-static void _assert_identifier_node(ast_node_t *node,
-                                    const char *expected_val) {
-  TEST_ASSERT_NOT_NULL(node);
-  TEST_ASSERT_EQUAL(IDENTIFIER_NODE, node->type);
-  TEST_ASSERT_EQUAL_STRING(expected_val, node->node.id->value);
+// Finds a tag in an AST by its custom key name.
+static ast_node_t *_find_tag_by_custom_key(ast_node_t *ast,
+                                           const char *key_name) {
+  TEST_ASSERT_NOT_NULL(ast);
+  ast_node_t *tag = ast->command.tags;
+  while (tag) {
+    if (tag->tag.key_type == TAG_KEY_CUSTOM &&
+        strcmp(tag->tag.custom_key, key_name) == 0) {
+      return tag;
+    }
+    tag = tag->next;
+  }
+  return NULL;
 }
 
-// --- ADD Command Tests ---
+// --- EVENT Command Tests ---
 
-void test_parse_add_command_happy_path(void) {
-  Queue *tokens = q_create();
-  _add_token(tokens, ADD_CMD, NULL);
-  _add_token(tokens, IDENTIFIER, "foo");
-  _add_token(tokens, IDENTIFIER, "bar");
-  _add_token(tokens, IDENTIFIER, "baz");
-
-  parse_result_t *result = parse(tokens);
+void test_event_success_minimal(void) {
+  parse_result_t *result =
+      _parse_string("event in:\"metrics\" entity:\"user-123\"");
   _assert_success(result);
   TEST_ASSERT_EQUAL(OP_TYPE_WRITE, result->type);
 
-  ast_node_t *ast = result->ast;
-  TEST_ASSERT_EQUAL(COMMAND_NODE, ast->type);
-  TEST_ASSERT_EQUAL(ADD, ast->node.cmd->cmd_type);
+  ast_node_t *in_tag = _find_tag_by_key(result->ast, KEY_IN);
+  TEST_ASSERT_NOT_NULL(in_tag);
+  TEST_ASSERT_EQUAL_STRING("metrics", in_tag->tag.value->literal.string_value);
 
-  // Check the arguments list thoroughly
-  ast_node_t *arg_node = ast->node.cmd->args;
-  TEST_ASSERT_NOT_NULL(arg_node);
-  _assert_identifier_node(arg_node->node.list->item, "foo");
-
-  arg_node = arg_node->node.list->next;
-  TEST_ASSERT_NOT_NULL(arg_node);
-  _assert_identifier_node(arg_node->node.list->item, "bar");
-
-  arg_node = arg_node->node.list->next;
-  TEST_ASSERT_NOT_NULL(arg_node);
-  _assert_identifier_node(arg_node->node.list->item, "baz");
-
-  arg_node = arg_node->node.list->next;
-  TEST_ASSERT_NULL(arg_node); // End of list
+  ast_node_t *entity_tag = _find_tag_by_key(result->ast, KEY_ENTITY);
+  TEST_ASSERT_NOT_NULL(entity_tag);
+  TEST_ASSERT_EQUAL_STRING("user-123",
+                           entity_tag->tag.value->literal.string_value);
 
   parse_free_result(result);
-  q_destroy(tokens);
 }
 
-void test_parse_add_fails_with_too_few_args(void) {
-  Queue *tokens = q_create();
-  _add_token(tokens, ADD_CMD, NULL);
-  _add_token(tokens, IDENTIFIER, "foo");
-  _add_token(tokens, IDENTIFIER, "bar");
+void test_event_success_full_different_order(void) {
+  parse_result_t *result = _parse_string(
+      "event id:\"abc\" clicks:\"one\"+ entity:\"user-123\" in:\"metrics\"");
+  _assert_success(result);
 
-  parse_result_t *result = parse(tokens);
-  _assert_error(result, "Wrong number of arguments for ADD");
+  ast_node_t *clicks_tag = _find_tag_by_custom_key(result->ast, "clicks");
+  TEST_ASSERT_NOT_NULL(clicks_tag);
+  TEST_ASSERT_TRUE(clicks_tag->tag.is_counter);
+  TEST_ASSERT_EQUAL_STRING("one", clicks_tag->tag.value->literal.string_value);
+
+  TEST_ASSERT_NOT_NULL(_find_tag_by_key(result->ast, KEY_IN));
+  TEST_ASSERT_NOT_NULL(_find_tag_by_key(result->ast, KEY_ID));
+  TEST_ASSERT_NOT_NULL(_find_tag_by_key(result->ast, KEY_ENTITY));
+
   parse_free_result(result);
-  q_destroy(tokens);
 }
 
-void test_parse_add_fails_with_too_many_args(void) {
-  Queue *tokens = q_create();
-  _add_token(tokens, ADD_CMD, NULL);
-  _add_token(tokens, IDENTIFIER, "foo");
-  _add_token(tokens, IDENTIFIER, "bar");
-  _add_token(tokens, IDENTIFIER, "baz");
-  _add_token(tokens, IDENTIFIER, "qux"); // The extra argument
-
-  parse_result_t *result = parse(tokens);
-  _assert_error(result, "Wrong number of arguments for ADD");
+void test_event_fails_missing_in(void) {
+  parse_result_t *result = _parse_string("event entity:\"user-123\"");
+  _assert_error(result);
   parse_free_result(result);
-  q_destroy(tokens);
 }
 
-void test_parse_add_fails_with_wrong_arg_type(void) {
-  Queue *tokens = q_create();
-  _add_token(tokens, ADD_CMD, NULL);
-  _add_token(tokens, IDENTIFIER, "foo");
-  _add_token(tokens, NUMBER, NULL); // Should be an IDENTIFIER
-  _add_token(tokens, IDENTIFIER, "baz");
-
-  parse_result_t *result = parse(tokens);
-  _assert_error(result, "Invalid argument type for ADD");
+void test_event_fails_missing_entity(void) {
+  parse_result_t *result = _parse_string("event in:\"metrics\"");
+  _assert_error(result);
   parse_free_result(result);
-  q_destroy(tokens);
+}
+
+void test_event_fails_duplicate_custom_tag(void) {
+  parse_result_t *result =
+      _parse_string("event in:\"metrics\" entity:\"u1\" loc:\"us\" loc:\"ca\"");
+  _assert_error(result);
+  parse_free_result(result);
+}
+
+void test_event_fails_invalid_container_name(void) {
+  parse_result_t *result = _parse_string("event in:\"db\" entity:\"u1\"");
+  _assert_error(result);
+  parse_free_result(result);
+}
+
+void test_event_fails_with_query_only_tag(void) {
+  parse_result_t *result = _parse_string("event in:\"m\" entity:\"e\" exp:(a)");
+  _assert_error(result);
+  parse_free_result(result);
 }
 
 // --- QUERY Command Tests ---
 
-void test_parse_query_simple_no_expression(void) {
-  Queue *tokens = q_create();
-  _add_token(tokens, QUERY_CMD, NULL);
-  _add_token(tokens, IDENTIFIER, "analytics");
-
-  parse_result_t *result = parse(tokens);
+void test_query_success_minimal(void) {
+  parse_result_t *result = _parse_string("query in:\"logs\" exp:(a and b)");
   _assert_success(result);
   TEST_ASSERT_EQUAL(OP_TYPE_READ, result->type);
 
-  ast_node_t *ast = result->ast;
-  TEST_ASSERT_EQUAL(COMMAND_NODE, ast->type);
-  TEST_ASSERT_EQUAL(QUERY, ast->node.cmd->cmd_type);
+  ast_node_t *in_tag = _find_tag_by_key(result->ast, KEY_IN);
+  TEST_ASSERT_NOT_NULL(in_tag);
+  TEST_ASSERT_EQUAL_STRING("logs", in_tag->tag.value->literal.string_value);
 
-  // Check arg and ensure expression is NULL
-  _assert_identifier_node(ast->node.cmd->args->node.list->item, "analytics");
-  TEST_ASSERT_NULL(ast->node.cmd->exp);
-
-  parse_free_result(result);
-  q_destroy(tokens);
-}
-
-void test_parse_query_simple_expression(void) {
-  Queue *tokens = q_create();
-  _add_token(tokens, QUERY_CMD, NULL);
-  _add_token(tokens, IDENTIFIER, "analytics");
-  _add_token(tokens, IDENTIFIER, "login_2025");
-
-  parse_result_t *result = parse(tokens);
-  _assert_success(result);
-
-  ast_node_t *ast = result->ast;
-  _assert_identifier_node(ast->node.cmd->args->node.list->item, "analytics");
-  _assert_identifier_node(ast->node.cmd->exp, "login_2025");
+  ast_node_t *exp_tag = _find_tag_by_key(result->ast, KEY_EXP);
+  TEST_ASSERT_NOT_NULL(exp_tag);
+  TEST_ASSERT_EQUAL(LOGICAL_NODE, exp_tag->tag.value->type);
 
   parse_free_result(result);
-  q_destroy(tokens);
 }
 
-void test_parse_query_precedence_and_grouping_1(void) {
-  Queue *tokens = q_create();
-  // Test: QUERY analytics ((A OR A2) AND B) OR NOT (C AND (D OR E))
-  _add_token(tokens, QUERY_CMD, NULL);
-  _add_token(tokens, IDENTIFIER, "analytics");
-
-  _add_token(tokens, LPAREN, NULL);
-  _add_token(tokens, LPAREN, NULL);
-
-  _add_token(tokens, IDENTIFIER, "A");
-  _add_token(tokens, OR_OP, NULL);
-  _add_token(tokens, IDENTIFIER, "A2");
-  _add_token(tokens, RPAREN, NULL);
-  _add_token(tokens, AND_OP, NULL);
-  _add_token(tokens, IDENTIFIER, "B");
-  _add_token(tokens, RPAREN, NULL);
-
-  _add_token(tokens, OR_OP, NULL);
-  _add_token(tokens, NOT_OP, NULL);
-
-  _add_token(tokens, LPAREN, NULL);
-  _add_token(tokens, IDENTIFIER, "C");
-  _add_token(tokens, AND_OP, NULL);
-  _add_token(tokens, LPAREN, NULL);
-
-  _add_token(tokens, IDENTIFIER, "D");
-  _add_token(tokens, OR_OP, NULL);
-  _add_token(tokens, IDENTIFIER, "E");
-
-  _add_token(tokens, RPAREN, NULL);
-  _add_token(tokens, RPAREN, NULL);
-
-  parse_result_t *result = parse(tokens);
+void test_query_success_full_different_order(void) {
+  parse_result_t *result =
+      _parse_string("query exp:(a) cursor:\"xyz\" in:\"logs\" loc:\"us\"");
   _assert_success(result);
 
-  ast_node_t *exp = result->ast->node.cmd->exp;
-  TEST_ASSERT_NOT_NULL(exp);
+  TEST_ASSERT_NOT_NULL(_find_tag_by_key(result->ast, KEY_IN));
+  TEST_ASSERT_NOT_NULL(_find_tag_by_key(result->ast, KEY_EXP));
+  TEST_ASSERT_NOT_NULL(_find_tag_by_key(result->ast, KEY_CURSOR));
+  TEST_ASSERT_NOT_NULL(_find_tag_by_custom_key(result->ast, "loc"));
 
-  // Top level: OR
+  parse_free_result(result);
+}
+
+void test_query_fails_missing_exp(void) {
+  parse_result_t *result = _parse_string("query in:\"logs\"");
+  _assert_error(result);
+  parse_free_result(result);
+}
+
+void test_query_fails_duplicate_in(void) {
+  parse_result_t *result = _parse_string("query in:\"abc\" in:\"b\" exp:(c)");
+  _assert_error(result);
+  parse_free_result(result);
+}
+
+// --- Expression Parsing Tests ---
+
+void test_exp_precedence(void) {
+  parse_result_t *result = _parse_string("query in:\"abc\" exp:(a or b and c)");
+  _assert_success(result);
+
+  ast_node_t *exp = _find_tag_by_key(result->ast, KEY_EXP)->tag.value;
   TEST_ASSERT_EQUAL(LOGICAL_NODE, exp->type);
-  TEST_ASSERT_EQUAL(OR, exp->node.logical->op);
-
-  // Left: AND node (from ((A OR A2) AND B))
-  ast_node_t *and_node = exp->node.logical->left_operand;
-  TEST_ASSERT_NOT_NULL(and_node);
-  TEST_ASSERT_EQUAL(LOGICAL_NODE, and_node->type);
-  TEST_ASSERT_EQUAL(AND, and_node->node.logical->op);
-
-  // Left of AND: (A OR A2)
-  ast_node_t *or_left = and_node->node.logical->left_operand;
-  TEST_ASSERT_NOT_NULL(or_left);
-  TEST_ASSERT_EQUAL(LOGICAL_NODE, or_left->type);
-  TEST_ASSERT_EQUAL(OR, or_left->node.logical->op);
-  _assert_identifier_node(or_left->node.logical->left_operand, "A");
-  _assert_identifier_node(or_left->node.logical->right_operand, "A2");
-
-  // Right of AND: B
-  _assert_identifier_node(and_node->node.logical->right_operand, "B");
-
-  // Right of top-level OR: NOT node
-  ast_node_t *not_node = exp->node.logical->right_operand;
-  TEST_ASSERT_NOT_NULL(not_node);
-  TEST_ASSERT_EQUAL(NOT_NODE, not_node->type);
-
-  // NOT's operand: AND node (C AND (...))
-  ast_node_t *and2 = not_node->node.not_op->operand;
-  TEST_ASSERT_NOT_NULL(and2);
-  TEST_ASSERT_EQUAL(LOGICAL_NODE, and2->type);
-  TEST_ASSERT_EQUAL(AND, and2->node.logical->op);
-
-  // Left of AND: C
-  _assert_identifier_node(and2->node.logical->left_operand, "C");
-
-  // Right of AND: OR node (D OR E)
-  ast_node_t *or2 = and2->node.logical->right_operand;
-  TEST_ASSERT_NOT_NULL(or2);
-  TEST_ASSERT_EQUAL(LOGICAL_NODE, or2->type);
-  TEST_ASSERT_EQUAL(OR, or2->node.logical->op);
-  _assert_identifier_node(or2->node.logical->left_operand, "D");
-  _assert_identifier_node(or2->node.logical->right_operand, "E");
+  TEST_ASSERT_EQUAL(OR, exp->logical.op); // OR is at the top level
+  TEST_ASSERT_EQUAL(LITERAL_NODE, exp->logical.left_operand->type);
+  TEST_ASSERT_EQUAL(LOGICAL_NODE,
+                    exp->logical.right_operand->type); // AND is nested
+  TEST_ASSERT_EQUAL(AND, exp->logical.right_operand->logical.op);
 
   parse_free_result(result);
-  q_destroy(tokens);
 }
 
-void test_parse_query_precedence_and_grouping_2(void) {
-  Queue *tokens = q_create();
-  // Test: QUERY analytics A OR B AND NOT (C OR D)
-  // Expected AST: OR(A, AND(B, NOT(OR(C, D))))
-  _add_token(tokens, QUERY_CMD, NULL);
-  _add_token(tokens, IDENTIFIER, "analytics");
-  _add_token(tokens, IDENTIFIER, "A");
-  _add_token(tokens, OR_OP, NULL);
-  _add_token(tokens, IDENTIFIER, "B");
-  _add_token(tokens, AND_OP, NULL);
-  _add_token(tokens, NOT_OP, NULL);
-  _add_token(tokens, LPAREN, NULL);
-  _add_token(tokens, IDENTIFIER, "C");
-  _add_token(tokens, OR_OP, NULL);
-  _add_token(tokens, IDENTIFIER, "D");
-  _add_token(tokens, RPAREN, NULL);
-
-  parse_result_t *result = parse(tokens);
+void test_exp_parentheses_override(void) {
+  parse_result_t *result =
+      _parse_string("query in:\"abc\" exp:((a or b) and c)");
   _assert_success(result);
 
-  ast_node_t *exp = result->ast->node.cmd->exp;
-  TEST_ASSERT_NOT_NULL(exp);
-
-  // Top level should be OR because it has lower precedence
+  ast_node_t *exp = _find_tag_by_key(result->ast, KEY_EXP)->tag.value;
   TEST_ASSERT_EQUAL(LOGICAL_NODE, exp->type);
-  TEST_ASSERT_EQUAL(OR, exp->node.logical->op);
-
-  // Left side of OR should be "A"
-  _assert_identifier_node(exp->node.logical->left_operand, "A");
-
-  // Right side of OR should be the AND expression
-  ast_node_t *and_node = exp->node.logical->right_operand;
-  TEST_ASSERT_EQUAL(LOGICAL_NODE, and_node->type);
-  TEST_ASSERT_EQUAL(AND, and_node->node.logical->op);
-
-  // Left side of AND should be "B"
-  _assert_identifier_node(and_node->node.logical->left_operand, "B");
-
-  // Right side of AND should be the NOT expression
-  ast_node_t *not_node = and_node->node.logical->right_operand;
-  TEST_ASSERT_EQUAL(NOT_NODE, not_node->type);
-
-  // The operand of NOT should be the (C OR D) expression
-  ast_node_t *inner_or_node = not_node->node.not_op->operand;
-  TEST_ASSERT_EQUAL(LOGICAL_NODE, inner_or_node->type);
-  TEST_ASSERT_EQUAL(OR, inner_or_node->node.logical->op);
-
-  _assert_identifier_node(inner_or_node->node.logical->left_operand, "C");
-  _assert_identifier_node(inner_or_node->node.logical->right_operand, "D");
+  TEST_ASSERT_EQUAL(AND, exp->logical.op); // AND is at the top level
+  TEST_ASSERT_EQUAL(LOGICAL_NODE, exp->logical.left_operand->type);
+  TEST_ASSERT_EQUAL(OR, exp->logical.left_operand->logical.op);
+  TEST_ASSERT_EQUAL(LITERAL_NODE, exp->logical.right_operand->type);
 
   parse_free_result(result);
-  q_destroy(tokens);
 }
 
-void test_parse_query_precedence_and_grouping_3(void) {
-  Queue *tokens = q_create();
-  // Test: QUERY analytics (((A AND B) AND (C AND D)) OR E)
-  _add_token(tokens, QUERY_CMD, NULL);
-  _add_token(tokens, IDENTIFIER, "analytics");
-
-  _add_token(tokens, LPAREN, NULL);
-  _add_token(tokens, LPAREN, NULL);
-  _add_token(tokens, LPAREN, NULL);
-
-  _add_token(tokens, IDENTIFIER, "A");
-  _add_token(tokens, AND_OP, NULL);
-  _add_token(tokens, IDENTIFIER, "B");
-  _add_token(tokens, RPAREN, NULL);
-
-  _add_token(tokens, AND_OP, NULL);
-
-  _add_token(tokens, LPAREN, NULL);
-  _add_token(tokens, IDENTIFIER, "C");
-  _add_token(tokens, AND_OP, NULL);
-  _add_token(tokens, IDENTIFIER, "D");
-  _add_token(tokens, RPAREN, NULL);
-
-  _add_token(tokens, RPAREN, NULL);
-
-  _add_token(tokens, OR_OP, NULL);
-  _add_token(tokens, IDENTIFIER, "E");
-  _add_token(tokens, RPAREN, NULL);
-
-  parse_result_t *result = parse(tokens);
+void test_exp_not_operator(void) {
+  parse_result_t *result = _parse_string("query in:abc exp:(not a and not b)");
   _assert_success(result);
 
-  ast_node_t *exp = result->ast->node.cmd->exp;
-  TEST_ASSERT_NOT_NULL(exp);
-
-  // Top level: OR
+  ast_node_t *exp = _find_tag_by_key(result->ast, KEY_EXP)->tag.value;
   TEST_ASSERT_EQUAL(LOGICAL_NODE, exp->type);
-  TEST_ASSERT_EQUAL(OR, exp->node.logical->op);
-
-  // Left: AND node (from ((A AND B) AND (C AND D)))
-  ast_node_t *and_outer = exp->node.logical->left_operand;
-  TEST_ASSERT_NOT_NULL(and_outer);
-  TEST_ASSERT_EQUAL(LOGICAL_NODE, and_outer->type);
-  TEST_ASSERT_EQUAL(AND, and_outer->node.logical->op);
-
-  // Left of outer AND: (A AND B)
-  ast_node_t *and_left = and_outer->node.logical->left_operand;
-  TEST_ASSERT_NOT_NULL(and_left);
-  TEST_ASSERT_EQUAL(LOGICAL_NODE, and_left->type);
-  TEST_ASSERT_EQUAL(AND, and_left->node.logical->op);
-  _assert_identifier_node(and_left->node.logical->left_operand, "A");
-  _assert_identifier_node(and_left->node.logical->right_operand, "B");
-
-  // Right of outer AND: (C AND D)
-  ast_node_t *and_right = and_outer->node.logical->right_operand;
-  TEST_ASSERT_NOT_NULL(and_right);
-  TEST_ASSERT_EQUAL(LOGICAL_NODE, and_right->type);
-  TEST_ASSERT_EQUAL(AND, and_right->node.logical->op);
-  _assert_identifier_node(and_right->node.logical->left_operand, "C");
-  _assert_identifier_node(and_right->node.logical->right_operand, "D");
-
-  // Right of top-level OR: E
-  _assert_identifier_node(exp->node.logical->right_operand, "E");
+  TEST_ASSERT_EQUAL(AND, exp->logical.op);
+  TEST_ASSERT_EQUAL(NOT_NODE, exp->logical.left_operand->type);
+  TEST_ASSERT_EQUAL(NOT_NODE, exp->logical.right_operand->type);
 
   parse_free_result(result);
-  q_destroy(tokens);
+}
+
+void test_exp_fails_mismatched_parens(void) {
+  parse_result_t *result = _parse_string("query in:\"abc\" exp:((a or b)");
+  _assert_error(result);
+  parse_free_result(result);
+}
+
+void test_exp_fails_invalid_syntax(void) {
+  parse_result_t *result = _parse_string("query in:\"abc\" exp:(a and or b)");
+  _assert_error(result);
+  parse_free_result(result);
 }
 
 // --- General Parser and Edge Case Tests ---
 
-void test_parse_fails_on_null_input(void) {
-  parse_result_t *result = parse(NULL);
-  _assert_error(result, "Invalid input: token queue is NULL.");
-  parse_free_result(result);
-}
-
 void test_parse_fails_on_empty_input(void) {
-  Queue *tokens = q_create();
-  parse_result_t *result = parse(tokens);
-  _assert_error(result, "Invalid input: token queue is empty.");
+  parse_result_t *result = _parse_string("");
+  _assert_error(result);
   parse_free_result(result);
-  q_destroy(tokens);
 }
 
 void test_parse_fails_on_invalid_command(void) {
-  Queue *tokens = q_create();
-  _add_token(tokens, IDENTIFIER, "JUMP"); // Not a valid command
-  _add_token(tokens, IDENTIFIER, "foo");
-
-  parse_result_t *result = parse(tokens);
-  _assert_error(result, "Invalid command.");
+  parse_result_t *result = _parse_string("update in:\"abc\" entity:\"b\"");
+  _assert_error(result);
   parse_free_result(result);
-  q_destroy(tokens);
 }
 
-void test_parse_query_fails_on_missing_argument(void) {
-  Queue *tokens = q_create();
-  _add_token(tokens, QUERY_CMD, NULL);
-
-  parse_result_t *result = parse(tokens);
-  _assert_error(result, "Invalid syntax: Expected an argument after QUERY");
+void test_parse_fails_on_incomplete_tag(void) {
+  parse_result_t *result = _parse_string("query in:");
+  _assert_error(result);
   parse_free_result(result);
-  q_destroy(tokens);
-}
-
-void test_parse_query_fails_on_trailing_tokens(void) {
-  Queue *tokens = q_create();
-  _add_token(tokens, QUERY_CMD, NULL);
-  _add_token(tokens, IDENTIFIER, "analytics");
-  _add_token(tokens, IDENTIFIER, "login_ok");
-  _add_token(tokens, IDENTIFIER,
-             "extra_token_is_error"); // This should not be here
-
-  parse_result_t *result = parse(tokens);
-  _assert_error(result, "Syntax error: Unexpected token, expected operator.");
-  parse_free_result(result);
-  q_destroy(tokens);
-}
-
-void test_parse_query_fails_on_mismatched_parenthesis(void) {
-  Queue *tokens = q_create();
-  _add_token(tokens, QUERY_CMD, NULL);
-  _add_token(tokens, IDENTIFIER, "analytics");
-  _add_token(tokens, LPAREN, NULL);
-  _add_token(tokens, IDENTIFIER, "A");
-
-  parse_result_t *result = parse(tokens);
-  _assert_error(result, "Mismatched parentheses");
-  parse_free_result(result);
-  q_destroy(tokens);
 }
 
 int main(void) {
   UNITY_BEGIN();
 
-  // ADD tests
-  RUN_TEST(test_parse_add_command_happy_path);
-  RUN_TEST(test_parse_add_fails_with_too_few_args);
-  RUN_TEST(test_parse_add_fails_with_too_many_args);
-  RUN_TEST(test_parse_add_fails_with_wrong_arg_type);
+  // EVENT command tests
+  RUN_TEST(test_event_success_minimal);
+  RUN_TEST(test_event_success_full_different_order);
+  RUN_TEST(test_event_fails_missing_in);
+  RUN_TEST(test_event_fails_missing_entity);
+  RUN_TEST(test_event_fails_duplicate_custom_tag);
+  RUN_TEST(test_event_fails_invalid_container_name);
+  RUN_TEST(test_event_fails_with_query_only_tag);
 
-  // QUERY tests
-  RUN_TEST(test_parse_query_simple_no_expression);
-  RUN_TEST(test_parse_query_simple_expression);
+  // QUERY command tests
+  RUN_TEST(test_query_success_minimal);
+  RUN_TEST(test_query_success_full_different_order);
+  RUN_TEST(test_query_fails_missing_exp);
+  RUN_TEST(test_query_fails_duplicate_in);
 
-  RUN_TEST(test_parse_query_precedence_and_grouping_1);
-  RUN_TEST(test_parse_query_precedence_and_grouping_2);
-  RUN_TEST(test_parse_query_precedence_and_grouping_3);
+  // Expression parsing tests
+  RUN_TEST(test_exp_precedence);
+  RUN_TEST(test_exp_parentheses_override);
+  RUN_TEST(test_exp_not_operator);
+  RUN_TEST(test_exp_fails_mismatched_parens);
+  RUN_TEST(test_exp_fails_invalid_syntax);
 
-  // General/Edge Case tests
-  RUN_TEST(test_parse_fails_on_null_input);
+  // General/edge case tests
   RUN_TEST(test_parse_fails_on_empty_input);
   RUN_TEST(test_parse_fails_on_invalid_command);
-  RUN_TEST(test_parse_query_fails_on_missing_argument);
-  RUN_TEST(test_parse_query_fails_on_trailing_tokens);
-  RUN_TEST(test_parse_query_fails_on_mismatched_parenthesis);
+  RUN_TEST(test_parse_fails_on_incomplete_tag);
 
   return UNITY_END();
 }

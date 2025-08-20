@@ -3,33 +3,161 @@
 #include "core/stack.h"
 #include "query/ast.h"
 #include "query/tokenizer.h"
+#include "uthash.h"
+#include <ctype.h>
+#include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
 
-static void _parse_add(Queue *tokens, parse_result_t *r) {
-  if (q_size(tokens) != 3) {
-    r->error_message = "Wrong number of arguments for ADD";
-    return;
+typedef struct {
+  char *key;
+  UT_hash_handle hh;
+} custom_key;
+
+static bool _is_valid_container_name(const char *name) {
+  if (strlen(name) < 3)
+    return false;
+  if (isdigit((unsigned char)name[0]))
+    return false;
+  return true;
+}
+
+static bool _validate_ast(ast_node_t *ast, ast_command_type_t cmd_type,
+                          custom_key **c_keys) {
+  if (!ast)
+    return false;
+  bool seen_in = false;
+  bool seen_id = false;
+  bool seen_exp = false;
+  // in future - support multiple entity IDs per EVENT command
+  bool seen_entity = false;
+  bool seen_take = false;
+  bool seen_cursor = false;
+  // in future- allow multiple tag counters
+  bool seen_tag_counter = false;
+
+  if (ast->type != COMMAND_NODE || !ast->command.tags ||
+      ast->command.tags->type != TAG_NODE)
+    return false;
+
+  custom_key *c_key = NULL;
+  ast_node_t *tag = ast->command.tags;
+  while (tag) {
+    ast_tag_node_t t_node = tag->tag;
+    if (!t_node.value)
+      return false;
+    if (t_node.is_counter) {
+      if (seen_tag_counter)
+        return false;
+      seen_tag_counter = true;
+    }
+    if (t_node.key_type == TAG_KEY_RESERVED) {
+      switch (t_node.reserved_key) {
+      case KEY_IN:
+        if (seen_in ||
+            !_is_valid_container_name(t_node.value->literal.string_value))
+          return false;
+        seen_in = true;
+        break;
+      case KEY_ID:
+        if (seen_id)
+          return false;
+        seen_id = true;
+        break;
+      case KEY_EXP:
+        if (seen_exp || cmd_type != CMD_QUERY)
+          return false;
+        seen_exp = true;
+        break;
+      case KEY_ENTITY:
+        if (seen_entity)
+          return false;
+        seen_entity = true;
+        break;
+      case KEY_TAKE:
+        if (seen_take)
+          return false;
+        seen_take = true;
+        break;
+      case KEY_CURSOR:
+        if (seen_cursor)
+          return false;
+        seen_cursor = true;
+        break;
+      default:
+        return false;
+      }
+    } else {
+      HASH_FIND_STR(*c_keys, t_node.custom_key, c_key);
+      if (c_key) {
+        return false;
+      }
+      c_key = malloc(sizeof(custom_key));
+      if (!c_key)
+        return false;
+      c_key->key = t_node.custom_key;
+      HASH_ADD_KEYPTR(hh, *c_keys, t_node.custom_key, strlen(t_node.custom_key),
+                      c_key);
+    }
+    tag = tag->next;
   }
-  ast_node_t *cmd_node = ast_create_command_node(ADD, NULL, NULL);
+  if (!seen_in) {
+    return false;
+  }
+  if (cmd_type == CMD_EVENT && !seen_entity) {
+    return false;
+  }
+  if (cmd_type == CMD_EVENT && seen_exp)
+    return false;
+  if (cmd_type == CMD_QUERY && !seen_exp) {
+    return false;
+  }
+  if (cmd_type == CMD_QUERY && seen_entity)
+    return false;
+  return true;
+}
+
+// Parse the next tag, if it exists
+static ast_node_t *_parse_tag(Queue *tokens, parse_result_t *r);
+
+static void _finalize_ast(ast_node_t *cmd_node, ast_command_type_t cmd_type,
+                          op_type_t op_type, parse_result_t *r) {
+  custom_key *c_keys = NULL;
+  bool v_r = _validate_ast(cmd_node, cmd_type, &c_keys);
+  if (c_keys) {
+    custom_key *c_key, *tmp;
+    HASH_ITER(hh, c_keys, c_key, tmp) {
+      HASH_DEL(c_keys, c_key);
+      free(c_key);
+    }
+  }
+  if (v_r) {
+    r->type = op_type;
+    r->ast = cmd_node;
+  } else {
+    ast_free(cmd_node);
+  }
+}
+
+static void _parse_event(Queue *tokens, parse_result_t *r) {
+  ast_command_type_t cmd_type = CMD_EVENT;
+  ast_node_t *cmd_node = ast_create_command_node(cmd_type, NULL);
   if (!cmd_node) {
     r->error_message = "Failed to allocate command node";
     return;
   }
   while (!q_empty(tokens)) {
-    token_t *t = q_dequeue(tokens);
-    if (!t || t->type != IDENTIFIER || t->text_value == NULL) {
-      tok_free(t);
+    ast_node_t *tag = _parse_tag(tokens, r);
+    if (!tag) {
       ast_free(cmd_node);
-      r->error_message = "Invalid argument type for ADD";
+      r->error_message = "Invalid tag for EVENT";
       return;
     }
-    ast_list_append(&(cmd_node->node.cmd->args),
-                    ast_create_identifier_node(t->text_value));
-    tok_free(t);
+
+    ast_append_node(&cmd_node->command.tags, tag);
   }
-  r->type = OP_TYPE_WRITE;
-  r->ast = cmd_node;
+
+  _finalize_ast(cmd_node, cmd_type, OP_TYPE_WRITE, r);
 }
 
 // Helper function to build a logical node from the stacks.
@@ -40,7 +168,7 @@ static bool _apply_operator(c_stack_t *value_stack, c_stack_t *op_stack) {
 
   ast_node_t *new_node = NULL;
 
-  if (op_token->type == NOT_OP) {
+  if (op_token->type == TOKEN_OP_NOT) {
     // --- Unary Operator Logic ---
     ast_node_t *operand = stack_pop(value_stack);
     if (!operand) {
@@ -61,8 +189,8 @@ static bool _apply_operator(c_stack_t *value_stack, c_stack_t *op_stack) {
       ast_free(right_node);
       return false;
     }
-    new_node = ast_create_logical_node(op_token->type == AND_OP ? AND : OR,
-                                       left_node, right_node);
+    new_node = ast_create_logical_node(
+        op_token->type == TOKEN_OP_AND ? AND : OR, left_node, right_node);
 
     if (!new_node) {
       ast_free(right_node);
@@ -87,11 +215,11 @@ static bool _apply_operator(c_stack_t *value_stack, c_stack_t *op_stack) {
 
 static int _get_precedence(token_type type) {
   switch (type) {
-  case NOT_OP:
+  case TOKEN_OP_NOT:
     return 3; // Highest precedence
-  case AND_OP:
+  case TOKEN_OP_AND:
     return 2;
-  case OR_OP:
+  case TOKEN_OP_OR:
     return 1;
   default:
     return 0; // For parentheses and other tokens
@@ -100,7 +228,7 @@ static int _get_precedence(token_type type) {
 
 typedef enum { RIGHT, LEFT } associativity;
 static associativity get_associativity(token_type type) {
-  if (type == NOT_OP)
+  if (type == TOKEN_OP_NOT)
     return RIGHT;
   return LEFT;
 }
@@ -127,25 +255,41 @@ static ast_node_t *_parse_exp(Queue *tokens, parse_result_t *r) {
     return NULL;
   }
 
+  token_t *lparen = q_dequeue(tokens);
+  if (!lparen || lparen->type != TOKEN_SYM_LPAREN) {
+    tok_free(lparen);
+    r->error_message = "Expression must start with '('";
+    return NULL;
+  }
+  if (!stack_push(op_stack, lparen)) {
+    tok_free(lparen);
+    return cleanup_stacks_and_return_null(value_stack, op_stack);
+  }
+
+  int paren_depth = 1;
+
   // A state flag to track whether we expect an operand (like an identifier or
   // '(') or an operator (like 'AND' or ')').
   bool expect_operand = true;
 
-  while (!q_empty(tokens)) {
+  while (!q_empty(tokens) && paren_depth > 0) {
     token_t *token = q_peek(tokens);
 
     if (expect_operand) {
-      if (token->type == IDENTIFIER) {
+      if (token->type == TOKEN_IDENTIFER) {
         token_t *id_to_push = q_dequeue(tokens);
 
-        ast_node_t *node = ast_create_identifier_node(id_to_push->text_value);
+        ast_node_t *node =
+            ast_create_string_literal_node(id_to_push->text_value);
         tok_free(id_to_push);
         if (!node || !stack_push(value_stack, node)) {
           ast_free(node);
           return cleanup_stacks_and_return_null(value_stack, op_stack);
         }
         expect_operand = false; // After an operand, we expect an operator.
-      } else if (token->type == NOT_OP || token->type == LPAREN) {
+      } else if (token->type == TOKEN_OP_NOT ||
+                 token->type == TOKEN_SYM_LPAREN) {
+        paren_depth++;
         token_t *op_to_push = q_dequeue(tokens);
         if (!stack_push(op_stack, op_to_push)) {
           tok_free(op_to_push);
@@ -158,11 +302,11 @@ static ast_node_t *_parse_exp(Queue *tokens, parse_result_t *r) {
         return cleanup_stacks_and_return_null(value_stack, op_stack);
       }
     } else { // We expect a binary operator or a right parenthesis
-      if (token->type == AND_OP || token->type == OR_OP) {
+      if (token->type == TOKEN_OP_AND || token->type == TOKEN_OP_OR) {
         token_t *op1 = token;
         while (!stack_is_empty(op_stack)) {
           token_t *op2 = stack_peek(op_stack);
-          if (op2->type == LPAREN)
+          if (op2->type == TOKEN_SYM_LPAREN)
             break;
 
           if ((get_associativity(op1->type) == LEFT &&
@@ -182,10 +326,11 @@ static ast_node_t *_parse_exp(Queue *tokens, parse_result_t *r) {
           return cleanup_stacks_and_return_null(value_stack, op_stack);
         }
         expect_operand = true; // After a binary op, we expect an operand.
-      } else if (token->type == RPAREN) {
+      } else if (token->type == TOKEN_SYM_RPAREN) {
+        paren_depth--;
         bool found_lparen = false;
         while (!stack_is_empty(op_stack)) {
-          if (((token_t *)stack_peek(op_stack))->type == LPAREN) {
+          if (((token_t *)stack_peek(op_stack))->type == TOKEN_SYM_LPAREN) {
             tok_free(stack_pop(op_stack)); // Pop and discard the '('
             found_lparen = true;
             break;
@@ -209,7 +354,7 @@ static ast_node_t *_parse_exp(Queue *tokens, parse_result_t *r) {
 
   // --- Final Unwinding ---
   while (!stack_is_empty(op_stack)) {
-    if (((token_t *)stack_peek(op_stack))->type == LPAREN) {
+    if (((token_t *)stack_peek(op_stack))->type == TOKEN_SYM_LPAREN) {
       r->error_message = "Mismatched parentheses";
       return cleanup_stacks_and_return_null(value_stack, op_stack);
     }
@@ -232,71 +377,24 @@ static ast_node_t *_parse_exp(Queue *tokens, parse_result_t *r) {
 }
 
 static void _parse_query(Queue *tokens, parse_result_t *r) {
-  ast_node_t *cmd_node = ast_create_command_node(QUERY, NULL, NULL);
+  ast_command_type_t cmd_type = CMD_QUERY;
+  ast_node_t *cmd_node = ast_create_command_node(cmd_type, NULL);
   if (!cmd_node) {
     r->error_message = "Failed to allocate command node";
     return;
   }
-
-  // --- 1. Parse the MANDATORY first argument (e.g., 'analytics') ---
-  token_t *arg_token = q_dequeue(tokens);
-  if (!arg_token || arg_token->type != IDENTIFIER) {
-    tok_free(arg_token);
-    ast_free(cmd_node);
-    r->error_message = "Invalid syntax: Expected an argument after QUERY";
-    return;
-  }
-
-  ast_list_append(&(cmd_node->node.cmd->args),
-                  ast_create_identifier_node(arg_token->text_value));
-  tok_free(arg_token);
-
-  // --- 2. Check what comes next ---
-  if (q_empty(tokens)) {
-    // This is a valid query with no expression: "QUERY analytics"
-    cmd_node->node.cmd->exp = NULL;
-    r->type = OP_TYPE_READ;
-    r->ast = cmd_node;
-    return;
-  }
-
-  // --- 3. If not the end, it MUST be an expression ---
-  // Peek at the next token to see if it can legally start an expression.
-  token_t *next_token = q_peek(tokens);
-  if (next_token->type == IDENTIFIER || next_token->type == NOT_OP ||
-      next_token->type == LPAREN) {
-
-    // It looks like an expression, so parse it.
-    ast_node_t *exp = _parse_exp(tokens, r);
-    if (!exp) {
-      // _parse_exp failed; error message is already set. Just clean up.
+  while (!q_empty(tokens)) {
+    ast_node_t *tag = _parse_tag(tokens, r);
+    if (!tag) {
       ast_free(cmd_node);
-      r->ast = NULL;
-      return;
-    }
-    cmd_node->node.cmd->exp = exp;
-
-    // After a valid expression, there should be nothing
-    // left. This catches "QUERY analytics login_2024_02_02 arg3"
-    if (!q_empty(tokens)) {
-      r->error_message = "Invalid syntax: Unexpected token after expression";
-      ast_free(cmd_node); // Free the entire tree we just built
-      r->ast = NULL;
+      r->error_message = "Invalid tag for QUERY";
       return;
     }
 
-  } else {
-    // The token after the first argument cannot start an expression (e.g.,
-    // "QUERY analytics AND ...")
-    r->error_message =
-        "Invalid syntax: Unexpected token after command argument";
-    ast_free(cmd_node);
-    r->ast = NULL;
-    return;
+    ast_append_node(&cmd_node->command.tags, tag);
   }
 
-  r->type = OP_TYPE_READ;
-  r->ast = cmd_node;
+  _finalize_ast(cmd_node, cmd_type, OP_TYPE_READ, r);
 }
 
 static parse_result_t *_create_result(void) {
@@ -313,8 +411,8 @@ static bool _is_token_a_command(const token_t *token) {
   }
 
   switch (token->type) {
-  case QUERY_CMD:
-  case ADD_CMD:
+  case TOKEN_CMD_QUERY:
+  case TOKEN_CMD_EVENT:
     return true;
   default:
     return false;
@@ -334,18 +432,18 @@ parse_result_t *parse(Queue *tokens) {
   token_t *cmd_token = q_dequeue(tokens);
   if (!cmd_token || !_is_token_a_command(cmd_token)) {
     tok_clear_all(tokens);
-    r->error_message = "Invalid command.";
+    r->error_message = "Invalid command!";
     return r;
   }
 
-  if (cmd_token->type == ADD_CMD) {
-    _parse_add(tokens, r);
-  } else if (cmd_token->type == QUERY_CMD) {
+  if (cmd_token->type == TOKEN_CMD_EVENT) {
+    _parse_event(tokens, r);
+  } else if (cmd_token->type == TOKEN_CMD_QUERY) {
     _parse_query(tokens, r);
   } else {
     tok_free(cmd_token);
     tok_clear_all(tokens);
-    r->error_message = "Unrecognized command";
+    r->error_message = "Unrecognized command!";
     return r;
   }
   tok_free(cmd_token);
@@ -358,4 +456,138 @@ void parse_free_result(parse_result_t *r) {
     return;
   ast_free(r->ast);
   free(r);
+}
+
+static bool _is_token_kw(token_t *t) {
+  if (!t)
+    return NULL;
+  switch (t->type) {
+  case TOKEN_KW_ID:
+  case TOKEN_KW_IN:
+  case TOKEN_KW_CURSOR:
+  case TOKEN_KW_ENTITY:
+  case TOKEN_KW_EXP:
+  case TOKEN_KW_TAKE:
+    return true;
+  default:
+    return false;
+  }
+}
+
+static ast_node_t *_parse_tag(Queue *tokens, parse_result_t *r) {
+  ast_node_t *tag = NULL;
+  ast_node_t *tag_val = NULL;
+
+  // need at least 3 tokens for a tag (key:value)
+  if (q_size(tokens) < 3)
+    return NULL;
+  token_t *key_token = q_dequeue(tokens);
+  if (!key_token)
+    return NULL;
+  token_type k_type = key_token->type;
+
+  if (k_type == TOKEN_IDENTIFER || k_type == TOKEN_LITERAL_STRING) {
+    tag = ast_create_custom_tag_node(key_token->text_value, NULL, false);
+  } else if (_is_token_kw(key_token)) {
+    ast_reserved_key_t kt;
+    switch (k_type) {
+    case TOKEN_KW_IN:
+      kt = KEY_IN;
+      break;
+    case TOKEN_KW_ID:
+      kt = KEY_ID;
+      break;
+    case TOKEN_KW_ENTITY:
+      kt = KEY_ENTITY;
+      break;
+    case TOKEN_KW_EXP:
+      kt = KEY_EXP;
+      break;
+    case TOKEN_KW_TAKE:
+      kt = KEY_TAKE;
+      break;
+    case TOKEN_KW_CURSOR:
+      kt = KEY_CURSOR;
+      break;
+    default:
+      free(key_token);
+      return NULL;
+    }
+    tag = ast_create_tag_node(kt, NULL, false);
+  } else {
+    free(key_token);
+    return NULL;
+  }
+
+  free(key_token);
+
+  if (!tag) {
+    return NULL;
+  }
+
+  token_t *sep = q_dequeue(tokens);
+  if (!sep || sep->type != TOKEN_SYM_COLON) {
+    free(sep);
+    ast_free(tag);
+    return NULL;
+  }
+  free(sep);
+
+  // TODO: `take:<number>`
+  token_t *first_val_token = q_peek(tokens);
+  if (!first_val_token) {
+    ast_free(tag);
+    return NULL;
+  }
+  if (tag->tag.key_type == TAG_KEY_RESERVED) {
+    if (tag->tag.reserved_key == KEY_EXP) {
+      // exp: must be followed by a parenthesized expression
+      if (first_val_token->type != TOKEN_SYM_LPAREN) {
+        ast_free(tag);
+        return NULL;
+      }
+    } else {
+      // All other reserved keys must be followed by a string or identifier
+      if (first_val_token->type != TOKEN_IDENTIFER &&
+          first_val_token->type != TOKEN_LITERAL_STRING) {
+        ast_free(tag);
+        return NULL;
+      }
+    }
+  } else {
+    // Custom keys: must be followed by a string or identifier
+    if (first_val_token->type != TOKEN_IDENTIFER &&
+        first_val_token->type != TOKEN_LITERAL_STRING) {
+      ast_free(tag);
+      return NULL;
+    }
+  }
+
+  if (first_val_token->type == TOKEN_IDENTIFER ||
+      first_val_token->type == TOKEN_LITERAL_STRING) {
+    first_val_token = q_dequeue(tokens);
+    tag_val = ast_create_string_literal_node(first_val_token->text_value);
+    free(first_val_token);
+    if (!tag_val) {
+      ast_free(tag);
+      return NULL;
+    }
+    tag->tag.value = tag_val;
+  } else {
+    ast_node_t *exp_tree = _parse_exp(tokens, r);
+    if (!exp_tree) {
+      ast_free(tag);
+      return NULL;
+    }
+    tag->tag.value = exp_tree;
+  }
+
+  token_t *next_t = q_peek(tokens);
+  if (next_t && next_t->type == TOKEN_SYM_PLUS) {
+    next_t = q_dequeue(tokens);
+    free(next_t);
+    tag->tag.is_counter = true;
+  }
+
+  return tag;
 }
