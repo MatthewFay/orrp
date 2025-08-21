@@ -21,6 +21,8 @@ The `EVENT` command records a new event and associates a set of tags with it. Th
 
 **Examples**:
 ```
+EVENT in:new_signups entity:user456
+
 // A simple login event with a counter on the action
 EVENT in:analytics_2025_08 entity:user123 loc:ca action:login+ day:2025_08_16
 

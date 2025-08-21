@@ -30,6 +30,7 @@ typedef struct eng_user_dc_s {
   // Value: A Roaring Bitmap of all local `event_id`s that have this tag.
   MDB_dbi inverted_event_index_db;
 
+  // Event-to-Entity Map.
   // Key: The local `event_id` (`uint32_t`).
   // Value: The global `entity_id` (`uint32_t`) associated with the event.
   MDB_dbi event_to_entity_db;

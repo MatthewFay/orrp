@@ -162,13 +162,18 @@ api_response_t *api_exec(ast_node_t *ast, eng_context_t *ctx) {
   // Dispatch based on the command type in the AST root.
   switch (ast->type) {
   case CMD_EVENT:
-    return _api_event(ast, ctx, r);
+    _api_event(ast, ctx, r);
+    break;
 
-  case CMD_QUERY:
-    return r;
+  case CMD_QUERY:;
+    break;
 
   default:
     r->err_msg = "Unknown command type!";
-    return r;
+    ;
+    break;
   }
+
+  ast_free(ast);
+  return r;
 }

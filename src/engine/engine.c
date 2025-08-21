@@ -33,69 +33,6 @@ const u_int32_t NEXT_ID_INIT_VAL = 1;
 const char *DB_EVENT_COUNTERS_NAME = "event_counters";
 const char *DB_BITMAPS_NAME = "bitmaps";
 
-/**
- * Safely builds the full path for a given container name.
- * Returns the number of characters written, or a negative value on error.
- */
-static int _get_container_path(char *buffer, size_t buffer_size,
-                               const char *container_name) {
-  return snprintf(buffer, buffer_size, "%s/%s.mdb", CONTAINER_FOLDER,
-                  container_name);
-}
-
-// Used to validate user data container names for security purposes
-static bool _is_valid_filename(const char *filename) {
-
-  if (filename == NULL || filename[0] == '\0') {
-    return false;
-  }
-
-  if (strlen(filename) > 64)
-    return false;
-
-  if (strcmp(filename, ".") == 0 || strcmp(filename, "..") == 0) {
-    return false;
-  }
-
-  if (strpbrk(filename, "/\\") != NULL) {
-    return false; // Contains '/' or '\', reject it.
-  }
-
-  return true;
-}
-
-// n_id will be 0 on failure !
-static void _get_next_n_id(eng_sys_dc_t *sys_c, MDB_txn *txn, u_int32_t *n_id) {
-  bool r;
-  db_key_t key;
-  key.type = DB_KEY_STRING;
-  key.key.s = NEXT_ID_KEY;
-  db_get_result_t *next = db_get(sys_c->metadata_db, txn, &key);
-  if (next->status == DB_GET_OK) {
-    u_int32_t next_id_val = *(u_int32_t *)next->value;
-    u_int32_t next_id_val_incr = next_id_val + 1;
-    r = db_put(sys_c->metadata_db, txn, &key, &next_id_val_incr,
-               sizeof(u_int32_t), false);
-    *n_id = r ? next_id_val : 0;
-  } else {
-    log_error("Unable to get next numeric id");
-    *n_id = 0; // Should only happen if DB has not been initialized!
-  }
-  db_free_get_result(next);
-}
-
-static bool _ensure_data_dir_exists() {
-  struct stat st = {0};
-  if (stat(CONTAINER_FOLDER, &st) == -1) {
-    if (mkdir(CONTAINER_FOLDER, 0755) != 0) {
-      fprintf(stderr, "mkdir failed for '%s': %s\n", CONTAINER_FOLDER,
-              strerror(errno));
-      return false;
-    }
-  }
-  return true;
-}
-
 static eng_container_t *_eng_create_container(eng_dc_type_t type) {
   eng_container_t *c = malloc(sizeof(eng_container_t));
   if (!c)
@@ -152,6 +89,239 @@ void eng_close_ctx(eng_context_t *ctx) {
   _eng_close_container(ctx->sys_c);
 
   free(ctx);
+}
+
+// Used to validate user data container names for security purposes
+static bool _is_valid_filename(const char *filename) {
+
+  if (filename == NULL || filename[0] == '\0') {
+    return false;
+  }
+
+  if (strlen(filename) > 64)
+    return false;
+
+  if (strcmp(filename, ".") == 0 || strcmp(filename, "..") == 0) {
+    return false;
+  }
+
+  if (strpbrk(filename, "/\\") != NULL) {
+    return false; // Contains '/' or '\', reject it.
+  }
+
+  return true;
+}
+
+// --- Data container CACHE ---
+
+typedef struct eng_cache_node_s {
+  eng_container_t *c;
+  int reference_count; // How many operations are currently using this handle
+  struct eng_cache_node_s *prev;
+  struct eng_cache_node_s *next;
+  UT_hash_handle hh;
+} eng_cache_node_t;
+
+typedef struct eng_cache_s {
+  int size;
+  // Hash map for O(1) lookups by name
+  eng_cache_node_t *nodes;
+  // Doubly-linked list for LRU ordering
+  eng_cache_node_t *head;
+  eng_cache_node_t *tail;
+  // A mutex to protect the cache structure itself during lookups/modifications
+  uv_mutex_t lock;
+} eng_cache_t;
+
+// LRU cache for data containers //
+static eng_cache_t g_container_cache;
+
+static void _eng_init_cache() {
+  g_container_cache.nodes = NULL;
+  g_container_cache.size = 0;
+  g_container_cache.head = NULL;
+  g_container_cache.tail = NULL;
+}
+
+static void _move_to_front(eng_cache_node_t *n) {
+  if (g_container_cache.head == n) {
+    return;
+  }
+  if (n->prev) {
+    n->prev->next = n->next;
+  }
+  if (n->next) {
+    n->next->prev = n->prev;
+  }
+  if (g_container_cache.tail == n) {
+    g_container_cache.tail = n->prev;
+  }
+  n->next = g_container_cache.head;
+  n->prev = NULL;
+  if (g_container_cache.head) {
+    g_container_cache.head->prev = n;
+  }
+  g_container_cache.head = n;
+  if (!g_container_cache.tail) {
+    g_container_cache.tail = n;
+  }
+}
+
+// Call this when done with container:
+// Decrement ref count for container
+static void _eng_release_container(eng_container_t *c) {
+  if (!c->name)
+    return;
+  eng_cache_node_t *n = NULL;
+  ;
+  uv_mutex_lock(&g_container_cache.lock);
+  HASH_FIND_STR(g_container_cache.nodes, c->name, n);
+  if (n) {
+    n->reference_count--;
+  }
+  uv_mutex_unlock(&g_container_cache.lock);
+}
+
+static eng_container_t *_get_container(const char *name) {
+  if (!_is_valid_filename(name))
+    return NULL;
+  eng_cache_node_t *n;
+  uv_mutex_lock(&g_container_cache.lock);
+  HASH_FIND_STR(g_container_cache.nodes, name, n);
+  if (n) {
+    n->reference_count++;
+    _move_to_front(n);
+    uv_mutex_unlock(&g_container_cache.lock);
+    return n->c;
+  }
+  if (g_container_cache.size >= CONTAINER_CACHE_CAPACITY) {
+    eng_cache_node_t *evict_candidate = g_container_cache.tail;
+    // IMPORTANT: Only evict if no one is using it!
+    if (evict_candidate && evict_candidate->reference_count <= 0) {
+      _eng_close_container(evict_candidate->c);
+      if (evict_candidate->prev) {
+        evict_candidate->prev->next = evict_candidate->next;
+      }
+      if (evict_candidate->next) {
+        evict_candidate->next->prev = evict_candidate->prev;
+      }
+
+      g_container_cache.tail = evict_candidate->prev;
+      if (g_container_cache.tail) {
+        g_container_cache.tail->next = NULL;
+      } else {
+        // list now empty
+        g_container_cache.head = NULL;
+      }
+
+      HASH_DEL(g_container_cache.nodes, n);
+      free(evict_candidate);
+      g_container_cache.size--;
+    }
+  }
+
+  n = malloc(sizeof(eng_cache_node_t));
+  if (!n) {
+    uv_mutex_unlock(&g_container_cache.lock);
+    return NULL;
+  }
+  eng_container_t *c = _eng_create_container(CONTAINER_TYPE_USER);
+  if (!c) {
+    free(n);
+    uv_mutex_unlock(&g_container_cache.lock);
+    return NULL;
+  }
+  c->name = strdup(name);
+
+  MDB_env *env = db_create_env(name, CONTAINER_SIZE, 2);
+
+  if (!env) {
+    _eng_close_container(c);
+    free(n);
+    uv_mutex_unlock(&g_container_cache.lock);
+    return NULL;
+  }
+  c->env = env;
+
+  bool bm_r = db_open(env, DB_BITMAPS_NAME, &c->data.usr->bitmaps_db);
+  bool ec_r =
+      db_open(env, DB_EVENT_COUNTERS_NAME, &c->data.usr->event_counters_db);
+  if (!(bm_r && ec_r)) {
+    _eng_close_container(c);
+    free(n);
+    uv_mutex_unlock(&g_container_cache.lock);
+    return NULL;
+  }
+
+  n->reference_count = 1;
+  n->c = c;
+  n->prev = NULL;
+  n->next = g_container_cache.head;
+  if (g_container_cache.head)
+    g_container_cache.head->prev = n;
+  g_container_cache.head = n;
+  if (!g_container_cache.tail)
+    g_container_cache.tail = n;
+  HASH_ADD_KEYPTR(hh, g_container_cache.nodes, c->name, strlen(c->name), n);
+  g_container_cache.size++;
+  uv_mutex_unlock(&g_container_cache.lock);
+  return c;
+}
+
+static void _db_cache_free() {
+  eng_cache_node_t *n, *tmp;
+  if (g_container_cache.nodes) {
+    HASH_ITER(hh, g_container_cache.nodes, n, tmp) {
+      _eng_close_container(n->c);
+
+      HASH_DEL(g_container_cache.nodes, n);
+      free(n);
+    }
+  }
+  // reset
+  _eng_init_cache();
+}
+
+/**
+ * Safely builds the full path for a given container name.
+ * Returns the number of characters written, or a negative value on error.
+ */
+static int _get_container_path(char *buffer, size_t buffer_size,
+                               const char *container_name) {
+  return snprintf(buffer, buffer_size, "%s/%s.mdb", CONTAINER_FOLDER,
+                  container_name);
+}
+
+// n_id will be 0 on failure !
+static void _get_next_n_id(eng_sys_dc_t *sys_c, MDB_txn *txn, u_int32_t *n_id) {
+  bool r;
+  db_key_t key;
+  key.type = DB_KEY_STRING;
+  key.key.s = NEXT_ID_KEY;
+  db_get_result_t *next = db_get(sys_c->metadata_db, txn, &key);
+  if (next->status == DB_GET_OK) {
+    u_int32_t next_id_val = *(u_int32_t *)next->value;
+    u_int32_t next_id_val_incr = next_id_val + 1;
+    r = db_put(sys_c->metadata_db, txn, &key, &next_id_val_incr,
+               sizeof(u_int32_t), false);
+    *n_id = r ? next_id_val : 0;
+  } else {
+    log_error("Unable to get next numeric id");
+    *n_id = 0; // Should only happen if DB has not been initialized!
+  }
+  db_free_get_result(next);
+}
+
+static bool _ensure_data_dir_exists() {
+  struct stat st = {0};
+  if (stat(CONTAINER_FOLDER, &st) == -1) {
+    if (mkdir(CONTAINER_FOLDER, 0755) != 0) {
+      fprintf(stderr, "mkdir failed for '%s': %s\n", CONTAINER_FOLDER,
+              strerror(errno));
+      return false;
+    }
+  }
+  return true;
 }
 
 // Initialize the db engine, returning engine context.
@@ -248,9 +418,9 @@ static bool _map(eng_sys_dc_t *sys_c, MDB_txn *txn, const char *id,
   return true;
 }
 
-// n_id (numeric id) will be 0 on error
+// ent_int_id will be 0 on error
 static void _map_str_id_to_numeric(eng_sys_dc_t *sys_c, MDB_txn *txn, char *id,
-                                   uint32_t *n_id) {
+                                   uint32_t *ent_int_id) {
   bool map_r;
   db_key_t key;
   key.type = DB_KEY_STRING;
@@ -389,22 +559,86 @@ static bool _upsert_bitmap(eng_user_dc_t *c, MDB_txn *txn, char *ns, char *key,
   return r;
 }
 
-void eng_event(api_response_t *r, eng_context_t *ctx, ast_node_t *ast) {
-  uint32_t n_id = 0;
-  eng_sys_dc_t *sys_c = ctx->sys_c->data.sys;
+typedef struct {
+  // --- Fields for Reserved Tags ---
+  ast_node_t *in_tag_value;
+  ast_node_t *entity_tag_value;
+  ast_node_t *exp_tag_value;
+  ast_node_t *take_tag_value;
+  ast_node_t *cursor_tag_value;
 
-  // TODO: use sep trans for sys DC and user DC
-  MDB_txn *txn = db_create_txn(ctx->sys_c->env, false);
-  if (!txn) {
+  // --- A Single List for All Custom Tags ---
+  ast_node_t *custom_tags_head;
+
+} cmd_ctx_t;
+
+static void _build_cmd_context(ast_command_node_t *cmd, cmd_ctx_t *ctx) {
+  memset(ctx, 0, sizeof(cmd_ctx));
+
+  for (ast_node_t *tag_node = cmd->tags; tag_node != NULL;
+       tag_node = tag_node->next) {
+    if (tag_node->type == TAG_NODE) {
+      ast_tag_node_t *tag = &tag_node->tag;
+
+      if (tag->key_type == TAG_KEY_RESERVED) {
+        switch (tag->reserved_key) {
+        case KEY_IN:
+          ctx->in_tag_value = tag->value;
+          break;
+        case KEY_ENTITY:
+          ctx->entity_tag_value = tag->value;
+          break;
+        case KEY_EXP:
+          ctx->exp_tag_value = tag->value;
+          break;
+        case KEY_TAKE:
+          ctx->take_tag_value = tag->value;
+          break;
+        case KEY_CURSOR:
+          ctx->cursor_tag_value = tag->value;
+          break;
+        case KEY_ID:
+          break;
+        }
+      } else {
+        tag_node->next = ctx->custom_tags_head;
+        ctx->custom_tags_head = tag_node;
+      }
+    }
+  }
+}
+
+void eng_event(api_response_t *r, eng_context_t *ctx, ast_node_t *ast) {
+  uint32_t ent_int_id = 0;
+  eng_container_t *sys_c = ctx->sys_c;
+
+  cmd_ctx_t cmd_ctx;
+  _build_cmd_context(ast->command, &ctx);
+
+  MDB_txn *sys_c_txn = db_create_txn(sys_c->env, false);
+
+  if (!sys_c_txn) {
     r->err_msg = ENG_TXN_ERR;
     return;
   }
-  _map_str_id_to_numeric(sys_c, txn, id, &n_id);
+
+  _map_str_id_to_numeric(sys_c->data.sys, sys_c_txn,
+                         cmd_ctx.entity_tag_value->literal.string_value, &n_id);
   if (!n_id) {
-    db_abort_txn(txn);
+    db_abort_txn(sys_c_txn);
     r->err_msg = ENG_ID_TRANSL_ERR;
     return;
   }
+
+  eng_container_t *dc =
+      _get_container(cmd_ctx.in_tag_value->literal.string_value);
+  if (!dc) {
+    r->err_msg = "Unable to get data container!";
+    // TODO: clean up
+    return;
+  }
+
+  _eng_release_container(dc);
 
   incr_result_t *counter_r = _incr(NULL, txn, ns, key, id);
   if (!counter_r->ok) {
@@ -428,174 +662,4 @@ void eng_event(api_response_t *r, eng_context_t *ctx, ast_node_t *ast) {
     return;
   }
   r->is_ok = true;
-}
-
-// --- Data container CACHE ---
-
-typedef struct eng_cache_node_s {
-  eng_container_t *c;
-  int reference_count; // How many operations are currently using this handle
-  struct eng_cache_node_s *prev;
-  struct eng_cache_node_s *next;
-  UT_hash_handle hh;
-} eng_cache_node_t;
-
-typedef struct eng_cache_s {
-  int size;
-  // Hash map for O(1) lookups by name
-  eng_cache_node_t *nodes;
-  // Doubly-linked list for LRU ordering
-  eng_cache_node_t *head;
-  eng_cache_node_t *tail;
-  // A mutex to protect the cache structure itself during lookups/modifications
-  uv_mutex_t lock;
-} eng_cache_t;
-
-// LRU cache for data containers //
-static eng_cache_t g_container_cache;
-
-static void _eng_init_cache() {
-  g_container_cache.nodes = NULL;
-  g_container_cache.size = 0;
-  g_container_cache.head = NULL;
-  g_container_cache.tail = NULL;
-}
-
-static void _move_to_front(eng_cache_node_t *n) {
-  if (g_container_cache.head == n) {
-    return;
-  }
-  if (n->prev) {
-    n->prev->next = n->next;
-  }
-  if (n->next) {
-    n->next->prev = n->prev;
-  }
-  if (g_container_cache.tail == n) {
-    g_container_cache.tail = n->prev;
-  }
-  n->next = g_container_cache.head;
-  n->prev = NULL;
-  if (g_container_cache.head) {
-    g_container_cache.head->prev = n;
-  }
-  g_container_cache.head = n;
-  if (!g_container_cache.tail) {
-    g_container_cache.tail = n;
-  }
-}
-
-// Decrement ref count for container
-void eng_release_container(eng_container_t *c) {
-  if (!c->name)
-    return;
-  eng_cache_node_t *n = NULL;
-  ;
-  uv_mutex_lock(&g_container_cache.lock);
-  HASH_FIND_STR(g_container_cache.nodes, c->name, n);
-  if (n) {
-    n->reference_count--;
-  }
-  uv_mutex_unlock(&g_container_cache.lock);
-}
-
-// Caller responsible for freeing `name`
-eng_container_t *get_container(char *name) {
-  if (!_is_valid_filename(name))
-    return NULL;
-  eng_cache_node_t *n;
-  uv_mutex_lock(&g_container_cache.lock);
-  HASH_FIND_STR(g_container_cache.nodes, name, n);
-  if (n) {
-    n->reference_count++;
-    _move_to_front(n);
-    uv_mutex_unlock(&g_container_cache.lock);
-    return n->c;
-  }
-  if (g_container_cache.size >= CONTAINER_CACHE_CAPACITY) {
-    eng_cache_node_t *evict_candidate = g_container_cache.tail;
-    // IMPORTANT: Only evict if no one is using it!
-    if (evict_candidate && evict_candidate->reference_count <= 0) {
-      _eng_close_container(evict_candidate->c);
-      if (evict_candidate->prev) {
-        evict_candidate->prev->next = evict_candidate->next;
-      }
-      if (evict_candidate->next) {
-        evict_candidate->next->prev = evict_candidate->prev;
-      }
-
-      g_container_cache.tail = evict_candidate->prev;
-      if (g_container_cache.tail) {
-        g_container_cache.tail->next = NULL;
-      } else {
-        // list now empty
-        g_container_cache.head = NULL;
-      }
-
-      HASH_DEL(g_container_cache.nodes, n);
-      free(evict_candidate);
-      g_container_cache.size--;
-    }
-  }
-
-  n = malloc(sizeof(eng_cache_node_t));
-  if (!n) {
-    uv_mutex_unlock(&g_container_cache.lock);
-    return NULL;
-  }
-  eng_container_t *c = _eng_create_container(CONTAINER_TYPE_USER);
-  if (!c) {
-    free(n);
-    uv_mutex_unlock(&g_container_cache.lock);
-    return NULL;
-  }
-  c->name = strdup(name);
-
-  MDB_env *env = db_create_env(name, CONTAINER_SIZE, 2);
-
-  if (!env) {
-    _eng_close_container(c);
-    free(n);
-    uv_mutex_unlock(&g_container_cache.lock);
-    return NULL;
-  }
-  c->env = env;
-
-  bool bm_r = db_open(env, DB_BITMAPS_NAME, &c->data.usr->bitmaps_db);
-  bool ec_r =
-      db_open(env, DB_EVENT_COUNTERS_NAME, &c->data.usr->event_counters_db);
-  if (!(bm_r && ec_r)) {
-    _eng_close_container(c);
-    free(n);
-    uv_mutex_unlock(&g_container_cache.lock);
-    return NULL;
-  }
-
-  n->reference_count = 1;
-  n->c = c;
-  n->prev = NULL;
-  n->next = g_container_cache.head;
-  if (g_container_cache.head)
-    g_container_cache.head->prev = n;
-  g_container_cache.head = n;
-  if (!g_container_cache.tail)
-    g_container_cache.tail = n;
-  HASH_ADD_KEYPTR(hh, g_container_cache.nodes, c->name, strlen(c->name), n);
-  g_container_cache.size++;
-  uv_mutex_unlock(&g_container_cache.lock);
-  return c;
-}
-
-void db_cache_free() {
-  eng_cache_node_t *n, *tmp;
-  if (g_container_cache.nodes) {
-    HASH_ITER(hh, g_container_cache.nodes, n, tmp) {
-      _eng_close_container(n->c);
-
-      HASH_DEL(g_container_cache.nodes, n);
-      free(n);
-    }
-  }
-  // reset
-  _eng_init_cache();
 }
