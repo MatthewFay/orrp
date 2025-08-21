@@ -3,141 +3,12 @@
 #include "core/stack.h"
 #include "query/ast.h"
 #include "query/tokenizer.h"
-#include "uthash.h"
-#include <ctype.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
 
-typedef struct {
-  char *key;
-  UT_hash_handle hh;
-} custom_key;
-
-static bool _is_valid_container_name(const char *name) {
-  if (strlen(name) < 3)
-    return false;
-  if (isdigit((unsigned char)name[0]))
-    return false;
-  return true;
-}
-
-static bool _validate_ast(ast_node_t *ast, ast_command_type_t cmd_type,
-                          custom_key **c_keys) {
-  if (!ast)
-    return false;
-  bool seen_in = false;
-  bool seen_id = false;
-  bool seen_exp = false;
-  // in future - support multiple entity IDs per EVENT command
-  bool seen_entity = false;
-  bool seen_take = false;
-  bool seen_cursor = false;
-  // in future- allow multiple tag counters
-  bool seen_tag_counter = false;
-
-  if (ast->type != COMMAND_NODE || !ast->command.tags ||
-      ast->command.tags->type != TAG_NODE)
-    return false;
-
-  custom_key *c_key = NULL;
-  ast_node_t *tag = ast->command.tags;
-  while (tag) {
-    ast_tag_node_t t_node = tag->tag;
-    if (!t_node.value)
-      return false;
-    if (t_node.is_counter) {
-      if (seen_tag_counter)
-        return false;
-      seen_tag_counter = true;
-    }
-    if (t_node.key_type == TAG_KEY_RESERVED) {
-      switch (t_node.reserved_key) {
-      case KEY_IN:
-        if (seen_in ||
-            !_is_valid_container_name(t_node.value->literal.string_value))
-          return false;
-        seen_in = true;
-        break;
-      case KEY_ID:
-        if (seen_id)
-          return false;
-        seen_id = true;
-        break;
-      case KEY_EXP:
-        if (seen_exp || cmd_type != CMD_QUERY)
-          return false;
-        seen_exp = true;
-        break;
-      case KEY_ENTITY:
-        if (seen_entity)
-          return false;
-        seen_entity = true;
-        break;
-      case KEY_TAKE:
-        if (seen_take)
-          return false;
-        seen_take = true;
-        break;
-      case KEY_CURSOR:
-        if (seen_cursor)
-          return false;
-        seen_cursor = true;
-        break;
-      default:
-        return false;
-      }
-    } else {
-      HASH_FIND_STR(*c_keys, t_node.custom_key, c_key);
-      if (c_key) {
-        return false;
-      }
-      c_key = malloc(sizeof(custom_key));
-      if (!c_key)
-        return false;
-      c_key->key = t_node.custom_key;
-      HASH_ADD_KEYPTR(hh, *c_keys, t_node.custom_key, strlen(t_node.custom_key),
-                      c_key);
-    }
-    tag = tag->next;
-  }
-  if (!seen_in) {
-    return false;
-  }
-  if (cmd_type == CMD_EVENT && !seen_entity) {
-    return false;
-  }
-  if (cmd_type == CMD_EVENT && seen_exp)
-    return false;
-  if (cmd_type == CMD_QUERY && !seen_exp) {
-    return false;
-  }
-  if (cmd_type == CMD_QUERY && seen_entity)
-    return false;
-  return true;
-}
-
 // Parse the next tag, if it exists
 static ast_node_t *_parse_tag(Queue *tokens, parse_result_t *r);
-
-static void _finalize_ast(ast_node_t *cmd_node, ast_command_type_t cmd_type,
-                          op_type_t op_type, parse_result_t *r) {
-  custom_key *c_keys = NULL;
-  bool v_r = _validate_ast(cmd_node, cmd_type, &c_keys);
-  if (c_keys) {
-    custom_key *c_key, *tmp;
-    HASH_ITER(hh, c_keys, c_key, tmp) {
-      HASH_DEL(c_keys, c_key);
-      free(c_key);
-    }
-  }
-  if (v_r) {
-    r->type = op_type;
-    r->ast = cmd_node;
-  } else {
-    ast_free(cmd_node);
-  }
-}
 
 static void _parse_event(Queue *tokens, parse_result_t *r) {
   ast_command_type_t cmd_type = CMD_EVENT;
@@ -157,7 +28,8 @@ static void _parse_event(Queue *tokens, parse_result_t *r) {
     ast_append_node(&cmd_node->command.tags, tag);
   }
 
-  _finalize_ast(cmd_node, cmd_type, OP_TYPE_WRITE, r);
+  r->type = OP_TYPE_WRITE;
+  r->ast = cmd_node;
 }
 
 // Helper function to build a logical node from the stacks.
@@ -394,7 +266,8 @@ static void _parse_query(Queue *tokens, parse_result_t *r) {
     ast_append_node(&cmd_node->command.tags, tag);
   }
 
-  _finalize_ast(cmd_node, cmd_type, OP_TYPE_READ, r);
+  r->type = OP_TYPE_READ;
+  r->ast = cmd_node;
 }
 
 static parse_result_t *_create_result(void) {

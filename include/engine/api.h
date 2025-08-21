@@ -5,7 +5,7 @@
 #include "query/ast.h"
 #include <stdbool.h>
 
-enum api_op_type { API_INVALID, API_ADD };
+enum api_op_type { API_INVALID, API_EVENT };
 
 typedef struct api_response_s {
   enum api_op_type op_type;

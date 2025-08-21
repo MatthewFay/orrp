@@ -1,4 +1,4 @@
-#include "engine.h"
+#include "engine/engine.h"
 #include "log.h"
 #include "networking/server.h"
 #include "uv.h"
@@ -18,23 +18,23 @@ int main() {
     return -1;
   }
 
-  eng_db_t *db = eng_init_dbs();
-  if (!db) {
+  eng_context_t *ctx = eng_init();
+  if (!ctx) {
     log_fatal("Unable to initialize database");
     return -1;
   }
 
-  // Attach the db instance to the loop's data field (user data).
-  loop->data = db;
+  // Attach the engine context to the loop's data field (user data).
+  loop->data = ctx;
 
   const char *host = "0.0.0.0"; // Listen on all available network interfaces
-  int port = 7878;              // The port for our database
+  int port = 7878;              // The port for the database
 
   // This function will block and run the server until the process is
   // terminated.
   start_server(host, port, loop);
 
-  eng_close_dbs(db);
+  eng_close_ctx(ctx);
 
   return 0;
 }

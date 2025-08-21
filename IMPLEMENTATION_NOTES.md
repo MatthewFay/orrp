@@ -97,6 +97,8 @@ Each user data container (e.g., `analytics_2025_08.mdb`) will contain the follow
     * **Key**: A composite of `(tag, count)`.
     * **Value**: A Roaring Bitmap of `entity_id`s that currently have that exact count for that tag.
 
+This event context is the most powerful feature of the database.
+
 ---
 
 ## 5. Query Execution Flow & Pagination

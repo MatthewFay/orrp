@@ -12,8 +12,8 @@
 // TODO: Split this file into multiple smaller modules
 
 #include "networking/server.h"
-#include "api.h"
 #include "core/queue.h"
+#include "engine/api.h"
 #include "log.h"
 #include "query/parser.h"
 #include "query/tokenizer.h"

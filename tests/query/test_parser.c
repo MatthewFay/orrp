@@ -102,33 +102,38 @@ void test_event_success_full_different_order(void) {
 }
 
 void test_event_fails_missing_in(void) {
+  // This is now a semantic error, not a parser error. Parser should succeed.
   parse_result_t *result = _parse_string("event entity:\"user-123\"");
-  _assert_error(result);
+  _assert_success(result);
   parse_free_result(result);
 }
 
 void test_event_fails_missing_entity(void) {
+  // This is now a semantic error, not a parser error. Parser should succeed.
   parse_result_t *result = _parse_string("event in:\"metrics\"");
-  _assert_error(result);
+  _assert_success(result);
   parse_free_result(result);
 }
 
 void test_event_fails_duplicate_custom_tag(void) {
+  // This is now a semantic error, not a parser error. Parser should succeed.
   parse_result_t *result =
       _parse_string("event in:\"metrics\" entity:\"u1\" loc:\"us\" loc:\"ca\"");
-  _assert_error(result);
+  _assert_success(result);
   parse_free_result(result);
 }
 
 void test_event_fails_invalid_container_name(void) {
+  // This is now a semantic error, not a parser error. Parser should succeed.
   parse_result_t *result = _parse_string("event in:\"db\" entity:\"u1\"");
-  _assert_error(result);
+  _assert_success(result);
   parse_free_result(result);
 }
 
 void test_event_fails_with_query_only_tag(void) {
+  // This is now a semantic error, not a parser error. Parser should succeed.
   parse_result_t *result = _parse_string("event in:\"m\" entity:\"e\" exp:(a)");
-  _assert_error(result);
+  _assert_success(result);
   parse_free_result(result);
 }
 
@@ -164,14 +169,16 @@ void test_query_success_full_different_order(void) {
 }
 
 void test_query_fails_missing_exp(void) {
+  // This is now a semantic error, not a parser error. Parser should succeed.
   parse_result_t *result = _parse_string("query in:\"logs\"");
-  _assert_error(result);
+  _assert_success(result);
   parse_free_result(result);
 }
 
 void test_query_fails_duplicate_in(void) {
+  // This is now a semantic error, not a parser error. Parser should succeed.
   parse_result_t *result = _parse_string("query in:\"abc\" in:\"b\" exp:(c)");
-  _assert_error(result);
+  _assert_success(result);
   parse_free_result(result);
 }
 
@@ -252,6 +259,25 @@ void test_parse_fails_on_incomplete_tag(void) {
   parse_free_result(result);
 }
 
+// --- Additional Parser Edge Case Tests ---
+void test_parser_fails_on_missing_colon(void) {
+  parse_result_t *result = _parse_string("event in\"metrics\" entity:\"u1\"");
+  _assert_error(result);
+  parse_free_result(result);
+}
+
+void test_parser_fails_on_missing_tag_value(void) {
+  parse_result_t *result = _parse_string("event in:");
+  _assert_error(result);
+  parse_free_result(result);
+}
+
+void test_parser_fails_on_exp_missing_paren(void) {
+  parse_result_t *result = _parse_string("query in:\"abc\" exp:a and b");
+  _assert_error(result);
+  parse_free_result(result);
+}
+
 int main(void) {
   UNITY_BEGIN();
 
@@ -281,6 +307,11 @@ int main(void) {
   RUN_TEST(test_parse_fails_on_empty_input);
   RUN_TEST(test_parse_fails_on_invalid_command);
   RUN_TEST(test_parse_fails_on_incomplete_tag);
+
+  // Parser edge case tests
+  RUN_TEST(test_parser_fails_on_missing_colon);
+  RUN_TEST(test_parser_fails_on_missing_tag_value);
+  RUN_TEST(test_parser_fails_on_exp_missing_paren);
 
   return UNITY_END();
 }

@@ -29,8 +29,8 @@ LIBS = -luv -lm -lpthread
 
 # Main application sources
 APP_SRCS = src/main.c \
-		   src/api.c \
-		   src/engine.c \
+		   src/engine/api.c \
+		   src/engine/engine.c \
 		   src/core/bitmaps.c \
 		   src/core/db.c \
 		   src/core/stack.c \

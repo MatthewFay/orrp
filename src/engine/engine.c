@@ -1,9 +1,10 @@
-#include "engine.h"
-#include "api.h"
+#include "engine/engine.h"
 #include "core/bitmaps.h"
 #include "core/db.h"
+#include "engine/api.h"
 #include "lmdb.h"
 #include "log.h"
+#include "query/ast.h"
 #include "uthash.h"
 #include "uv.h"
 #include <inttypes.h>
@@ -388,10 +389,7 @@ static bool _upsert_bitmap(eng_user_dc_t *c, MDB_txn *txn, char *ns, char *key,
   return r;
 }
 
-// TODO: this will completely change with new design.
-// (Gonna have to handle multiple key-value tags).
-void eng_add(api_response_t *r, eng_context_t *ctx, char *ns, char *key,
-             char *id) {
+void eng_event(api_response_t *r, eng_context_t *ctx, ast_node_t *ast) {
   uint32_t n_id = 0;
   eng_sys_dc_t *sys_c = ctx->sys_c->data.sys;
 
