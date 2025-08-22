@@ -145,6 +145,8 @@ void db_free_get_result(db_get_result_t *r) {
 
 db_get_result_t *db_get(MDB_dbi db, MDB_txn *txn, db_key_t *key) {
   db_get_result_t *r = malloc(sizeof(db_get_result_t));
+  if (!r)
+    return NULL;
   r->status = DB_GET_ERROR;
   r->value = NULL;
   r->value_len = 0;
