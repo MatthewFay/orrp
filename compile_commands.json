@@ -38,12 +38,12 @@
       "-O0",
       "-c",
       "-o",
-      "obj/src/api.o",
-      "src/api.c"
+      "obj/src/engine/api.o",
+      "src/engine/api.c"
     ],
     "directory": "/Users/matthewfay/dev/orrp",
-    "file": "/Users/matthewfay/dev/orrp/src/api.c",
-    "output": "/Users/matthewfay/dev/orrp/obj/src/api.o"
+    "file": "/Users/matthewfay/dev/orrp/src/engine/api.c",
+    "output": "/Users/matthewfay/dev/orrp/obj/src/engine/api.o"
   },
   {
     "arguments": [
@@ -61,12 +61,12 @@
       "-O0",
       "-c",
       "-o",
-      "obj/src/engine.o",
-      "src/engine.c"
+      "obj/src/engine/engine.o",
+      "src/engine/engine.c"
     ],
     "directory": "/Users/matthewfay/dev/orrp",
-    "file": "/Users/matthewfay/dev/orrp/src/engine.c",
-    "output": "/Users/matthewfay/dev/orrp/obj/src/engine.o"
+    "file": "/Users/matthewfay/dev/orrp/src/engine/engine.c",
+    "output": "/Users/matthewfay/dev/orrp/obj/src/engine/engine.o"
   },
   {
     "arguments": [

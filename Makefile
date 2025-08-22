@@ -114,7 +114,7 @@ $(LIBUV_A):
 #      $(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 # Main 'test' target: builds and runs all listed test executables
-test: bin/test_tokenizer bin/test_ast bin/test_parser bin/test_stack bin/test_queue
+test: bin/test_tokenizer bin/test_ast bin/test_parser bin/test_stack bin/test_queue bin/test_api
 	@echo "--- Running tokenizer test ---"
 	./bin/test_tokenizer
 	@echo "--- Running ast test ---"
@@ -125,6 +125,8 @@ test: bin/test_tokenizer bin/test_ast bin/test_parser bin/test_stack bin/test_qu
 	./bin/test_stack
 	@echo "--- Running queue test ---"
 	./bin/test_queue
+	@echo "--- Running api test ---"
+	./bin/test_api
 	@echo "--- All tests finished ---"
 
 # 'test_build' target: builds all listed test executables (for debugging purposes)
@@ -150,6 +152,10 @@ bin/test_stack: tests/core/test_stack.c src/core/stack.c tests/unity/unity.c | $
 
 # Rule to build the queue test executable
 bin/test_queue: tests/core/test_queue.c src/core/queue.c tests/unity/unity.c | $(BIN_DIR)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
+
+# Rule to build the api test executable
+bin/test_api: tests/engine/test_api.c src/engine/api.c src/query/ast.c tests/unity/unity.c | $(BIN_DIR)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 # --- OBJECT FILE COMPILATION ---
