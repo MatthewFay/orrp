@@ -7,7 +7,6 @@
 #include "query/ast.h"
 #include "uthash.h"
 #include "uv.h"
-#include <inttypes.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -327,6 +326,7 @@ static void _get_next_int_id(eng_container_t *c, MDB_txn *txn,
   *int_id_out = 0;
   eng_dc_type_t c_type = c->type;
   bool r;
+  db_get_result_t next;
   db_key_t key;
   key.type = DB_KEY_STRING;
   key.key.s = c_type == CONTAINER_TYPE_SYSTEM ? SYS_NEXT_ENT_ID_KEY
@@ -334,28 +334,24 @@ static void _get_next_int_id(eng_container_t *c, MDB_txn *txn,
   MDB_dbi db = c_type == CONTAINER_TYPE_SYSTEM
                    ? c->data.sys->sys_dc_metadata_db
                    : c->data.usr->user_dc_metadata_db;
-  db_get_result_t *next = db_get(db, txn, &key);
-  if (!next)
-    return;
-  if (next->status == DB_GET_OK) {
-    u_int32_t next_id_val = *(u_int32_t *)next->value;
+  if (!db_get(db, txn, &key, &next)) {
+    const char *msg = c_type == CONTAINER_TYPE_SYSTEM
+                          ? "Error getting next entity ID"
+                          : "Error getting next event ID";
+    log_error(msg);
+  } else if (next.status == DB_GET_OK) {
+    u_int32_t next_id_val = *(u_int32_t *)next.value;
     u_int32_t next_id_val_incr = next_id_val + 1;
     r = db_put(db, txn, &key, &next_id_val_incr, sizeof(u_int32_t), false);
     *int_id_out = r ? next_id_val : 0;
-  } else if (next->status == DB_GET_NOT_FOUND) {
+  } else if (next.status == DB_GET_NOT_FOUND) {
     u_int32_t start = c_type == CONTAINER_TYPE_SYSTEM
                           ? SYS_NEXT_ENT_ID_INIT_VAL
                           : USR_NEXT_EVENT_ID_INIT_VAL;
     r = db_put(db, txn, &key, &start, sizeof(u_int32_t), false);
     *int_id_out = r ? start : 0;
-  } else {
-    const char *msg = c_type == CONTAINER_TYPE_SYSTEM
-                          ? "Error getting next entity ID"
-                          : "Error getting next event ID";
-    log_error(msg);
-    *int_id_out = 0;
   }
-  db_free_get_result(next);
+  free(next.value);
 }
 
 static bool _ensure_data_dir_exists() {
@@ -449,24 +445,24 @@ static void _map_str_id_to_int_id(eng_container_t *sys_c, MDB_txn *txn,
   *ent_int_id_out = 0;
 
   bool map_r;
+  db_get_result_t r;
   db_key_t key;
   key.type = DB_KEY_STRING;
   key.key.s = str_id;
-  db_get_result_t *r = db_get(sys_c->data.sys->ent_id_to_int_db, txn, &key);
-  if (!r) {
+
+  if (!db_get(sys_c->data.sys->ent_id_to_int_db, txn, &key, &r)) {
     return;
   }
-  switch (r->status) {
+  switch (r.status) {
   case DB_GET_NOT_FOUND:
     _get_next_int_id(sys_c, txn, ent_int_id_out);
     if (!ent_int_id_out)
       break;
     map_r = _map(sys_c->data.sys, txn, str_id, *ent_int_id_out);
     if (!map_r)
-      *ent_int_id_out = 0;
-    break;
+      break;
   case DB_GET_OK:
-    *ent_int_id_out = *(uint32_t *)r->value;
+    *ent_int_id_out = *(uint32_t *)r.value;
 
     break;
   case DB_GET_ERROR:
@@ -474,7 +470,7 @@ static void _map_str_id_to_int_id(eng_container_t *sys_c, MDB_txn *txn,
     break;
   }
 
-  db_free_get_result(r);
+  free(r.value);
 }
 
 typedef struct incr_result_s {
@@ -486,12 +482,6 @@ typedef struct incr_result_s {
 //                                         char *key, char *id) {
 //   snprintf(out_buf, size, "%s:%s:%s", ns ? ns : "", key ? key : "",
 //            id ? id : "");
-// }
-
-// static void _construct_bitmap_key_into(char *out_buf, size_t size, char *ns,
-//                                        char *key, incr_result_t *r) {
-//   snprintf(out_buf, size, "%" PRIu32 ":%s:%s", r->count, ns ? ns : "",
-//            key ? key : "");
 // }
 
 // incr_result_t *_incr(eng_user_dc_t *c, MDB_txn *txn, char *ns, char *key,
@@ -537,58 +527,20 @@ typedef struct incr_result_s {
 //   return r;
 // }
 
-// static bool _save_bitmap(eng_user_dc_t *c, MDB_txn *txn, db_key_t *b_key,
-//                          bitmap_t *bm) {
-//   size_t serialized_size;
-//   void *buffer = bitmap_serialize(bm, &serialized_size);
-//   if (!buffer) {
-//     return false;
-//   }
-//   bool put_r =
-//       db_put(c->bitmaps_db, txn, b_key, buffer, serialized_size, false);
-//   if (!put_r) {
-//     free(buffer);
-//     return false;
-//   }
-//   return true;
-// }
-
-// static bool _upsert_bitmap(eng_user_dc_t *c, MDB_txn *txn, char *ns, char
-// *key,
-//                            uint32_t n_id, incr_result_t *counter_r) {
-//   bool r = false;
-//   char bitmap_buffer[512];
-//   bitmap_t *bm;
-//   _construct_bitmap_key_into(bitmap_buffer, sizeof(bitmap_buffer), ns, key,
-//                              counter_r);
-//   db_key_t b_key;
-
-//   b_key.type = DB_KEY_STRING;
-//   b_key.key.s = bitmap_buffer;
-//   db_get_result_t *get_r = db_get(c->bitmaps_db, txn, &b_key);
-//   switch (get_r->status) {
-//   case DB_GET_OK:
-//     bm = bitmap_deserialize(get_r->value, get_r->value_len);
-//     if (!bm)
-//       break;
-//     bitmap_add(bm, n_id);
-//     r = _save_bitmap(c, txn, &b_key, bm);
-//     if (!r)
-//       bitmap_free(bm);
-//     break;
-//   case DB_GET_NOT_FOUND:
-//     bm = bitmap_create();
-//     bitmap_add(bm, n_id);
-//     r = _save_bitmap(c, txn, &b_key, bm);
-//     if (!r)
-//       bitmap_free(bm);
-//     break;
-//   case DB_GET_ERROR:
-//     break;
-//   }
-//   db_free_get_result(get_r);
-//   return r;
-// }
+static bool _save_bitmap(MDB_dbi db, MDB_txn *txn, db_key_t *b_key,
+                         bitmap_t *bm) {
+  size_t serialized_size;
+  void *buffer = bitmap_serialize(bm, &serialized_size);
+  if (!buffer) {
+    return false;
+  }
+  bool put_r = db_put(db, txn, b_key, buffer, serialized_size, false);
+  if (!put_r) {
+    free(buffer);
+    return false;
+  }
+  return true;
+}
 
 typedef struct {
   // --- Fields for Reserved Tags ---
@@ -640,41 +592,69 @@ static void _build_cmd_context(ast_command_node_t *cmd, cmd_ctx_t *ctx) {
   }
 }
 
+// static void _event_index_key_into(char *out_buf, size_t size, char *ns,
+//                                        char *key, incr_result_t *r) {
+//   snprintf(out_buf, size, "%" PRIu32 ":%s:%s", r->count, ns ? ns : "",
+//            key ? key : "");
+// }
+
+static bool _event_index_key_into(char *out_buf, size_t size,
+                                  ast_node_t *custom_tag) {
+  int r = snprintf(out_buf, size, "%s:%s", custom_tag->tag.custom_key,
+                   custom_tag->tag.value->literal.string_value);
+  if (r < 0 || (size_t)r >= size) {
+    return false;
+  }
+  return true;
+}
 static bool _write_to_event_index(eng_user_dc_t *dc, cmd_ctx_t *cmd_ctx,
-                                  MDB_txn *txn, int event_id) {
+                                  MDB_txn *txn, u_int32_t event_id) {
+  db_get_result_t get_r;
+  db_key_t key;
+  char key_buffer[512];
+  key.type = DB_KEY_STRING;
+
   ast_node_t *custom_tag = cmd_ctx->custom_tags_head;
   while (custom_tag) {
-    db_key_t key;
-    key.type = DB_KEY_STRING;
-    key.key.s = custom_tag->tag.custom_key;
-    db_get_result_t *get_r = db_get(dc->inverted_event_index_db, txn, &key);
-    if (!get_r)
-      return false;
-    if (get_r->status == DB_GET_ERROR) {
-      db_free_get_result(get_r);
+    if (!_event_index_key_into(key_buffer, sizeof(key_buffer), custom_tag)) {
       return false;
     }
-    if (get_r->status == DB_GET_NOT_FOUND) {
-      // put bitmap with event id
-      return true;
+    key.key.s = key_buffer;
+    if (!db_get(dc->inverted_event_index_db, txn, &key, &get_r)) {
+      return false;
     }
-    // append event id to existing bitmap
+    if (get_r.status == DB_GET_NOT_FOUND) {
+      bitmap_t *bm = bitmap_create_new_with_val(event_id);
+      if (!_save_bitmap(dc->inverted_event_index_db, txn, &key, bm)) {
+        bitmap_free(bm);
+        return false;
+      }
+    } else {
+      bitmap_t *bm = bitmap_deserialize(get_r.value, get_r.value_len);
 
-    // char *v = custom_tag->tag.value->literal.string_value;
-    // bool put_r = db_put(dc->inverted_event_index_db, txn, &key, &event_id,
-    //                     sizeof(int), false);
-    // if (!put_r)
-    //   return false;
+      if (!bm) {
+        free(get_r.value);
+        return false;
+      }
+      bitmap_add(bm, event_id);
+      if (!_save_bitmap(dc->inverted_event_index_db, txn, &key, bm)) {
+        bitmap_free(bm);
+        free(get_r.value);
+        return false;
+      }
+    }
+    free(get_r.value);
   }
   return true;
 }
 
-static bool _write_to_ev2ent_map(eng_user_dc_t *dc, MDB_txn *txn, int event_id,
-                                 int ent_id) {
+static bool _write_to_ev2ent_map(eng_user_dc_t *dc, MDB_txn *txn,
+                                 u_int32_t event_id, u_int32_t ent_id) {
   db_key_t key;
   key.type = DB_KEY_INTEGER;
   key.key.i = event_id;
-  return db_put(dc->event_to_entity_db, txn, &key, &ent_id, sizeof(int), false);
+  return db_put(dc->event_to_entity_db, txn, &key, &ent_id, sizeof(u_int32_t),
+                false);
 }
 
 // TODO: counters store and index
@@ -720,9 +700,21 @@ void eng_event(api_response_t *r, eng_context_t *ctx, ast_node_t *ast) {
     return;
   }
 
-  _write_to_event_index(dc->data.usr, &cmd_ctx, usr_c_txn, event_id);
+  if (!_write_to_event_index(dc->data.usr, &cmd_ctx, usr_c_txn, event_id)) {
+    db_abort_txn(sys_c_txn);
+    db_abort_txn(usr_c_txn);
+    _eng_release_container(dc);
+    return;
+  }
 
-  _write_to_ev2ent_map(dc->data.usr, usr_c_txn, event_id, ent_int_id);
+  if (!_write_to_ev2ent_map(dc->data.usr, usr_c_txn, event_id, ent_int_id)) {
+    db_abort_txn(sys_c_txn);
+    db_abort_txn(usr_c_txn);
+    _eng_release_container(dc);
+    return;
+  }
+
+  // TODO:Support countable tags
 
   // commit global id directory txn first - if `usr_commit` fails, it's OK.
   bool sys_commit = db_commit_txn(sys_c_txn);
@@ -742,20 +734,4 @@ void eng_event(api_response_t *r, eng_context_t *ctx, ast_node_t *ast) {
 
   _eng_release_container(dc);
   r->is_ok = true;
-
-  // incr_result_t *counter_r = _incr(NULL, txn, ns, key, id);
-  // if (!counter_r->ok) {
-  //   db_abort_txn(txn);
-  //   free(counter_r);
-  //   r->err_msg = ENG_COUNTER_ERR;
-  //   return;
-  // }
-  // bool bm_r = _upsert_bitmap(NULL, txn, ns, key, n_id, counter_r);
-  // if (!bm_r) {
-  //   db_abort_txn(txn);
-  //   free(counter_r);
-  //   r->err_msg = ENG_BITMAP_ERR;
-  //   return;
-  // }
-  // free(counter_r);
 }

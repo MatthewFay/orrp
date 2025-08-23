@@ -40,11 +40,10 @@ bool db_open(MDB_env *env, const char *db_name, MDB_dbi *db_out);
 bool db_put(MDB_dbi db, MDB_txn *txn, db_key_t *key, const void *value,
             size_t value_size, bool auto_commit);
 
-// Function to get a value by key from the database. Remember to free memory
-// returned by db_get using `db_free_get_result`.
-db_get_result_t *db_get(MDB_dbi db, MDB_txn *txn, db_key_t *key);
-
-void db_free_get_result(db_get_result_t *r);
+// Function to get a value by key from the database. Caller: Remember to free
+// memory returned by db_get.
+bool db_get(MDB_dbi db, MDB_txn *txn, db_key_t *key,
+            db_get_result_t *result_out);
 
 // Function to close and free the database environment
 void db_close(MDB_env *env, MDB_dbi db);

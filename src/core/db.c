@@ -143,15 +143,13 @@ void db_free_get_result(db_get_result_t *r) {
   }
 }
 
-db_get_result_t *db_get(MDB_dbi db, MDB_txn *txn, db_key_t *key) {
-  db_get_result_t *r = malloc(sizeof(db_get_result_t));
-  if (!r)
-    return NULL;
-  r->status = DB_GET_ERROR;
-  r->value = NULL;
-  r->value_len = 0;
-  if (txn == NULL)
-    return r;
+bool db_get(MDB_dbi db, MDB_txn *txn, db_key_t *key,
+            db_get_result_t *result_out) {
+  if (txn == NULL || key == NULL || result_out == NULL)
+    return false;
+
+  memset(result_out, 0, sizeof(db_get_result_t));
+  result_out->status = DB_GET_ERROR;
 
   MDB_val mdb_key, mdb_value;
   int rc;
@@ -171,29 +169,30 @@ db_get_result_t *db_get(MDB_dbi db, MDB_txn *txn, db_key_t *key) {
     break;
 
   default:
-    return r;
+    return false;
   }
 
   rc = mdb_get(txn, db, &mdb_key, &mdb_value);
   if (rc == MDB_NOTFOUND) {
     // Key not found, which is not an error for get
-    r->status = DB_GET_NOT_FOUND;
-    return r;
+    result_out->status = DB_GET_NOT_FOUND;
+    return true;
   } else if (rc != 0) {
     fprintf(stderr, "db_get: mdb_get failed: %s\n", mdb_strerror(rc));
-    return r;
+    return false;
   }
 
   // Duplicate the data as it's only valid within the transaction
-  result = (void *)malloc(mdb_value.mv_size);
-  if (result) {
-    memcpy(result, mdb_value.mv_data, mdb_value.mv_size);
+  result = malloc(mdb_value.mv_size);
+  if (!result) {
+    return false;
   }
-  r->status = DB_GET_OK;
-  r->value = result;
-  r->value_len = mdb_value.mv_size;
+  memcpy(result, mdb_value.mv_data, mdb_value.mv_size);
+  result_out->status = DB_GET_OK;
+  result_out->value = result;
+  result_out->value_len = mdb_value.mv_size;
 
-  return r;
+  return true;
 }
 
 void db_close(MDB_env *env, MDB_dbi db) {

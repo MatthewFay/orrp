@@ -13,6 +13,15 @@ bitmap_t *bitmap_create() {
   return bm;
 }
 
+bitmap_t *bitmap_create_new_with_val(u_int32_t val) {
+  bitmap_t *bm = bitmap_create();
+  if (!bm) {
+    return NULL;
+  }
+  bitmap_add(bm, val);
+  return bm;
+}
+
 void bitmap_add(bitmap_t *bm, uint32_t value) {
   if (bm && bm->rb) {
     roaring_bitmap_add(bm->rb, value);
