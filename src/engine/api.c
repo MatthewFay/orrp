@@ -154,7 +154,6 @@ api_response_t *api_exec(ast_node_t *ast, eng_context_t *ctx) {
     }
   }
   if (!v_r) {
-    ast_free(ast);
     r->err_msg = "Invalid AST";
     return r;
   }
@@ -174,6 +173,5 @@ api_response_t *api_exec(ast_node_t *ast, eng_context_t *ctx) {
     break;
   }
 
-  ast_free(ast);
   return r;
 }

@@ -160,6 +160,7 @@ static void _eng_init_cache() {
   g_container_cache.size = 0;
   g_container_cache.head = NULL;
   g_container_cache.tail = NULL;
+  uv_mutex_init(&g_container_cache.lock);
 }
 
 static void _move_to_front(eng_cache_node_t *n) {
@@ -414,6 +415,7 @@ eng_context_t *eng_init(void) {
   sys_c->data.sys->ent_id_to_int_db = ent_id_to_int_db;
   sys_c->data.sys->int_to_ent_id_db = int_to_ent_id_db;
 
+  ctx->sys_c = sys_c;
   return ctx;
 }
 
@@ -456,14 +458,15 @@ static void _map_str_id_to_int_id(eng_container_t *sys_c, MDB_txn *txn,
   switch (r.status) {
   case DB_GET_NOT_FOUND:
     _get_next_int_id(sys_c, txn, ent_int_id_out);
-    if (!ent_int_id_out)
+    if (*ent_int_id_out == 0)
       break;
     map_r = _map(sys_c->data.sys, txn, str_id, *ent_int_id_out);
-    if (!map_r)
-      break;
+    if (!map_r) {
+      *ent_int_id_out = 0;
+    }
+    break;
   case DB_GET_OK:
     *ent_int_id_out = *(uint32_t *)r.value;
-
     break;
   case DB_GET_ERROR:
     *ent_int_id_out = 0;
