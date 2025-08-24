@@ -102,7 +102,7 @@ bitmap_t *bitmap_deserialize(void *buffer, size_t buffer_size) {
 
   if (header->roaring_bitmap_size > 0) {
     b->rb = roaring_bitmap_portable_deserialize_safe(
-        buffer, header->roaring_bitmap_size);
+        p, header->roaring_bitmap_size);
     if (!b->rb) {
       bitmap_free(b);
       return NULL;

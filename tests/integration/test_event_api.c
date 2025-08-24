@@ -51,9 +51,11 @@ static void _safe_remove_db_file(const char *container_name) {
 
   char file_path[256];
   snprintf(file_path, sizeof(file_path), "data/%s.mdb", container_name);
+  char file_path2[256];
+  snprintf(file_path2, sizeof(file_path2), "data/%s.mdb-lock", container_name);
 
-  // remove() will fail if the file doesn't exist, which is fine.
   remove(file_path);
+  remove(file_path2);
 }
 
 // --- Test Suite Setup & Teardown ---
@@ -66,6 +68,7 @@ void setUp(void) {
   _safe_remove_db_file("logs");
   _safe_remove_db_file("products");
   _safe_remove_db_file("git");
+  _safe_remove_db_file("high_volume_test");
 
   test_ctx = eng_init();
   TEST_ASSERT_NOT_NULL(test_ctx);
@@ -80,6 +83,7 @@ void tearDown(void) {
   _safe_remove_db_file("logs");
   _safe_remove_db_file("products");
   _safe_remove_db_file("git");
+  _safe_remove_db_file("high_volume_test");
 }
 
 // --- Test Cases for EVENT Command ---
@@ -225,6 +229,32 @@ void test_EVENT_CommandOnly_ShouldFail(void) {
   free_api_response(response);
 }
 
+void test_EVENT_HighVolumeWrites_ShouldSucceed(void) {
+  const char *container = "high_volume_test";
+  const char *locations[] = {"sf", "ny", "la", "tx"};
+  const char *devices[] = {"mobile", "desktop"};
+
+  for (int i = 0; i < 100; i++) {
+    char command_buffer[256];
+
+    // Create a unique entity and cycle through different tag values
+    const char *current_loc = locations[i % 4];
+    const char *current_dev = devices[i % 2];
+
+    snprintf(command_buffer, sizeof(command_buffer),
+             "EVENT in:%s entity:user_%d loc:%s device:%s session:%d",
+             container, i, current_loc, current_dev, 1000 + i);
+
+    api_response_t *response = run_command(command_buffer);
+
+    // Assert that every single command succeeds
+    TEST_ASSERT_NOT_NULL(response);
+    TEST_ASSERT_TRUE(response->is_ok);
+
+    free_api_response(response);
+  }
+}
+
 // --- Main function to run tests ---
 
 int main(void) {
@@ -235,6 +265,9 @@ int main(void) {
   RUN_TEST(test_EVENT_WithManyTags_ShouldSucceed);
   RUN_TEST(test_EVENT_WithQuotedStringValues_ShouldSucceed);
   RUN_TEST(test_EVENT_CaseSensitiveValues_ShouldSucceed);
+
+  // Load tests
+  RUN_TEST(test_EVENT_HighVolumeWrites_ShouldSucceed);
 
   // Error and Edge Case Tests
   RUN_TEST(test_EVENT_MissingRequiredTag_IN_ShouldFail);
