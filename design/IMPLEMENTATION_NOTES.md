@@ -174,9 +174,12 @@ The following features are explicitly deferred from V1 to keep the initial imple
 ## 9. Testing
 
 * Unit tests using Unity
-* Integration tests using client (TBD tech)
+* E2E tests using client (TBD tech)
 * Valgrind for memory testing
+* Performance/load testing
 
 ## 10. SDK
 
 * In future, will build a client SDK.
+
+

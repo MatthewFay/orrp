@@ -377,6 +377,7 @@ static bool _ensure_data_dir_exists() {
 }
 
 // Initialize the db engine, returning engine context.
+// TODO: Move to engine API
 eng_context_t *eng_init(void) {
   MDB_dbi ent_id_to_int_db, int_to_ent_id_db, sys_dc_metadata_db;
 
