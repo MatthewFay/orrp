@@ -143,21 +143,21 @@ static bool _is_valid_filename(const char *filename) {
 
 // --- Data container CACHE ---
 
-typedef struct eng_cache_node_s {
+typedef struct eng_dc_cache_node_s {
   eng_container_t *c;
   int reference_count; // How many operations are currently using this handle
-  struct eng_cache_node_s *prev;
-  struct eng_cache_node_s *next;
+  struct eng_dc_cache_node_s *prev;
+  struct eng_dc_cache_node_s *next;
   UT_hash_handle hh;
-} eng_cache_node_t;
+} eng_dc_cache_node_t;
 
 typedef struct eng_cache_s {
   int size;
   // Hash map for O(1) lookups by name
-  eng_cache_node_t *nodes;
+  eng_dc_cache_node_t *nodes;
   // Doubly-linked list for LRU ordering
-  eng_cache_node_t *head;
-  eng_cache_node_t *tail;
+  eng_dc_cache_node_t *head;
+  eng_dc_cache_node_t *tail;
   // A mutex to protect the cache structure itself during lookups/modifications
   uv_mutex_t lock;
 } eng_cache_t;
@@ -177,7 +177,7 @@ static void _eng_init_cache() {
   uv_mutex_init(&g_container_cache.lock);
 }
 
-static void _move_to_front(eng_cache_node_t *n) {
+static void _move_to_front(eng_dc_cache_node_t *n) {
   if (g_container_cache.head == n) {
     return;
   }
@@ -206,7 +206,7 @@ static void _move_to_front(eng_cache_node_t *n) {
 static void _eng_release_container(eng_container_t *c) {
   if (!c->name)
     return;
-  eng_cache_node_t *n = NULL;
+  eng_dc_cache_node_t *n = NULL;
   ;
   uv_mutex_lock(&g_container_cache.lock);
   HASH_FIND_STR(g_container_cache.nodes, c->name, n);
@@ -219,7 +219,7 @@ static void _eng_release_container(eng_container_t *c) {
 static eng_container_t *_get_container(const char *name) {
   if (!_is_valid_filename(name))
     return NULL;
-  eng_cache_node_t *n;
+  eng_dc_cache_node_t *n;
   uv_mutex_lock(&g_container_cache.lock);
   HASH_FIND_STR(g_container_cache.nodes, name, n);
   if (n) {
@@ -229,7 +229,7 @@ static eng_container_t *_get_container(const char *name) {
     return n->c;
   }
   if (g_container_cache.size >= CONTAINER_CACHE_CAPACITY) {
-    eng_cache_node_t *evict_candidate = g_container_cache.tail;
+    eng_dc_cache_node_t *evict_candidate = g_container_cache.tail;
     // IMPORTANT: Only evict if no one is using it!
     if (evict_candidate && evict_candidate->reference_count <= 0) {
       _eng_close_container(evict_candidate->c);
@@ -260,7 +260,7 @@ static eng_container_t *_get_container(const char *name) {
     return NULL;
   }
 
-  n = malloc(sizeof(eng_cache_node_t));
+  n = malloc(sizeof(eng_dc_cache_node_t));
   if (!n) {
     uv_mutex_unlock(&g_container_cache.lock);
     return NULL;
@@ -317,7 +317,7 @@ static eng_container_t *_get_container(const char *name) {
 
 static void _eng_cache_destroy() {
   uv_mutex_lock(&g_container_cache.lock);
-  eng_cache_node_t *n, *tmp;
+  eng_dc_cache_node_t *n, *tmp;
   if (g_container_cache.nodes) {
     HASH_ITER(hh, g_container_cache.nodes, n, tmp) {
       _eng_close_container(n->c);
