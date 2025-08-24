@@ -40,6 +40,16 @@ const char *USR_DB_COUNT_INDEX_NAME = "count_index_db";
 const char *USR_NEXT_EVENT_ID_KEY = "next_event_id";
 const u_int32_t USR_NEXT_EVENT_ID_INIT_VAL = 1;
 
+/**
+ * Safely builds the full path for a given container name.
+ * Returns the number of characters written, or a negative value on error.
+ */
+static int _get_container_path(char *buffer, size_t buffer_size,
+                               const char *container_name) {
+  return snprintf(buffer, buffer_size, "%s/%s.mdb", CONTAINER_FOLDER,
+                  container_name);
+}
+
 static eng_container_t *_eng_create_container(eng_dc_type_t type) {
   eng_container_t *c = malloc(sizeof(eng_container_t));
   if (!c)
@@ -155,11 +165,15 @@ typedef struct eng_cache_s {
 // LRU cache for data containers //
 static eng_cache_t g_container_cache;
 
-static void _eng_init_cache() {
+static void _eng_reset_cache() {
   g_container_cache.nodes = NULL;
   g_container_cache.size = 0;
   g_container_cache.head = NULL;
   g_container_cache.tail = NULL;
+}
+
+static void _eng_init_cache() {
+  _eng_reset_cache();
   uv_mutex_init(&g_container_cache.lock);
 }
 
@@ -240,6 +254,12 @@ static eng_container_t *_get_container(const char *name) {
     }
   }
 
+  char c_path[MAX_PATH_LENGTH];
+  if (_get_container_path(c_path, sizeof(c_path), name) < 0) {
+    uv_mutex_unlock(&g_container_cache.lock);
+    return NULL;
+  }
+
   n = malloc(sizeof(eng_cache_node_t));
   if (!n) {
     uv_mutex_unlock(&g_container_cache.lock);
@@ -253,7 +273,7 @@ static eng_container_t *_get_container(const char *name) {
   }
   c->name = strdup(name);
 
-  MDB_env *env = db_create_env(name, CONTAINER_SIZE, NUM_USR_DBS);
+  MDB_env *env = db_create_env(c_path, CONTAINER_SIZE, NUM_USR_DBS);
 
   if (!env) {
     _eng_close_container(c);
@@ -306,19 +326,8 @@ static void _eng_cache_destroy() {
       free(n);
     }
   }
-  // reset
-  _eng_init_cache();
+  _eng_reset_cache();
   uv_mutex_unlock(&g_container_cache.lock);
-}
-
-/**
- * Safely builds the full path for a given container name.
- * Returns the number of characters written, or a negative value on error.
- */
-static int _get_container_path(char *buffer, size_t buffer_size,
-                               const char *container_name) {
-  return snprintf(buffer, buffer_size, "%s/%s.mdb", CONTAINER_FOLDER,
-                  container_name);
 }
 
 // `int_id_out` will be 0 on failure
@@ -409,13 +418,16 @@ eng_context_t *eng_init(void) {
     return NULL;
   }
 
-  sys_c->name = SYS_CONTAINER_NAME;
+  sys_c->name = strdup(SYS_CONTAINER_NAME);
   sys_c->type = CONTAINER_TYPE_SYSTEM;
   sys_c->data.sys->sys_dc_metadata_db = sys_dc_metadata_db;
   sys_c->data.sys->ent_id_to_int_db = ent_id_to_int_db;
   sys_c->data.sys->int_to_ent_id_db = int_to_ent_id_db;
 
   ctx->sys_c = sys_c;
+
+  _eng_init_cache();
+
   return ctx;
 }
 
@@ -562,6 +574,8 @@ typedef struct {
 static void _build_cmd_context(ast_command_node_t *cmd, cmd_ctx_t *ctx) {
   memset(ctx, 0, sizeof(cmd_ctx_t));
 
+  ast_node_t *custom_tags_tail = NULL;
+
   for (ast_node_t *tag_node = cmd->tags; tag_node != NULL;
        tag_node = tag_node->next) {
     if (tag_node->type == TAG_NODE) {
@@ -588,10 +602,21 @@ static void _build_cmd_context(ast_command_node_t *cmd, cmd_ctx_t *ctx) {
           break;
         }
       } else {
-        tag_node->next = ctx->custom_tags_head;
-        ctx->custom_tags_head = tag_node;
+        if (ctx->custom_tags_head == NULL) {
+          ctx->custom_tags_head = tag_node;
+          custom_tags_tail = tag_node;
+        } else {
+          custom_tags_tail->next = tag_node;
+          custom_tags_tail = tag_node;
+        }
       }
     }
+  }
+
+  // Terminate the new list. The last custom tag's `next`
+  // pointer might still point to a reserved tag from the original list.
+  if (custom_tags_tail != NULL) {
+    custom_tags_tail->next = NULL;
   }
 }
 
@@ -647,6 +672,7 @@ static bool _write_to_event_index(eng_user_dc_t *dc, cmd_ctx_t *cmd_ctx,
       }
     }
     free(get_r.value);
+    custom_tag = custom_tag->next;
   }
   return true;
 }
@@ -725,6 +751,8 @@ void eng_event(api_response_t *r, eng_context_t *ctx, ast_node_t *ast) {
     r->err_msg = ENG_TXN_COMMIT_ERR;
 
     // cleanup
+    _eng_release_container(dc);
+
     return;
   }
   bool usr_commit = db_commit_txn(usr_c_txn);
@@ -732,6 +760,8 @@ void eng_event(api_response_t *r, eng_context_t *ctx, ast_node_t *ast) {
     r->err_msg = ENG_TXN_COMMIT_ERR;
 
     // cleanup
+    _eng_release_container(dc);
+
     return;
   }
 

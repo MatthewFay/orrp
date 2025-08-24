@@ -40,6 +40,9 @@ APP_SRCS = src/main.c \
 		   src/query/tokenizer.c \
 		   src/query/parser.c
 
+# New variable excluding main.c for tests
+TEST_APP_SRCS = $(filter-out src/main.c, $(APP_SRCS))
+
 # Library sources
 LIB_SRCS = \
 	lib/roaring/roaring.c \
@@ -114,7 +117,7 @@ $(LIBUV_A):
 #      $(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 # Main 'test' target: builds and runs all listed test executables
-test: bin/test_tokenizer bin/test_ast bin/test_parser bin/test_stack bin/test_queue bin/test_api
+test: bin/test_tokenizer bin/test_ast bin/test_parser bin/test_stack bin/test_queue bin/test_api bin/test_event_api
 	@echo "--- Running tokenizer test ---"
 	./bin/test_tokenizer
 	@echo "--- Running ast test ---"
@@ -127,10 +130,12 @@ test: bin/test_tokenizer bin/test_ast bin/test_parser bin/test_stack bin/test_qu
 	./bin/test_queue
 	@echo "--- Running api test ---"
 	./bin/test_api
+	@echo "--- Running integration test: event api ---"
+	./bin/test_event_api
 	@echo "--- All tests finished ---"
 
-# 'test_build' target: builds all listed test executables (for debugging purposes)
-test_build: bin/test_tokenizer bin/test_ast bin/test_parser bin/test_stack bin/test_queue
+# 'test_build' target: builds all test executables
+test_build: bin/test_tokenizer bin/test_ast bin/test_parser bin/test_stack bin/test_queue bin/test_event_api
 
 # --- INDIVIDUAL TEST BUILD RULES ---
 
@@ -156,6 +161,12 @@ bin/test_queue: tests/core/test_queue.c src/core/queue.c tests/unity/unity.c | $
 
 # Rule to build the api test executable
 bin/test_api: tests/engine/test_api.c src/engine/api.c src/query/ast.c tests/unity/unity.c | $(BIN_DIR)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
+
+### --- INTEGRATION TESTS --- ###
+
+# Rule to build the event api test executable
+bin/test_event_api: tests/integration/test_event_api.c tests/unity/unity.c $(TEST_APP_SRCS) $(LIB_SRCS) | $(BIN_DIR)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 # --- OBJECT FILE COMPILATION ---

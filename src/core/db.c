@@ -204,7 +204,6 @@ void db_close(MDB_env *env, MDB_dbi db) {
 void db_env_close(MDB_env *env) {
   if (env) {
     mdb_env_close(env);
-    free(env);
   }
 }
 

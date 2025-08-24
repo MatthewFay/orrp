@@ -96,7 +96,7 @@ bitmap_t *bitmap_deserialize(void *buffer, size_t buffer_size) {
   // Basic sanity check to prevent reading beyond the buffer
   if (sizeof(bitmap_serialization_header_t) + header->roaring_bitmap_size >
       buffer_size) {
-    free(b);
+    bitmap_free(b);
     return NULL;
   }
 
@@ -104,7 +104,7 @@ bitmap_t *bitmap_deserialize(void *buffer, size_t buffer_size) {
     b->rb = roaring_bitmap_portable_deserialize_safe(
         buffer, header->roaring_bitmap_size);
     if (!b->rb) {
-      free(b);
+      bitmap_free(b);
       return NULL;
     }
   } else {

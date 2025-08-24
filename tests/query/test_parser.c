@@ -84,6 +84,22 @@ void test_event_success_minimal(void) {
   parse_free_result(result);
 }
 
+void test_event_success_minimal2(void) {
+  parse_result_t *result = _parse_string("event IN:abc tag:erc entity:fff");
+  _assert_success(result);
+  TEST_ASSERT_EQUAL(OP_TYPE_WRITE, result->type);
+
+  ast_node_t *in_tag = _find_tag_by_key(result->ast, KEY_IN);
+  TEST_ASSERT_NOT_NULL(in_tag);
+  TEST_ASSERT_EQUAL_STRING("abc", in_tag->tag.value->literal.string_value);
+
+  ast_node_t *entity_tag = _find_tag_by_key(result->ast, KEY_ENTITY);
+  TEST_ASSERT_NOT_NULL(entity_tag);
+  TEST_ASSERT_EQUAL_STRING("fff", entity_tag->tag.value->literal.string_value);
+
+  parse_free_result(result);
+}
+
 void test_event_success_full_different_order(void) {
   parse_result_t *result = _parse_string(
       "event id:\"abc\" clicks:\"one\"+ entity:\"user-123\" in:\"metrics\"");
@@ -283,6 +299,7 @@ int main(void) {
 
   // EVENT command tests
   RUN_TEST(test_event_success_minimal);
+  RUN_TEST(test_event_success_minimal2);
   RUN_TEST(test_event_success_full_different_order);
   RUN_TEST(test_event_fails_missing_in);
   RUN_TEST(test_event_fails_missing_entity);

@@ -4,6 +4,7 @@
 #include "query/ast.h"
 #include "query/tokenizer.h"
 #include <stdbool.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -347,6 +348,16 @@ static bool _is_token_kw(token_t *t) {
   }
 }
 
+static int _uint32_to_string(char *buffer, size_t buffer_size, uint32_t value) {
+  int chars_written = snprintf(buffer, buffer_size, "%u", value);
+
+  if (chars_written < 0 || (size_t)chars_written >= buffer_size) {
+    return -1;
+  }
+
+  return chars_written;
+}
+
 static ast_node_t *_parse_tag(Queue *tokens, parse_result_t *r) {
   ast_node_t *tag = NULL;
   ast_node_t *tag_val = NULL;
@@ -420,17 +431,19 @@ static ast_node_t *_parse_tag(Queue *tokens, parse_result_t *r) {
         return NULL;
       }
     } else {
-      // All other reserved keys must be followed by a string or identifier
+      // All other reserved keys must be followed by a literal or identifier
       if (first_val_token->type != TOKEN_IDENTIFER &&
-          first_val_token->type != TOKEN_LITERAL_STRING) {
+          first_val_token->type != TOKEN_LITERAL_STRING &&
+          first_val_token->type != TOKEN_LITERAL_NUMBER) {
         ast_free(tag);
         return NULL;
       }
     }
   } else {
-    // Custom keys: must be followed by a string or identifier
+    // Custom keys: must be followed by a literal or identifier
     if (first_val_token->type != TOKEN_IDENTIFER &&
-        first_val_token->type != TOKEN_LITERAL_STRING) {
+        first_val_token->type != TOKEN_LITERAL_STRING &&
+        first_val_token->type != TOKEN_LITERAL_NUMBER) {
       ast_free(tag);
       return NULL;
     }
@@ -446,6 +459,24 @@ static ast_node_t *_parse_tag(Queue *tokens, parse_result_t *r) {
       return NULL;
     }
     tag->tag.value = tag_val;
+  } else if (first_val_token->type == TOKEN_LITERAL_NUMBER) {
+    first_val_token = q_dequeue(tokens);
+    char str_buff[12];
+    if (_uint32_to_string(str_buff, sizeof(str_buff),
+                          first_val_token->number_value) <= 0) {
+      free(first_val_token);
+      ast_free(tag);
+      return NULL;
+    }
+    tag_val = ast_create_string_literal_node(strdup(str_buff));
+    free(first_val_token);
+
+    if (!tag_val) {
+      ast_free(tag);
+      return NULL;
+    }
+    tag->tag.value = tag_val;
+
   } else {
     ast_node_t *exp_tree = _parse_exp(tokens, r);
     if (!exp_tree) {
