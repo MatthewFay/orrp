@@ -2,6 +2,7 @@
 #include "core/bitmaps.h"
 #include "core/db.h"
 #include "engine/api.h"
+#include "engine_cache.h"
 #include "lmdb.h"
 #include "log.h"
 #include "query/ast.h"
@@ -17,6 +18,7 @@
 #define SYS_CONTAINER_NAME "system"
 #define MAX_PATH_LENGTH 128
 const size_t CONTAINER_SIZE = 1048576;
+const int ENG_CACHE_CAPACITY = 16000;
 
 const char *ENG_TXN_ERR = "Transaction error";
 const char *ENG_ID_TRANSL_ERR = "Id translation error";
@@ -106,7 +108,7 @@ static void _eng_close_container(eng_container_t *c) {
   return;
 }
 
-static void _eng_cache_destroy();
+static void _eng_dc_cache_destroy();
 
 void eng_close_ctx(eng_context_t *ctx) {
   if (!ctx || !ctx->sys_c) {
@@ -117,7 +119,8 @@ void eng_close_ctx(eng_context_t *ctx) {
 
   free(ctx);
 
-  _eng_cache_destroy();
+  _eng_dc_cache_destroy();
+  eng_cache_destroy();
 }
 
 // Used to validate user data container names for security purposes
@@ -172,7 +175,7 @@ static void _eng_reset_cache() {
   g_container_cache.tail = NULL;
 }
 
-static void _eng_init_cache() {
+static void _eng_init_dc_cache() {
   _eng_reset_cache();
   uv_mutex_init(&g_container_cache.lock);
 }
@@ -315,7 +318,7 @@ static eng_container_t *_get_container(const char *name) {
   return c;
 }
 
-static void _eng_cache_destroy() {
+static void _eng_dc_cache_destroy() {
   uv_mutex_lock(&g_container_cache.lock);
   eng_dc_cache_node_t *n, *tmp;
   if (g_container_cache.nodes) {
@@ -377,7 +380,6 @@ static bool _ensure_data_dir_exists() {
 }
 
 // Initialize the db engine, returning engine context.
-// TODO: Move to engine API
 eng_context_t *eng_init(void) {
   MDB_dbi ent_id_to_int_db, int_to_ent_id_db, sys_dc_metadata_db;
 
@@ -427,7 +429,9 @@ eng_context_t *eng_init(void) {
 
   ctx->sys_c = sys_c;
 
-  _eng_init_cache();
+  _eng_init_dc_cache();
+
+  eng_cache_init(ENG_CACHE_CAPACITY);
 
   return ctx;
 }
