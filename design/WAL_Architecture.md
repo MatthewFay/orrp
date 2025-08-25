@@ -85,6 +85,11 @@ Provides the durability guarantee.
 * **Format:** A binary, append-only file using a **Type-Length-Value (TLV)** format.
 * **Log Segmentation:** The WAL will be split into segments (e.g., `wal.00001`, `wal.00002`). When a segment reaches a predefined size (e.g., 64MB), it will be closed, and a new one will be opened. This rotation will be performed by whichever ingest thread happens to be writing when the size limit is exceeded, protected by the WAL mutex.
 
+#### WAL for Internal Commands
+The WAL is not just for user commands; it is the source of truth for all durable state changes.
+
+If an operation like incrementing an ID counter needs to survive a crash (which it does, to prevent reusing IDs), it must be recorded in the WAL before the in-memory state is changed. The background writer is responsible for eventually persisting that state to LMDB, but the WAL provides the immediate durability guarantee.
+
 ### 4.3. The "Dirty List"
 
 A dedicated queue of cache nodes that need to be written to disk.
@@ -107,6 +112,8 @@ A single, dedicated thread (`uv_thread_t`) for persisting data.
         * For each node, serializes the data object and writes it to the appropriate LMDB database.
         * Commits the transaction. If the commit fails, the nodes remain on the local list to be retried on the next pass.
         * After a successful commit, the nodes are cleared from the local list and can be considered fully persisted.
+
+**Important: Instead of processing one dirty item at a time, the background writer should process a whole batch of dirty items within a single, larger LMDB transaction.**
 
 ---
 

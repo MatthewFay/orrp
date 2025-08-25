@@ -558,20 +558,20 @@ typedef struct incr_result_s {
 //   return r;
 // }
 
-static bool _save_bitmap(MDB_dbi db, MDB_txn *txn, db_key_t *b_key,
-                         bitmap_t *bm) {
-  size_t serialized_size;
-  void *buffer = bitmap_serialize(bm, &serialized_size);
-  if (!buffer) {
-    return false;
-  }
-  bool put_r = db_put(db, txn, b_key, buffer, serialized_size, false);
-  if (!put_r) {
-    free(buffer);
-    return false;
-  }
-  return true;
-}
+// static bool _save_bitmap(MDB_dbi db, MDB_txn *txn, db_key_t *b_key,
+//                          bitmap_t *bm) {
+//   size_t serialized_size;
+//   void *buffer = bitmap_serialize(bm, &serialized_size);
+//   if (!buffer) {
+//     return false;
+//   }
+//   bool put_r = db_put(db, txn, b_key, buffer, serialized_size, false);
+//   if (!put_r) {
+//     free(buffer);
+//     return false;
+//   }
+//   return true;
+// }
 
 typedef struct {
   // --- Fields for Reserved Tags ---
@@ -695,10 +695,10 @@ static bool _write_to_event_index(eng_container_t *dc, cmd_ctx_t *cmd_ctx,
     }
     bitmap_t *bm = cn->data_object;
     bitmap_add(bm, event_id);
-    if (!_save_bitmap(dc->data.usr->inverted_event_index_db, txn, &key, bm)) {
-      bitmap_free(bm);
-      eng_cache_release(cn);
-      return false;
+
+    if (!cn->is_dirty) {
+      cn->is_dirty = true;
+      eng_cache_add_to_dirty_list(cn);
     }
 
     custom_tag = custom_tag->next;
@@ -717,7 +717,6 @@ static bool _write_to_ev2ent_map(eng_user_dc_t *dc, MDB_txn *txn,
 }
 
 // TODO: counters store and index
-
 void eng_event(api_response_t *r, eng_context_t *ctx, ast_node_t *ast) {
   uint32_t event_id = 0;
   uint32_t ent_int_id = 0;

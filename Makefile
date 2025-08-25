@@ -32,6 +32,7 @@ LIBS = -luv -lm -lpthread
 APP_SRCS = src/main.c \
 		   src/engine/api.c \
 			 src/engine/engine_cache.c \
+			 src/engine/engine_writer.c \
 		   src/engine/engine.c \
 		   src/core/bitmaps.c \
 		   src/core/db.c \

@@ -31,6 +31,9 @@ static void _free_data_obj(eng_cache_node_t *node) {
   case CACHE_TYPE_BITMAP:
     bitmap_free(node->data_object);
     break;
+  case CACHE_TYPE_UINT32:
+    free(node->data_object);
+    break;
   default:
     break;
   }
@@ -83,6 +86,7 @@ void eng_cache_init(int capacity) {
   g_cache.nodes_hash = NULL;
   g_cache.size = 0;
   uv_rwlock_init(&g_cache.lock);
+  uv_mutex_init(&g_cache.dirty_list_lock);
 }
 
 void eng_cache_destroy() {
@@ -94,6 +98,7 @@ void eng_cache_destroy() {
   }
   uv_rwlock_wrunlock(&g_cache.lock);
   uv_rwlock_destroy(&g_cache.lock);
+  uv_mutex_destroy(&g_cache.dirty_list_lock);
 }
 
 eng_cache_node_t *eng_cache_get_or_create(const char *key) {
@@ -150,4 +155,44 @@ void eng_cache_release(eng_cache_node_t *node) {
   uv_rwlock_wrlock(&g_cache.lock);
   node->ref_count--;
   uv_rwlock_wrunlock(&g_cache.lock);
+}
+
+void eng_cache_add_to_dirty_list(eng_cache_node_t *node) {
+
+  uv_mutex_lock(&g_cache.dirty_list_lock);
+
+  node->dirty_prev = g_cache.dirty_tail;
+  node->dirty_next = NULL;
+
+  if (g_cache.dirty_tail) {
+    g_cache.dirty_tail->dirty_next = node;
+  }
+  g_cache.dirty_tail = node;
+
+  if (!g_cache.dirty_head) {
+    g_cache.dirty_head = node;
+  }
+
+  uv_mutex_unlock(&g_cache.dirty_list_lock);
+}
+
+void eng_cache_remove_from_dirty_list(eng_cache_node_t *node) {
+  uv_mutex_lock(&g_cache.dirty_list_lock);
+
+  if (node->dirty_prev) {
+    node->dirty_prev->dirty_next = node->dirty_next;
+  } else {
+    g_cache.dirty_head = node->dirty_next;
+  }
+
+  if (node->dirty_next) {
+    node->dirty_next->dirty_prev = node->dirty_prev;
+  } else {
+    g_cache.dirty_tail = node->dirty_prev;
+  }
+
+  node->dirty_prev = NULL;
+  node->dirty_next = NULL;
+
+  uv_mutex_unlock(&g_cache.dirty_list_lock);
 }

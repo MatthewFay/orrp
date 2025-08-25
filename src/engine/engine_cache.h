@@ -5,9 +5,7 @@
 #include "uv.h" // IWYU pragma: keep
 #include <stdbool.h>
 
-typedef enum {
-  CACHE_TYPE_BITMAP,
-} eng_cache_node_type_t;
+typedef enum { CACHE_TYPE_BITMAP, CACHE_TYPE_UINT32 } eng_cache_node_type_t;
 
 // The unified cache node. It's a member of a hash map, an LRU list,
 // and a dirty list all at once.
@@ -28,7 +26,7 @@ typedef struct eng_cache_node_s {
   eng_cache_node_type_t type;
   void *data_object; // Pointer to the actual data (e.g., bitmap_t*).
   int ref_count;     // Tracks current users of the node.
-  bool is_dirty;
+  bool is_dirty;     // Has `data_object` been modified?
 } eng_cache_node_t;
 
 // The main manager struct for the entire cache.
@@ -47,6 +45,8 @@ typedef struct eng_cache_mgr_s {
 
   // --- Concurrency Control ---
   uv_rwlock_t lock; // A single RW lock to protect all cache operations.
+
+  uv_mutex_t dirty_list_lock;
 } eng_cache_mgr_t;
 
 // --- Public API Functions ---
@@ -66,4 +66,11 @@ eng_cache_node_t *eng_cache_get_or_create(const char *key);
 // This decrements the reference count.
 void eng_cache_release(eng_cache_node_t *node);
 
+// Appends a node to the tail of the dirty list.
+// This function assumes the caller has already checked the is_dirty flag.
+// It does not need to be called if the node is already on the list.
+void eng_cache_add_to_dirty_list(eng_cache_node_t *node);
+
+// Removes a node from the dirty list (e.g., after it's been flushed).
+void eng_cache_remove_from_dirty_list(eng_cache_node_t *node);
 #endif // ENGINE_CACHE_H
