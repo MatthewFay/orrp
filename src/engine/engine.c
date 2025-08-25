@@ -42,6 +42,17 @@ const char *USR_DB_COUNT_INDEX_NAME = "count_index_db";
 const char *USR_NEXT_EVENT_ID_KEY = "next_event_id";
 const u_int32_t USR_NEXT_EVENT_ID_INIT_VAL = 1;
 
+static bool _get_cache_key(char *buffer, size_t buffer_size,
+                           const char *container_name, const char *db_name,
+                           const char *key) {
+  int r =
+      snprintf(buffer, buffer_size, "%s/%s/%s", container_name, db_name, key);
+  if (r < 0 || (size_t)r >= buffer_size) {
+    return false;
+  }
+  return true;
+}
+
 /**
  * Safely builds the full path for a given container name.
  * Returns the number of characters written, or a negative value on error.
@@ -631,8 +642,7 @@ static void _build_cmd_context(ast_command_node_t *cmd, cmd_ctx_t *ctx) {
 //            key ? key : "");
 // }
 
-static bool _event_index_key_into(char *out_buf, size_t size,
-                                  ast_node_t *custom_tag) {
+static bool _tag_into(char *out_buf, size_t size, ast_node_t *custom_tag) {
   int r = snprintf(out_buf, size, "%s:%s", custom_tag->tag.custom_key,
                    custom_tag->tag.value->literal.string_value);
   if (r < 0 || (size_t)r >= size) {
@@ -640,44 +650,59 @@ static bool _event_index_key_into(char *out_buf, size_t size,
   }
   return true;
 }
-static bool _write_to_event_index(eng_user_dc_t *dc, cmd_ctx_t *cmd_ctx,
+static bool _write_to_event_index(eng_container_t *dc, cmd_ctx_t *cmd_ctx,
                                   MDB_txn *txn, u_int32_t event_id) {
   db_get_result_t get_r;
   db_key_t key;
   char key_buffer[512];
+  char cache_key[512];
+
   key.type = DB_KEY_STRING;
 
   ast_node_t *custom_tag = cmd_ctx->custom_tags_head;
   while (custom_tag) {
-    if (!_event_index_key_into(key_buffer, sizeof(key_buffer), custom_tag)) {
+
+    if (!_tag_into(key_buffer, sizeof(key_buffer), custom_tag)) {
+      return false;
+    }
+    if (!_get_cache_key(cache_key, sizeof(cache_key), dc->name,
+                        USR_DB_INVERTED_EVENT_INDEX_NAME, key_buffer)) {
+      return false;
+    }
+
+    eng_cache_node_t *cn = eng_cache_get_or_create(cache_key);
+    if (cn == NULL) {
       return false;
     }
     key.key.s = key_buffer;
-    if (!db_get(dc->inverted_event_index_db, txn, &key, &get_r)) {
+
+    if (cn->data_object == NULL) {
+      if (!db_get(dc->data.usr->inverted_event_index_db, txn, &key, &get_r)) {
+        eng_cache_release(cn);
+        return false;
+      }
+      if (get_r.status == DB_GET_OK) {
+        cn->data_object = bitmap_deserialize(get_r.value, get_r.value_len);
+      } else {
+        cn->data_object = bitmap_create();
+      }
+      free(get_r.value);
+      if (!cn->data_object) {
+        eng_cache_release(cn);
+        return false;
+      }
+      cn->type = CACHE_TYPE_BITMAP;
+    }
+    bitmap_t *bm = cn->data_object;
+    bitmap_add(bm, event_id);
+    if (!_save_bitmap(dc->data.usr->inverted_event_index_db, txn, &key, bm)) {
+      bitmap_free(bm);
+      eng_cache_release(cn);
       return false;
     }
-    if (get_r.status == DB_GET_NOT_FOUND) {
-      bitmap_t *bm = bitmap_create_new_with_val(event_id);
-      if (!_save_bitmap(dc->inverted_event_index_db, txn, &key, bm)) {
-        bitmap_free(bm);
-        return false;
-      }
-    } else {
-      bitmap_t *bm = bitmap_deserialize(get_r.value, get_r.value_len);
 
-      if (!bm) {
-        free(get_r.value);
-        return false;
-      }
-      bitmap_add(bm, event_id);
-      if (!_save_bitmap(dc->inverted_event_index_db, txn, &key, bm)) {
-        bitmap_free(bm);
-        free(get_r.value);
-        return false;
-      }
-    }
-    free(get_r.value);
     custom_tag = custom_tag->next;
+    eng_cache_release(cn);
   }
   return true;
 }
@@ -734,7 +759,7 @@ void eng_event(api_response_t *r, eng_context_t *ctx, ast_node_t *ast) {
     return;
   }
 
-  if (!_write_to_event_index(dc->data.usr, &cmd_ctx, usr_c_txn, event_id)) {
+  if (!_write_to_event_index(dc, &cmd_ctx, usr_c_txn, event_id)) {
     db_abort_txn(sys_c_txn);
     db_abort_txn(usr_c_txn);
     _eng_release_container(dc);

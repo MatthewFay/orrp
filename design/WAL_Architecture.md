@@ -123,7 +123,7 @@ This architecture can be built serially in four distinct phases.
     4.  Modify `eng_event` to use the cache: on a write, check the cache first. If an object is present, update it in memory. If not, load it from LMDB, add it to the cache, then update it.
     5.  **At this stage, all writes still go directly to LMDB.** The cache only helps avoid re-reading data.
 
-### Phase 2: Implement multiple ingest threads, the Background Writer & Dirty List
+### Phase 2: Implement the Background Writer, Dirty List, and multiple ingest threads
 * **Goal:** Decouple the ingest path from slow LMDB transaction commits. Then parallelize the now-fast ingest path to handle more concurrent client connections.
 * **Steps:**
     1.  Implement the Dirty List: Create the standalone dirty list, its mutex, and add the necessary flags and pointers to your main cache node struct.
