@@ -5,7 +5,13 @@
 #include "uv.h" // IWYU pragma: keep
 #include <stdbool.h>
 
-typedef enum { CACHE_TYPE_BITMAP, CACHE_TYPE_UINT32 } eng_cache_node_type_t;
+typedef enum {
+  CACHE_TYPE_BITMAP,
+  CACHE_TYPE_UINT32,
+  CACHE_TYPE_STRING
+} eng_cache_node_type_t;
+
+typedef enum { CACHE_LOCK_READ, CACHE_LOCK_WRITE } eng_cache_node_lock_type_t;
 
 // The unified cache node. It's a member of a hash map, an LRU list,
 // and a dirty list all at once.
@@ -27,6 +33,8 @@ typedef struct eng_cache_node_s {
   void *data_object; // Pointer to the actual data (e.g., bitmap_t*).
   int ref_count;     // Tracks current users of the node.
   bool is_dirty;     // Has `data_object` been modified?
+
+  uv_rwlock_t node_lock;
 } eng_cache_node_t;
 
 // The main manager struct for the entire cache.
@@ -60,17 +68,30 @@ void eng_cache_destroy();
 // Gets a node from the cache by key. If the node exists, its ref count
 // is incremented. If it does not exist, a new node is created and returned,
 // but its data_object will be NULL.
-eng_cache_node_t *eng_cache_get_or_create(const char *key);
+eng_cache_node_t *eng_cache_get_or_create(const char *key,
+                                          eng_cache_node_lock_type_t lock_type);
 
 // Releases a node that was previously acquired with cache_get_or_create.
-// This decrements the reference count.
-void eng_cache_release(eng_cache_node_t *node);
+// This unlocks the node and decrements the reference count.
+void eng_cache_unlock_and_release(eng_cache_node_t *node,
+                                  eng_cache_node_lock_type_t lock_type);
 
-// Appends a node to the tail of the dirty list.
-// This function assumes the caller has already checked the is_dirty flag.
-// It does not need to be called if the node is already on the list.
-void eng_cache_add_to_dirty_list(eng_cache_node_t *node);
+// Removes a node from the cache if it was newly created but could not be
+// populated with data. This should only be called on a node with a
+// reference count of 1.
+void eng_cache_cancel_and_release(eng_cache_node_t *node,
+                                  eng_cache_node_lock_type_t lock_type);
+
+/**
+ * @brief Marks a node as dirty and adds it to the dirty list if it's not
+ * already there.
+ *
+ * This is the single, safe entry point for making a node eligible for
+ * persistence.
+ */
+void eng_cache_mark_dirty(eng_cache_node_t *node);
 
 // Removes a node from the dirty list (e.g., after it's been flushed).
 void eng_cache_remove_from_dirty_list(eng_cache_node_t *node);
+
 #endif // ENGINE_CACHE_H

@@ -218,7 +218,12 @@ MDB_txn *db_create_txn(MDB_env *env, bool is_read_only) {
 }
 
 // Abandon all the operations of the transaction instead of saving them
-void db_abort_txn(MDB_txn *txn) { mdb_txn_abort(txn); }
+void db_abort_txn(MDB_txn *txn) {
+  if (!txn)
+    return;
+  mdb_txn_abort(txn);
+  txn = NULL;
+}
 
 bool db_commit_txn(MDB_txn *txn) {
   int rc = mdb_txn_commit(txn);

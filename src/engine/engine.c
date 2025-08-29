@@ -1,10 +1,12 @@
 #include "engine/engine.h"
 #include "core/bitmaps.h"
+#include "core/conversions.h"
 #include "core/db.h"
 #include "engine/api.h"
+#include "engine/entity_resolver.h"
 #include "engine_cache.h"
+#include "id_manager.h"
 #include "lmdb.h"
-#include "log.h"
 #include "query/ast.h"
 #include "uthash.h"
 #include "uv.h"
@@ -19,6 +21,7 @@
 #define MAX_PATH_LENGTH 128
 const size_t CONTAINER_SIZE = 1048576;
 const int ENG_CACHE_CAPACITY = 16000;
+const int ENTITY_RES_CAPACITY = 256000;
 
 const char *ENG_TXN_ERR = "Transaction error";
 const char *ENG_ID_TRANSL_ERR = "Id translation error";
@@ -29,18 +32,12 @@ const char *ENG_TXN_COMMIT_ERR = "Transaction Commit error";
 const int NUM_SYS_DBS = 3;
 const char *SYS_DB_ENT_ID_TO_INT_NAME = "ent_id_to_int_db";
 const char *SYS_DB_INT_TO_ENT_ID_NAME = "int_to_ent_id_db";
-const char *SYS_DB_METADATA_NAME = "sys_dc_metadata_db";
-const char *SYS_NEXT_ENT_ID_KEY = "next_ent_id";
-const u_int32_t SYS_NEXT_ENT_ID_INIT_VAL = 1;
 
 const int NUM_USR_DBS = 5;
 const char *USR_DB_INVERTED_EVENT_INDEX_NAME = "inverted_event_index_db";
 const char *USR_DB_EVENT_TO_ENT_NAME = "event_to_entity_db";
-const char *USR_DB_METADATA_NAME = "user_dc_metadata_db";
 const char *USR_DB_COUNTER_STORE_NAME = "counter_store_db";
 const char *USR_DB_COUNT_INDEX_NAME = "count_index_db";
-const char *USR_NEXT_EVENT_ID_KEY = "next_event_id";
-const u_int32_t USR_NEXT_EVENT_ID_INIT_VAL = 1;
 
 static bool _get_cache_key(char *buffer, size_t buffer_size,
                            const char *container_name, const char *db_name,
@@ -121,6 +118,7 @@ static void _eng_close_container(eng_container_t *c) {
 
 static void _eng_dc_cache_destroy();
 
+// Close engine context - Called on graceful shutdown
 void eng_close_ctx(eng_context_t *ctx) {
   if (!ctx || !ctx->sys_c) {
     return;
@@ -130,8 +128,11 @@ void eng_close_ctx(eng_context_t *ctx) {
 
   free(ctx);
 
+  // Destroy everything
   _eng_dc_cache_destroy();
   eng_cache_destroy();
+  id_manager_destroy();
+  entity_resolver_destroy();
 }
 
 // Used to validate user data container names for security purposes
@@ -344,40 +345,6 @@ static void _eng_dc_cache_destroy() {
   uv_mutex_unlock(&g_container_cache.lock);
 }
 
-// `int_id_out` will be 0 on failure
-static void _get_next_int_id(eng_container_t *c, MDB_txn *txn,
-                             u_int32_t *int_id_out) {
-  *int_id_out = 0;
-  eng_dc_type_t c_type = c->type;
-  bool r;
-  db_get_result_t next;
-  db_key_t key;
-  key.type = DB_KEY_STRING;
-  key.key.s = c_type == CONTAINER_TYPE_SYSTEM ? SYS_NEXT_ENT_ID_KEY
-                                              : USR_NEXT_EVENT_ID_KEY;
-  MDB_dbi db = c_type == CONTAINER_TYPE_SYSTEM
-                   ? c->data.sys->sys_dc_metadata_db
-                   : c->data.usr->user_dc_metadata_db;
-  if (!db_get(db, txn, &key, &next)) {
-    const char *msg = c_type == CONTAINER_TYPE_SYSTEM
-                          ? "Error getting next entity ID"
-                          : "Error getting next event ID";
-    log_error(msg);
-  } else if (next.status == DB_GET_OK) {
-    u_int32_t next_id_val = *(u_int32_t *)next.value;
-    u_int32_t next_id_val_incr = next_id_val + 1;
-    r = db_put(db, txn, &key, &next_id_val_incr, sizeof(u_int32_t), false);
-    *int_id_out = r ? next_id_val : 0;
-  } else if (next.status == DB_GET_NOT_FOUND) {
-    u_int32_t start = c_type == CONTAINER_TYPE_SYSTEM
-                          ? SYS_NEXT_ENT_ID_INIT_VAL
-                          : USR_NEXT_EVENT_ID_INIT_VAL;
-    r = db_put(db, txn, &key, &start, sizeof(u_int32_t), false);
-    *int_id_out = r ? start : 0;
-  }
-  free(next.value);
-}
-
 static bool _ensure_data_dir_exists() {
   struct stat st = {0};
   if (stat(CONTAINER_FOLDER, &st) == -1) {
@@ -444,64 +411,11 @@ eng_context_t *eng_init(void) {
 
   eng_cache_init(ENG_CACHE_CAPACITY);
 
+  id_manager_init(ctx);
+
+  entity_resolver_init(ctx, ENTITY_RES_CAPACITY);
+
   return ctx;
-}
-
-// Map string id to int id and vice versa
-static bool _map(eng_sys_dc_t *sys_c, MDB_txn *txn, const char *str_id,
-                 uint32_t int_id) {
-  db_key_t str_id_key;
-  str_id_key.type = DB_KEY_STRING;
-  str_id_key.key.s = str_id;
-  bool put_r = db_put(sys_c->ent_id_to_int_db, txn, &str_id_key, &int_id,
-                      sizeof(u_int32_t), false);
-  if (!put_r) {
-    return false;
-  }
-  db_key_t int_id_key;
-  int_id_key.type = DB_KEY_INTEGER;
-  int_id_key.key.i = int_id;
-  put_r = db_put(sys_c->int_to_ent_id_db, txn, &int_id_key, str_id,
-                 strlen(str_id) + 1, false);
-  if (!put_r) {
-    return false;
-  }
-  return true;
-}
-
-// `ent_int_id_out` will be 0 on error
-static void _map_str_id_to_int_id(eng_container_t *sys_c, MDB_txn *txn,
-                                  char *str_id, uint32_t *ent_int_id_out) {
-  *ent_int_id_out = 0;
-
-  bool map_r;
-  db_get_result_t r;
-  db_key_t key;
-  key.type = DB_KEY_STRING;
-  key.key.s = str_id;
-
-  if (!db_get(sys_c->data.sys->ent_id_to_int_db, txn, &key, &r)) {
-    return;
-  }
-  switch (r.status) {
-  case DB_GET_NOT_FOUND:
-    _get_next_int_id(sys_c, txn, ent_int_id_out);
-    if (*ent_int_id_out == 0)
-      break;
-    map_r = _map(sys_c->data.sys, txn, str_id, *ent_int_id_out);
-    if (!map_r) {
-      *ent_int_id_out = 0;
-    }
-    break;
-  case DB_GET_OK:
-    *ent_int_id_out = *(uint32_t *)r.value;
-    break;
-  case DB_GET_ERROR:
-    *ent_int_id_out = 0;
-    break;
-  }
-
-  free(r.value);
 }
 
 typedef struct incr_result_s {
@@ -556,21 +470,6 @@ typedef struct incr_result_s {
 //   }
 //   db_free_get_result(counter);
 //   return r;
-// }
-
-// static bool _save_bitmap(MDB_dbi db, MDB_txn *txn, db_key_t *b_key,
-//                          bitmap_t *bm) {
-//   size_t serialized_size;
-//   void *buffer = bitmap_serialize(bm, &serialized_size);
-//   if (!buffer) {
-//     return false;
-//   }
-//   bool put_r = db_put(db, txn, b_key, buffer, serialized_size, false);
-//   if (!put_r) {
-//     free(buffer);
-//     return false;
-//   }
-//   return true;
 // }
 
 typedef struct {
@@ -642,7 +541,8 @@ static void _build_cmd_context(ast_command_node_t *cmd, cmd_ctx_t *ctx) {
 //            key ? key : "");
 // }
 
-static bool _tag_into(char *out_buf, size_t size, ast_node_t *custom_tag) {
+static bool _custom_tag_into(char *out_buf, size_t size,
+                             ast_node_t *custom_tag) {
   int r = snprintf(out_buf, size, "%s:%s", custom_tag->tag.custom_key,
                    custom_tag->tag.value->literal.string_value);
   if (r < 0 || (size_t)r >= size) {
@@ -650,8 +550,11 @@ static bool _tag_into(char *out_buf, size_t size, ast_node_t *custom_tag) {
   }
   return true;
 }
+
 static bool _write_to_event_index(eng_container_t *dc, cmd_ctx_t *cmd_ctx,
-                                  MDB_txn *txn, u_int32_t event_id) {
+                                  MDB_txn *txn, u_int32_t event_id,
+                                  eng_cache_node_t *custom_tag_nodes[],
+                                  int *num_custom_tags) {
   db_get_result_t get_r;
   db_key_t key;
   char key_buffer[512];
@@ -662,7 +565,7 @@ static bool _write_to_event_index(eng_container_t *dc, cmd_ctx_t *cmd_ctx,
   ast_node_t *custom_tag = cmd_ctx->custom_tags_head;
   while (custom_tag) {
 
-    if (!_tag_into(key_buffer, sizeof(key_buffer), custom_tag)) {
+    if (!_custom_tag_into(key_buffer, sizeof(key_buffer), custom_tag)) {
       return false;
     }
     if (!_get_cache_key(cache_key, sizeof(cache_key), dc->name,
@@ -670,7 +573,7 @@ static bool _write_to_event_index(eng_container_t *dc, cmd_ctx_t *cmd_ctx,
       return false;
     }
 
-    eng_cache_node_t *cn = eng_cache_get_or_create(cache_key);
+    eng_cache_node_t *cn = eng_cache_get_or_create(cache_key, CACHE_LOCK_WRITE);
     if (cn == NULL) {
       return false;
     }
@@ -678,7 +581,6 @@ static bool _write_to_event_index(eng_container_t *dc, cmd_ctx_t *cmd_ctx,
 
     if (cn->data_object == NULL) {
       if (!db_get(dc->data.usr->inverted_event_index_db, txn, &key, &get_r)) {
-        eng_cache_release(cn);
         return false;
       }
       if (get_r.status == DB_GET_OK) {
@@ -688,7 +590,6 @@ static bool _write_to_event_index(eng_container_t *dc, cmd_ctx_t *cmd_ctx,
       }
       free(get_r.value);
       if (!cn->data_object) {
-        eng_cache_release(cn);
         return false;
       }
       cn->type = CACHE_TYPE_BITMAP;
@@ -698,102 +599,105 @@ static bool _write_to_event_index(eng_container_t *dc, cmd_ctx_t *cmd_ctx,
 
     if (!cn->is_dirty) {
       cn->is_dirty = true;
-      eng_cache_add_to_dirty_list(cn);
     }
 
     custom_tag = custom_tag->next;
-    eng_cache_release(cn);
+    custom_tag_nodes[*num_custom_tags] = cn;
+    (*num_custom_tags)++;
   }
   return true;
 }
 
-static bool _write_to_ev2ent_map(eng_user_dc_t *dc, MDB_txn *txn,
-                                 u_int32_t event_id, u_int32_t ent_id) {
-  db_key_t key;
-  key.type = DB_KEY_INTEGER;
-  key.key.i = event_id;
-  return db_put(dc->event_to_entity_db, txn, &key, &ent_id, sizeof(u_int32_t),
-                false);
+static bool _write_to_ev2ent_map(eng_container_t *dc, u_int32_t event_id,
+                                 u_int32_t ent_id,
+                                 eng_cache_node_t **event_id_to_ent_node) {
+  char event_id_str[512];
+  char cache_key[512];
+  if (conv_uint32_to_string(event_id_str, sizeof(event_id_str), event_id) ==
+      -1) {
+    return false;
+  }
+  if (!_get_cache_key(cache_key, sizeof(cache_key), dc->name,
+                      USR_DB_EVENT_TO_ENT_NAME, event_id_str)) {
+    return false;
+  }
+  *event_id_to_ent_node = eng_cache_get_or_create(cache_key, CACHE_LOCK_WRITE);
+  if (!*event_id_to_ent_node) {
+    return false;
+  }
+  if (!(*event_id_to_ent_node)->data_object) {
+    uint32_t *ent_id_ptr = malloc(sizeof(uint32_t));
+    if (!ent_id_ptr) {
+      return false;
+    }
+    *ent_id_ptr = ent_id;
+    (*event_id_to_ent_node)->is_dirty = true;
+    (*event_id_to_ent_node)->data_object = ent_id_ptr;
+    (*event_id_to_ent_node)->type = CACHE_TYPE_UINT32;
+  }
+
+  return true;
 }
 
 // TODO: counters store and index
 void eng_event(api_response_t *r, eng_context_t *ctx, ast_node_t *ast) {
+  eng_cache_node_t *event_id_to_ent_node = NULL;
+  eng_cache_node_t *custom_tag_nodes[MAX_CUSTOM_TAGS];
+  int num_custom_tag_nodes = 0;
+
   uint32_t event_id = 0;
   uint32_t ent_int_id = 0;
   eng_container_t *sys_c = ctx->sys_c;
-
   cmd_ctx_t cmd_ctx;
+  MDB_txn *usr_c_txn = NULL;
+  eng_container_t *dc = NULL;
+
   _build_cmd_context(&ast->command, &cmd_ctx);
+  char *str_ent_id = cmd_ctx.entity_tag_value->literal.string_value;
 
-  MDB_txn *sys_c_txn = db_create_txn(sys_c->env, false);
-
-  if (!sys_c_txn) {
-    r->err_msg = ENG_TXN_ERR;
-    return;
+  if (!entity_resolver_resolve_id(sys_c, str_ent_id, &ent_int_id)) {
+    r->err_msg = "Unable to resolve entity ID";
+    goto cleanup;
   }
 
-  _map_str_id_to_int_id(sys_c, sys_c_txn,
-                        cmd_ctx.entity_tag_value->literal.string_value,
-                        &ent_int_id);
-  if (!ent_int_id) {
-    db_abort_txn(sys_c_txn);
-    r->err_msg = ENG_ID_TRANSL_ERR;
-
-    return;
-  }
-
-  eng_container_t *dc =
-      _get_container(cmd_ctx.in_tag_value->literal.string_value);
+  dc = _get_container(cmd_ctx.in_tag_value->literal.string_value);
   if (!dc) {
-    db_abort_txn(sys_c_txn);
     r->err_msg = "Unable to open data container";
-    return;
+    goto cleanup;
   }
-  MDB_txn *usr_c_txn = db_create_txn(dc->env, false);
-  _get_next_int_id(dc, usr_c_txn, &event_id);
+
+  usr_c_txn = db_create_txn(dc->env, true);
+  if (!usr_c_txn) {
+    r->err_msg = ENG_TXN_ERR;
+    goto cleanup;
+  }
+
+  event_id = id_manager_get_next_event_id(dc, usr_c_txn);
   if (!event_id) {
-    db_abort_txn(sys_c_txn);
-    db_abort_txn(usr_c_txn);
-    _eng_release_container(dc);
-    return;
+    goto cleanup;
   }
 
-  if (!_write_to_event_index(dc, &cmd_ctx, usr_c_txn, event_id)) {
-    db_abort_txn(sys_c_txn);
-    db_abort_txn(usr_c_txn);
-    _eng_release_container(dc);
-    return;
+  if (!_write_to_event_index(dc, &cmd_ctx, usr_c_txn, event_id,
+                             custom_tag_nodes, &num_custom_tag_nodes)) {
+    goto cleanup;
   }
 
-  if (!_write_to_ev2ent_map(dc->data.usr, usr_c_txn, event_id, ent_int_id)) {
-    db_abort_txn(sys_c_txn);
-    db_abort_txn(usr_c_txn);
-    _eng_release_container(dc);
-    return;
+  if (!_write_to_ev2ent_map(dc, event_id, ent_int_id, &event_id_to_ent_node)) {
+    goto cleanup;
   }
 
   // TODO:Support countable tags
 
-  // commit global id directory txn first - if `usr_commit` fails, it's OK.
-  bool sys_commit = db_commit_txn(sys_c_txn);
-  if (!sys_commit) {
-    r->err_msg = ENG_TXN_COMMIT_ERR;
+  eng_cache_mark_dirty(event_id_to_ent_node);
+  eng_cache_unlock_and_release(event_id_to_ent_node, CACHE_LOCK_WRITE);
 
-    // cleanup
-    _eng_release_container(dc);
-
-    return;
-  }
-  bool usr_commit = db_commit_txn(usr_c_txn);
-  if (!usr_commit) {
-    r->err_msg = ENG_TXN_COMMIT_ERR;
-
-    // cleanup
-    _eng_release_container(dc);
-
-    return;
-  }
-
+  db_abort_txn(usr_c_txn);
   _eng_release_container(dc);
+
   r->is_ok = true;
+  return;
+
+cleanup:
+  db_abort_txn(usr_c_txn);
+  _eng_release_container(dc);
 }

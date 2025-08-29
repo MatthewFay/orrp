@@ -41,7 +41,7 @@ static void background_writer_main(void *arg) {
   //   if (local_dirty_head) {
   //     _flush_dirty_list_to_ddb(local_dirty_head);
   //   }
-  // }
+  // }f
 }
 
 bool eng_writer_start() {
@@ -57,3 +57,23 @@ bool eng_writer_stop() {
   }
   return true;
 }
+
+// commit global id directory txn first - if `usr_commit` fails, it's OK.
+// bool sys_commit = db_commit_txn(sys_c_txn);
+// if (!sys_commit) {
+//   r->err_msg = ENG_TXN_COMMIT_ERR;
+
+//   // cleanup
+//   _eng_release_container(dc);
+
+//   return;
+// }
+// bool usr_commit = db_commit_txn(usr_c_txn);
+// if (!usr_commit) {
+//   r->err_msg = ENG_TXN_COMMIT_ERR;
+
+//   // cleanup
+//   _eng_release_container(dc);
+
+//   return;
+// }

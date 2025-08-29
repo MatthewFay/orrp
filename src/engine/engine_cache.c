@@ -32,6 +32,7 @@ static void _free_data_obj(eng_cache_node_t *node) {
     bitmap_free(node->data_object);
     break;
   case CACHE_TYPE_UINT32:
+  case CACHE_TYPE_STRING:
     free(node->data_object);
     break;
   default:
@@ -40,12 +41,14 @@ static void _free_data_obj(eng_cache_node_t *node) {
 }
 
 static void _free_node(eng_cache_node_t *node) {
+  uv_rwlock_destroy(&node->node_lock);
   _free_data_obj(node);
   free(node->key);
   free(node);
 }
 
 // Evicts the least recently used node if it's not in use.
+// This function assumes the caller holds the global cache write lock.
 static void _evict_lru_node() {
   eng_cache_node_t *node_to_evict = g_cache.lru_tail;
   if (!node_to_evict || node_to_evict->ref_count > 0) {
@@ -66,13 +69,17 @@ static void _evict_lru_node() {
 
   HASH_DEL(g_cache.nodes_hash, node_to_evict);
 
-  _free_node(node_to_evict);
+  if (node_to_evict->is_dirty) {
+    // If dirty, DO NOT free it. The node is now unlinked from the main cache
+    // but remains on the dirty list. The background writer is now responsible
+    // for flushing it and then calling _free_node() on it.
+    return;
+  } else {
+    // If it's clean, it's safe to free it immediately.
+    _free_node(node_to_evict);
+  }
 
   g_cache.size--;
-
-  // (Phase 2 refinement) If the node is dirty, do not free it.
-  //    Instead, just unlink it from the main cache and leave it
-  //    on the dirty list for the background writer to handle.
 }
 
 // --- Public API Implementations ---
@@ -101,9 +108,10 @@ void eng_cache_destroy() {
   uv_mutex_destroy(&g_cache.dirty_list_lock);
 }
 
-eng_cache_node_t *eng_cache_get_or_create(const char *key) {
+eng_cache_node_t *
+eng_cache_get_or_create(const char *key, eng_cache_node_lock_type_t lock_type) {
   /*
-  Consider optimizing in future
+  Consider optimizing in future - For now, always taking a write lock.
   */
   uv_rwlock_wrlock(&g_cache.lock);
 
@@ -134,6 +142,7 @@ eng_cache_node_t *eng_cache_get_or_create(const char *key) {
   // Caller is responsible for loading data object!
   node->data_object = NULL;
   node->is_dirty = false;
+  uv_rwlock_init(&node->node_lock);
 
   HASH_ADD_KEYPTR(hh, g_cache.nodes_hash, node->key, strlen(node->key), node);
 
@@ -147,17 +156,77 @@ eng_cache_node_t *eng_cache_get_or_create(const char *key) {
   }
 
   g_cache.size++;
+
+  // Important:
+  // Before releasing the global lock, acquire the lock on the specific node.
+  if (lock_type == CACHE_LOCK_WRITE) {
+    uv_rwlock_wrlock(&node->node_lock);
+  } else {
+    uv_rwlock_rdlock(&node->node_lock);
+  }
+
   uv_rwlock_wrunlock(&g_cache.lock);
   return node;
 }
 
-void eng_cache_release(eng_cache_node_t *node) {
+void eng_cache_unlock_and_release(eng_cache_node_t *node,
+                                  eng_cache_node_lock_type_t lock_type) {
+  if (!node)
+    return;
+
+  // Acquire the global lock first to ensure atomicity.
   uv_rwlock_wrlock(&g_cache.lock);
+
+  if (lock_type == CACHE_LOCK_WRITE) {
+    uv_rwlock_wrunlock(&node->node_lock);
+  } else {
+    uv_rwlock_rdunlock(&node->node_lock);
+  }
+
   node->ref_count--;
   uv_rwlock_wrunlock(&g_cache.lock);
 }
 
-void eng_cache_add_to_dirty_list(eng_cache_node_t *node) {
+void eng_cache_cancel_and_release(eng_cache_node_t *node,
+                                  eng_cache_node_lock_type_t lock_type) {
+  if (!node)
+    return;
+
+  // Acquire the global lock first to ensure atomicity.
+  uv_rwlock_wrlock(&g_cache.lock);
+
+  if (lock_type == CACHE_LOCK_WRITE) {
+    uv_rwlock_wrunlock(&node->node_lock);
+  } else {
+    uv_rwlock_rdunlock(&node->node_lock);
+  }
+
+  // Sanity check: only proceed if this is the only reference.
+  if (node->ref_count == 1) {
+
+    if (node->prev) {
+      node->prev->next = node->next;
+    } else {
+      g_cache.lru_head = node->next;
+    }
+
+    if (node->next) {
+      node->next->prev = node->prev;
+    } else {
+      g_cache.lru_tail = node->prev;
+    }
+
+    HASH_DEL(g_cache.nodes_hash, node);
+
+    _free_node(node);
+  } else {
+    node->ref_count--;
+  }
+
+  uv_rwlock_wrunlock(&g_cache.lock);
+}
+
+static void _eng_cache_add_to_dirty_list(eng_cache_node_t *node) {
 
   uv_mutex_lock(&g_cache.dirty_list_lock);
 
@@ -174,6 +243,15 @@ void eng_cache_add_to_dirty_list(eng_cache_node_t *node) {
   }
 
   uv_mutex_unlock(&g_cache.dirty_list_lock);
+}
+
+void eng_cache_mark_dirty(eng_cache_node_t *node) {
+  if (!node)
+    return;
+  if (!node->is_dirty) {
+    node->is_dirty = true;
+    _eng_cache_add_to_dirty_list(node);
+  }
 }
 
 void eng_cache_remove_from_dirty_list(eng_cache_node_t *node) {

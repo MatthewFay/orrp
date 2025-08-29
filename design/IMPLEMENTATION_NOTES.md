@@ -2,7 +2,7 @@
 
 ## 1. Overview
 
-This document outlines the implementation details for `orrp`, a high-performance, event-based analytics database. The core principle of the system is to store **immutable facts** as **events**. Each `EVENT` command records a single, atomic fact, and the system is optimized for high-speed ingestion and complex, real-time queries on this event data.
+This document outlines the implementation details for `orrp`, a lightwight high-performance, event-based analytics database. The core principle of the system is to store **immutable facts** as **events**. Each `EVENT` command records a single, atomic fact, and the system is optimized for high-speed ingestion and complex, real-time queries on this event data.
 
 The system is built in C, leveraging LMDB for storage, Roaring Bitmaps for compressed bitsets, and `libuv` for asynchronous I/O.
 

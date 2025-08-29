@@ -34,7 +34,10 @@ APP_SRCS = src/main.c \
 			 src/engine/engine_cache.c \
 			 src/engine/engine_writer.c \
 		   src/engine/engine.c \
+			 src/engine/entity_resolver.c \
+			 src/engine/id_manager.c \
 		   src/core/bitmaps.c \
+			 src/core/conversions.c \
 		   src/core/db.c \
 		   src/core/stack.c \
 		   src/core/queue.c \

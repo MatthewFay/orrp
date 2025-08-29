@@ -4,6 +4,15 @@
 #include "lmdb.h"
 #include "query/ast.h"
 
+// TODO: introduce config.h
+#define MAX_CUSTOM_TAGS 10
+const char *SYS_NEXT_ENT_ID_KEY = "next_ent_id";
+const u_int32_t SYS_NEXT_ENT_ID_INIT_VAL = 1;
+const char *SYS_DB_METADATA_NAME = "sys_dc_metadata_db";
+const char *USR_NEXT_EVENT_ID_KEY = "next_event_id";
+const u_int32_t USR_NEXT_EVENT_ID_INIT_VAL = 1;
+const char *USR_DB_METADATA_NAME = "user_dc_metadata_db";
+
 struct api_response_s;
 
 typedef enum { CONTAINER_TYPE_SYSTEM, CONTAINER_TYPE_USER } eng_dc_type_t;

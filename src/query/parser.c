@@ -1,6 +1,8 @@
 #include "query/parser.h"
+#include "core/conversions.h"
 #include "core/queue.h"
 #include "core/stack.h"
+#include "engine/engine.h"
 #include "query/ast.h"
 #include "query/tokenizer.h"
 #include <stdbool.h>
@@ -11,6 +13,28 @@
 // Parse the next tag, if it exists
 static ast_node_t *_parse_tag(Queue *tokens, parse_result_t *r);
 
+static bool _parse_tags(Queue *tokens, ast_node_t *cmd_node,
+                        parse_result_t *r) {
+  int num_cus_tags = 0;
+  while (!q_empty(tokens)) {
+    ast_node_t *tag = _parse_tag(tokens, r);
+    if (!tag) {
+      r->error_message = "Invalid tag";
+      return false;
+    }
+
+    ast_append_node(&cmd_node->command.tags, tag);
+    if (tag->tag.key_type == TAG_KEY_CUSTOM) {
+      num_cus_tags++;
+    }
+    if (num_cus_tags > MAX_CUSTOM_TAGS) {
+      r->error_message = "Too many custom tags!";
+      return false;
+    }
+  }
+  return true;
+}
+
 static void _parse_event(Queue *tokens, parse_result_t *r) {
   ast_command_type_t cmd_type = CMD_EVENT;
   ast_node_t *cmd_node = ast_create_command_node(cmd_type, NULL);
@@ -18,15 +42,9 @@ static void _parse_event(Queue *tokens, parse_result_t *r) {
     r->error_message = "Failed to allocate command node";
     return;
   }
-  while (!q_empty(tokens)) {
-    ast_node_t *tag = _parse_tag(tokens, r);
-    if (!tag) {
-      ast_free(cmd_node);
-      r->error_message = "Invalid tag for EVENT";
-      return;
-    }
-
-    ast_append_node(&cmd_node->command.tags, tag);
+  if (!_parse_tags(tokens, cmd_node, r)) {
+    ast_free(cmd_node);
+    return;
   }
 
   r->type = OP_TYPE_WRITE;
@@ -256,15 +274,9 @@ static void _parse_query(Queue *tokens, parse_result_t *r) {
     r->error_message = "Failed to allocate command node";
     return;
   }
-  while (!q_empty(tokens)) {
-    ast_node_t *tag = _parse_tag(tokens, r);
-    if (!tag) {
-      ast_free(cmd_node);
-      r->error_message = "Invalid tag for QUERY";
-      return;
-    }
-
-    ast_append_node(&cmd_node->command.tags, tag);
+  if (!_parse_tags(tokens, cmd_node, r)) {
+    ast_free(cmd_node);
+    return;
   }
 
   r->type = OP_TYPE_READ;
@@ -346,16 +358,6 @@ static bool _is_token_kw(token_t *t) {
   default:
     return false;
   }
-}
-
-static int _uint32_to_string(char *buffer, size_t buffer_size, uint32_t value) {
-  int chars_written = snprintf(buffer, buffer_size, "%u", value);
-
-  if (chars_written < 0 || (size_t)chars_written >= buffer_size) {
-    return -1;
-  }
-
-  return chars_written;
 }
 
 static ast_node_t *_parse_tag(Queue *tokens, parse_result_t *r) {
@@ -462,8 +464,8 @@ static ast_node_t *_parse_tag(Queue *tokens, parse_result_t *r) {
   } else if (first_val_token->type == TOKEN_LITERAL_NUMBER) {
     first_val_token = q_dequeue(tokens);
     char str_buff[12];
-    if (_uint32_to_string(str_buff, sizeof(str_buff),
-                          first_val_token->number_value) <= 0) {
+    if (conv_uint32_to_string(str_buff, sizeof(str_buff),
+                              first_val_token->number_value) <= 0) {
       free(first_val_token);
       ast_free(tag);
       return NULL;
