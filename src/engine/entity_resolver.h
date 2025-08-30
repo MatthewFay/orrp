@@ -2,9 +2,10 @@
 #define ENTITY_RESOLVER_H
 
 #include "engine/engine.h"
+#include <stdbool.h>
 #include <stdint.h>
 
-typedef struct er_dirty_list_s er_dirty_list_t;
+typedef struct er_dirty_item_s er_dirty_item_t;
 
 /**
  * @brief Initializes the entity resolver. Must be called once at server
@@ -54,19 +55,20 @@ bool entity_resolver_resolve_string(eng_container_t *sys_c, uint32_t int_id,
 /**
  * @brief Gets the current list of new/dirty mappings for the background writer.
  *
- * This function uses a "lock-and-swap" pattern to quickly hand off the list
- * of work to the writer thread with minimal blocking.
+ * This function uses a "lock-and-swap" pattern. The returned list is a
+ * self-contained copy of the data needed for persistence and is completely
+ * decoupled from the internal cache.
  *
- * @return A pointer to the head of a linked list of dirty nodes, or NULL if
+ * @return A pointer to the head of a linked list of dirty items, or NULL if
  * empty. The caller is responsible for freeing this list with
  * entity_resolver_free_dirty_list().
  */
-er_dirty_list_t *entity_resolver_get_dirty_mappings();
+er_dirty_item_t *entity_resolver_get_dirty_mappings();
 
 /**
- * @brief Frees the memory for a list of dirty nodes retrieved by the writer.
+ * @brief Frees the memory for a list of dirty items retrieved by the writer.
  * @param list The list to free.
  */
-void entity_resolver_free_dirty_list(er_dirty_list_t *list);
+void entity_resolver_free_dirty_list(er_dirty_item_t *list);
 
 #endif // ENTITY_RESOLVER_H

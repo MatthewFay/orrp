@@ -1,11 +1,11 @@
 #include "entity_resolver.h"
 #include "core/db.h"
 #include "engine/engine.h"
-#include "id_manager.h" // To get new integer IDs
+#include "id_manager.h"
 #include "lmdb.h"
 #include "uthash.h"
 #include "uv.h"
-#include "wal.h" // To log the creation of new entities
+// #include "wal.h"
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -26,10 +26,15 @@ typedef struct er_cache_node_s {
   // --- LRU List Pointers ---
   struct er_cache_node_s *prev;
   struct er_cache_node_s *next;
-
-  // --- Dirty List Pointers ---
-  struct er_cache_node_s *dirty_next;
 } er_cache_node_t;
+
+// A self-contained struct for the background writer.
+// It holds copies of the data, completely decoupling it from the cache nodes.
+typedef struct er_dirty_item_s {
+  char *string_id; // A copy of the string id
+  uint32_t int_id;
+  struct er_dirty_item_s *next;
+} er_dirty_item_t;
 
 // The main manager for the resolver's state
 typedef struct {
@@ -45,7 +50,7 @@ typedef struct {
   er_cache_node_t *lru_tail;
 
   // --- Dirty List ---
-  er_cache_node_t *dirty_head;
+  er_dirty_item_t *dirty_head;
 
   // --- Concurrency ---
   uv_rwlock_t cache_lock;     // Protects the hash maps and LRU list
@@ -59,20 +64,102 @@ typedef struct er_dirty_list_s {
 // Global instance of the resolver's state
 static er_manager_t g_resolver;
 
+// --- Private LRU Cache Helpers ---
+
+/**
+ * @brief Unlinks a node from the LRU doubly-linked list.
+ * Assumes a write lock is already held.
+ */
+static void _lru_remove(er_cache_node_t *node) {
+  if (node->prev) {
+    node->prev->next = node->next;
+  } else {
+    g_resolver.lru_head = node->next;
+  }
+  if (node->next) {
+    node->next->prev = node->prev;
+  } else {
+    g_resolver.lru_tail = node->prev;
+  }
+}
+
+/**
+ * @brief Adds a node to the front of the LRU list (most recently used).
+ * Assumes a write lock is already held.
+ */
+static void _lru_add_to_front(er_cache_node_t *node) {
+  node->next = g_resolver.lru_head;
+  node->prev = NULL;
+  if (g_resolver.lru_head) {
+    g_resolver.lru_head->prev = node;
+  }
+  g_resolver.lru_head = node;
+  if (!g_resolver.lru_tail) {
+    g_resolver.lru_tail = node;
+  }
+}
+
+/**
+ * @brief Evicts the least recently used item from the cache.
+ * Assumes a write lock is already held.
+ */
+static void _lru_evict() {
+  if (!g_resolver.lru_tail)
+    return;
+
+  er_cache_node_t *node_to_evict = g_resolver.lru_tail;
+
+  _lru_remove(node_to_evict);
+
+  HASH_DELETE(hh_str, g_resolver.str_to_int_map, node_to_evict);
+  HASH_DELETE(hh_int, g_resolver.int_to_str_map, node_to_evict);
+
+  free(node_to_evict->string_id);
+  free(node_to_evict);
+  g_resolver.size--;
+}
+
+/**
+ * @brief Creates a new cache node and adds it to the cache (maps & LRU).
+ * Handles eviction if the cache is at capacity.
+ * Assumes a write lock is already held.
+ */
+static er_cache_node_t *_create_cache_node(const char *str_id,
+                                           uint32_t int_id) {
+  if (g_resolver.size >= g_resolver.capacity) {
+    _lru_evict();
+  }
+
+  er_cache_node_t *node = calloc(1, sizeof(er_cache_node_t));
+  if (!node)
+    return NULL;
+
+  node->string_id = strdup(str_id);
+  if (!node->string_id) {
+    free(node);
+    return NULL;
+  }
+  node->int_id = int_id;
+
+  HASH_ADD_KEYPTR(hh_str, g_resolver.str_to_int_map, node->string_id,
+                  strlen(node->string_id), node);
+  HASH_ADD(hh_int, g_resolver.int_to_str_map, int_id, sizeof(uint32_t), node);
+
+  _lru_add_to_front(node);
+  g_resolver.size++;
+
+  return node;
+}
+
 // --- Public API Implementation ---
 
 void entity_resolver_init(eng_context_t *ctx, int capacity) {
+  memset(&g_resolver, 0, sizeof(er_manager_t));
   g_resolver.capacity = capacity;
-  g_resolver.size = 0;
   uv_rwlock_init(&g_resolver.cache_lock);
   uv_mutex_init(&g_resolver.dirty_list_lock);
-  g_resolver.dirty_head = NULL;
-  g_resolver.lru_head = NULL;
-  g_resolver.lru_tail = NULL;
-  g_resolver.str_to_int_map = NULL;
-  g_resolver.int_to_str_map = NULL;
   // TODO: "Warm" the cache by loading some or all
-  //    existing mappings from the system container
+  // existing mappings from the system container
   (void)ctx;
 }
 
@@ -82,13 +169,16 @@ void entity_resolver_destroy() {
 
   HASH_ITER(hh_str, g_resolver.str_to_int_map, n, tmp) {
     HASH_DELETE(hh_str, g_resolver.str_to_int_map, n);
-    HASH_DELETE(hh_int, g_resolver.int_to_str_map, n);
+    // No need to delete from hh_int, as uthash iterates and we free the node
     free(n->string_id);
     free(n);
   }
+  uv_rwlock_wrunlock(&g_resolver.cache_lock);
 
-  uv_mutex_destroy(&g_resolver.dirty_list_lock);
   uv_rwlock_destroy(&g_resolver.cache_lock);
+
+  entity_resolver_free_dirty_list(g_resolver.dirty_head);
+  uv_mutex_destroy(&g_resolver.dirty_list_lock);
 }
 
 bool entity_resolver_resolve_id(eng_container_t *sys_c,
@@ -96,8 +186,8 @@ bool entity_resolver_resolve_id(eng_container_t *sys_c,
                                 uint32_t *int_id_out) {
   uv_rwlock_rdlock(&g_resolver.cache_lock);
   er_cache_node_t *node;
-  HASH_FIND(hh_str, g_resolver.str_to_int_map, entity_id_str,
-            strlen(entity_id_str), node);
+  size_t key_len = strlen(entity_id_str);
+  HASH_FIND(hh_str, g_resolver.str_to_int_map, entity_id_str, key_len, node);
   if (node) {
     *int_id_out = node->int_id;
     // NOTE: Per our design, we don't move_to_front here to allow for
@@ -112,8 +202,7 @@ bool entity_resolver_resolve_id(eng_container_t *sys_c,
 
   // CRITICAL: Re-check the cache. Another thread might have created
   // the entry while we were switching locks.
-  HASH_FIND(hh_str, g_resolver.str_to_int_map, entity_id_str,
-            strlen(entity_id_str), node);
+  HASH_FIND(hh_str, g_resolver.str_to_int_map, entity_id_str, key_len, node);
   if (node) {
     *int_id_out = node->int_id;
     // It was just created, so it's already at the front of the LRU.
@@ -121,17 +210,15 @@ bool entity_resolver_resolve_id(eng_container_t *sys_c,
     return true;
   }
 
-  // --- Check LMDB (Cache Miss) ---
+  // --- DB Lookup (Cache Miss) ---
   MDB_txn *sys_c_txn = db_create_txn(sys_c->env, true);
   if (!sys_c_txn) {
     uv_rwlock_wrunlock(&g_resolver.cache_lock);
     return false;
   }
 
-  db_get_result_t r;
-  db_key_t key;
-  key.type = DB_KEY_STRING;
-  key.key.s = entity_id_str;
+  db_get_result_t r = {0};
+  db_key_t key = {.type = DB_KEY_STRING, .key.s = entity_id_str};
 
   if (!db_get(sys_c->data.sys->ent_id_to_int_db, sys_c_txn, &key, &r)) {
     uv_rwlock_wrunlock(&g_resolver.cache_lock);
@@ -146,15 +233,17 @@ bool entity_resolver_resolve_id(eng_container_t *sys_c,
   }
 
   if (r.status == DB_GET_OK) {
-    uint32_t *val = r.value;
-    *int_id_out = *val;
+    uint32_t val = *(uint32_t *)r.value;
+    free(r.value);
+    _create_cache_node(entity_id_str, val);
+    *int_id_out = val;
     uv_rwlock_wrunlock(&g_resolver.cache_lock);
     return true;
   }
-  free(r.value);
+  if (r.value)
+    free(r.value);
 
   // --- Create New Entity (DB Miss) ---
-  // It's a brand new entity.
   uint32_t new_id = id_manager_get_next_entity_id();
   if (new_id == 0) { // Error case
     uv_rwlock_wrunlock(&g_resolver.cache_lock);
@@ -164,23 +253,19 @@ bool entity_resolver_resolve_id(eng_container_t *sys_c,
   // TODO: Log this creation to the WAL for durability.
   // wal_log_new_entity(entity_id_str, new_id);
 
-  // Create the new cache node.
-  er_cache_node_t *new_node = calloc(1, sizeof(er_cache_node_t));
-  new_node->string_id = strdup(entity_id_str);
-  new_node->int_id = new_id;
+  if (!_create_cache_node(entity_id_str, new_id)) {
+    uv_rwlock_wrunlock(&g_resolver.cache_lock);
+    return false;
+  }
 
-  // Add it to the main cache (hash maps and LRU list).
-  // ... HASH_ADD logic for both maps ...
-  HASH_ADD_KEYPTR(hh_str, g_resolver.str_to_int_map, new_node->string_id,
-                  strlen(new_node->string_id), new_node);
-  HASH_ADD(hh_int, g_resolver.int_to_str_map, int_id, sizeof(new_node->int_id),
-           new_node);
-  // TODO: ... logic to add to front of LRU list ...
+  // Create a decoupled dirty item for the background writer
+  er_dirty_item_t *dirty_item = malloc(sizeof(er_dirty_item_t));
+  dirty_item->string_id = strdup(entity_id_str);
+  dirty_item->int_id = new_id;
 
-  // Add it to the dirty list for the background writer.
   uv_mutex_lock(&g_resolver.dirty_list_lock);
-  new_node->dirty_next = g_resolver.dirty_head;
-  g_resolver.dirty_head = new_node;
+  dirty_item->next = g_resolver.dirty_head;
+  g_resolver.dirty_head = dirty_item;
   uv_mutex_unlock(&g_resolver.dirty_list_lock);
 
   *int_id_out = new_id;
@@ -212,17 +297,15 @@ bool entity_resolver_resolve_string(eng_container_t *sys_c, uint32_t int_id,
     return true;
   }
 
-  // --- Check LMDB (Cache Miss) ---
+  // --- DB Lookup (Cache Miss) ---
   MDB_txn *sys_c_txn = db_create_txn(sys_c->env, true);
   if (!sys_c_txn) {
     uv_rwlock_wrunlock(&g_resolver.cache_lock);
     return false;
   }
 
-  db_get_result_t r;
-  db_key_t key;
-  key.type = DB_KEY_INTEGER;
-  key.key.i = int_id;
+  db_get_result_t r = {0};
+  db_key_t key = {.type = DB_KEY_INTEGER, .key.i = int_id};
 
   if (!db_get(sys_c->data.sys->int_to_ent_id_db, sys_c_txn, &key, &r)) {
     db_abort_txn(sys_c_txn);
@@ -237,23 +320,15 @@ bool entity_resolver_resolve_string(eng_container_t *sys_c, uint32_t int_id,
   }
 
   if (r.status == DB_GET_OK) {
-    // We found the string in the DB. Now we need to "warm" the cache.
-    // It's crucial to find the original string->int node to avoid duplicating
-    // the string in memory and to link our new int->str mapping correctly.
-    char *string_from_db = r.value;
-    er_cache_node_t *original_node = NULL;
-    HASH_FIND(hh_str, g_resolver.str_to_int_map, string_from_db,
-              strlen(string_from_db), original_node);
-    if (original_node) {
-      // Link the existing node into the int->str map as well.
-      HASH_ADD(hh_int, g_resolver.int_to_str_map, int_id, sizeof(int_id),
-               original_node);
-      *str_id_out = original_node->string_id;
-    }
+    char *string_from_db = (char *)r.value;
+    er_cache_node_t *new_node = _create_cache_node(string_from_db, int_id);
+    *str_id_out = new_node ? new_node->string_id : NULL;
     free(string_from_db);
     uv_rwlock_wrunlock(&g_resolver.cache_lock);
-    return (original_node != NULL); // Success if we found the original node
+    return new_node != NULL;
   }
+  if (r.value)
+    free(r.value);
 
   // --- Error Case ---
   // If an integer ID is not in the cache and not in the DB, it's a data
@@ -264,27 +339,21 @@ bool entity_resolver_resolve_string(eng_container_t *sys_c, uint32_t int_id,
   return false;
 }
 
-er_dirty_list_t *entity_resolver_get_dirty_mappings() {
+er_dirty_item_t *entity_resolver_get_dirty_mappings() {
   // The "lock-and-swap" pattern
   uv_mutex_lock(&g_resolver.dirty_list_lock);
-  er_cache_node_t *list_to_process = g_resolver.dirty_head;
-  g_resolver.dirty_head = NULL; // The global list is now empty
+  er_dirty_item_t *list_to_process = g_resolver.dirty_head;
+  g_resolver.dirty_head = NULL;
   uv_mutex_unlock(&g_resolver.dirty_list_lock);
-
-  if (!list_to_process)
-    return NULL;
-
-  er_dirty_list_t *result = malloc(sizeof(er_dirty_list_t));
-  result->head = list_to_process;
-  return result;
+  return list_to_process;
 }
 
-void entity_resolver_free_dirty_list(er_dirty_list_t *list) {
-  // The background writer has already processed these nodes.
-  if (list) {
-    // The nodes in list->head are still part of the main cache.
-    // We only free the container that was allocated in
-    // entity_resolver_get_dirty_mappings().
-    free(list);
+void entity_resolver_free_dirty_list(er_dirty_item_t *list) {
+  er_dirty_item_t *current = list;
+  while (current) {
+    er_dirty_item_t *next = current->next;
+    free(current->string_id);
+    free(current);
+    current = next;
   }
 }

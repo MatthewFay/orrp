@@ -15,13 +15,20 @@
 #include <stdlib.h>
 #include <string.h>
 
+const char *SYS_NEXT_ENT_ID_KEY = "next_ent_id";
+const u_int32_t SYS_NEXT_ENT_ID_INIT_VAL = 1;
+const char *SYS_DB_METADATA_NAME = "sys_dc_metadata_db";
+const char *USR_NEXT_EVENT_ID_KEY = "next_event_id";
+const u_int32_t USR_NEXT_EVENT_ID_INIT_VAL = 1;
+const char *USR_DB_METADATA_NAME = "user_dc_metadata_db";
+
 #define CONTAINER_CACHE_CAPACITY 64
 #define CONTAINER_FOLDER "data"
 #define SYS_CONTAINER_NAME "system"
 #define MAX_PATH_LENGTH 128
 const size_t CONTAINER_SIZE = 1048576;
 const int ENG_CACHE_CAPACITY = 16000;
-const int ENTITY_RES_CAPACITY = 256000;
+const int ENTITY_RESOLVER_CACHE_CAPACITY = 262144;
 
 const char *ENG_TXN_ERR = "Transaction error";
 const char *ENG_ID_TRANSL_ERR = "Id translation error";
@@ -413,7 +420,7 @@ eng_context_t *eng_init(void) {
 
   id_manager_init(ctx);
 
-  entity_resolver_init(ctx, ENTITY_RES_CAPACITY);
+  entity_resolver_init(ctx, ENTITY_RESOLVER_CACHE_CAPACITY);
 
   return ctx;
 }
