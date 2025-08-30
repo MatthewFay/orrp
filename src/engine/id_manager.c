@@ -86,6 +86,7 @@ void id_manager_destroy() {
     free(c->container_name);
     free(c);
   }
+  uv_mutex_unlock(&g_event_id_hash_lock);
   uv_mutex_destroy(&g_event_id_hash_lock);
 }
 

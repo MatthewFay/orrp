@@ -234,7 +234,7 @@ void test_EVENT_HighVolumeWrites_ShouldSucceed(void) {
   const char *locations[] = {"sf", "ny", "la", "tx"};
   const char *devices[] = {"mobile", "desktop"};
 
-  for (int i = 0; i < 100; i++) {
+  for (int i = 0; i < 1000; i++) {
     char command_buffer[256];
 
     // Create a unique entity and cycle through different tag values

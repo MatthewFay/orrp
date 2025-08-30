@@ -604,10 +604,6 @@ static bool _write_to_event_index(eng_container_t *dc, cmd_ctx_t *cmd_ctx,
     bitmap_t *bm = cn->data_object;
     bitmap_add(bm, event_id);
 
-    if (!cn->is_dirty) {
-      cn->is_dirty = true;
-    }
-
     custom_tag = custom_tag->next;
     custom_tag_nodes[*num_custom_tags] = cn;
     (*num_custom_tags)++;
@@ -638,7 +634,6 @@ static bool _write_to_ev2ent_map(eng_container_t *dc, u_int32_t event_id,
       return false;
     }
     *ent_id_ptr = ent_id;
-    (*event_id_to_ent_node)->is_dirty = true;
     (*event_id_to_ent_node)->data_object = ent_id_ptr;
     (*event_id_to_ent_node)->type = CACHE_TYPE_UINT32;
   }
@@ -695,6 +690,10 @@ void eng_event(api_response_t *r, eng_context_t *ctx, ast_node_t *ast) {
 
   // TODO:Support countable tags
 
+  for (int i = 0; i < num_custom_tag_nodes; i++) {
+    eng_cache_mark_dirty(custom_tag_nodes[i]);
+    eng_cache_unlock_and_release(custom_tag_nodes[i], CACHE_LOCK_WRITE);
+  }
   eng_cache_mark_dirty(event_id_to_ent_node);
   eng_cache_unlock_and_release(event_id_to_ent_node, CACHE_LOCK_WRITE);
 
@@ -705,6 +704,14 @@ void eng_event(api_response_t *r, eng_context_t *ctx, ast_node_t *ast) {
   return;
 
 cleanup:
+  for (int i = 0; i < num_custom_tag_nodes; i++) {
+    if (custom_tag_nodes[i]) {
+      eng_cache_cancel_and_release(custom_tag_nodes[i], CACHE_LOCK_WRITE);
+    }
+  }
+  if (event_id_to_ent_node) {
+    eng_cache_cancel_and_release(event_id_to_ent_node, CACHE_LOCK_WRITE);
+  }
   db_abort_txn(usr_c_txn);
   _eng_release_container(dc);
 }
