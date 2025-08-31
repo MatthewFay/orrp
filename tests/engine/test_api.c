@@ -122,10 +122,10 @@ void test_api_event_invalid_ast_duplicate_custom_tag(void) {
 }
 
 void test_api_event_invalid_ast_invalid_container_name(void) {
-  // Invalid container name (too short)
+  // Invalid container name (special char)
   ast_node_t *cmd = ast_create_command_node(CMD_EVENT, NULL);
-  ast_node_t *in_tag =
-      ast_create_tag_node(KEY_IN, ast_create_string_literal_node("db"), false);
+  ast_node_t *in_tag = ast_create_tag_node(
+      KEY_IN, ast_create_string_literal_node("./db"), false);
   ast_node_t *entity_tag = ast_create_tag_node(
       KEY_ENTITY, ast_create_string_literal_node("user-1"), false);
   ast_append_node(&cmd->command.tags, in_tag);
