@@ -1,5 +1,5 @@
 #include "engine/api.h"
-#include "engine/engine.h"
+#include "engine.h"
 #include "query/ast.h"
 #include "uthash.h"
 #include <ctype.h>
@@ -15,12 +15,30 @@ typedef struct {
   UT_hash_handle hh;
 } custom_key;
 
-static bool _is_valid_container_name(const char *name) {
-  if (strlen(name) < 3)
+static bool _is_valid_filename(const char *filename) {
+  if (filename == NULL || filename[0] == '\0') {
     return false;
-  if (isdigit((unsigned char)name[0]))
+  }
+
+  size_t len = strlen(filename);
+  if (len > 64 || filename[0] == '.' || filename[len - 1] == '.') {
     return false;
+  }
+
+  // Only allow alphanumeric, underscore, hyphen
+  for (size_t i = 0; i < len; i++) {
+    unsigned char c = (unsigned char)filename[i];
+    if (!isalnum(c) && c != '_' && c != '-') {
+      return false;
+    }
+  }
+
   return true;
+}
+
+static bool _is_valid_container_name(const char *name) {
+  // Container names are used as part of file name
+  return _is_valid_filename(name);
 }
 
 static bool _validate_ast(ast_node_t *ast, custom_key **c_keys) {
@@ -175,3 +193,7 @@ api_response_t *api_exec(ast_node_t *ast, eng_context_t *ctx) {
 
   return r;
 }
+
+eng_context_t *api_start_eng(void) { return eng_init(); }
+
+void api_stop_eng(eng_context_t *ctx) { eng_shutdown(ctx); }

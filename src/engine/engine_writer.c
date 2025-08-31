@@ -1,15 +1,129 @@
 #include "engine_writer.h"
+#include "container.h"
+#include "core/db.h"
+#include "dc_cache.h"
 #include "engine_cache.h"
+#include "lmdb.h"
+#include "uthash.h"
 #include "uv.h"
 #include <stdbool.h>
+#include <stdlib.h>
 
 static uv_thread_t g_writer_thread;
 static bool g_shutdown_flag = false;
 
+typedef struct write_batch_entry_s {
+  eng_cache_node_t *dirty_node;
+  struct write_batch_entry_s *next;
+} write_batch_entry_t;
+
+typedef struct write_batch_s {
+  UT_hash_handle hh;
+  char *container_name;
+  write_batch_entry_t *head;
+  write_batch_entry_t *tail;
+} write_batch_t;
+
+static void _free_batch_hash(write_batch_t *batch_hash) {
+  if (!batch_hash)
+    return;
+  write_batch_t *n, *tmp;
+  HASH_ITER(hh, batch_hash, n, tmp) {
+    HASH_DEL(batch_hash, n);
+    free(n->container_name);
+    free(n);
+  }
+}
+
+static write_batch_t *_create_batch(char *container_name) {
+  write_batch_t *batch = calloc(1, sizeof(write_batch_t));
+  if (!batch) {
+    return NULL;
+  }
+  batch->container_name = strdup(container_name);
+  return batch;
+}
+
+static bool _add_dirty_node_to_batch(write_batch_t *batch,
+                                     eng_cache_node_t *dirty_node) {
+  write_batch_entry_t *entry = calloc(1, sizeof(write_batch_entry_t));
+  if (!entry) {
+    return false;
+  }
+  entry->dirty_node = dirty_node;
+  if (!batch->head) {
+    batch->head = entry;
+    batch->tail = entry;
+    return true;
+  }
+  batch->tail->next = entry;
+  batch->tail = entry;
+  return true;
+}
+
+static write_batch_t *
+_group_dirty_nodes_by_container(eng_cache_node_t *dirty_list_head) {
+  write_batch_t *batch_hash = NULL;
+  write_batch_t *batch = NULL;
+  eng_cache_node_t *dirty_node = dirty_list_head;
+
+  while (dirty_node) {
+    HASH_FIND_STR(batch_hash, dirty_node->container_name, batch);
+    if (batch) {
+      if (!_add_dirty_node_to_batch(batch, dirty_node)) {
+        _free_batch_hash(batch_hash);
+        return NULL;
+      }
+      continue;
+    }
+
+    batch = _create_batch(dirty_node->container_name);
+    if (!batch) {
+      _free_batch_hash(batch_hash);
+      return NULL;
+    }
+
+    if (!_add_dirty_node_to_batch(batch, dirty_node)) {
+      _free_batch_hash(batch_hash);
+      return NULL;
+    }
+    dirty_node = dirty_node->dirty_next;
+  }
+
+  return batch_hash;
+}
+
+static bool _write_cached_node_to_db(eng_container_t *c, MDB_txn *txn,
+                                     eng_cache_node_t *node) {}
+
 // This function processes a list of dirty nodes, flushing them to DB.
 static void _flush_dirty_list_to_db(eng_cache_node_t *dirty_list_head) {
-  // 1. Group the nodes by their container name to batch writes.
-  //    (e.g., create a temporary hash map of container_name -> list_of_nodes).
+  if (!dirty_list_head)
+    return;
+  write_batch_t *hash = _group_dirty_nodes_by_container(dirty_list_head);
+  if (!hash)
+    return;
+
+  write_batch_t *batch, *tmp;
+  HASH_ITER(hh, hash, batch, tmp) {
+    eng_container_t *c = eng_dc_cache_get(batch->container_name);
+    if (!c) {
+      // TODO: handle error case - retry next cycle?
+      continue;
+    }
+    MDB_txn *txn = db_create_txn(c->env, false);
+    if (!txn) {
+      // TODO: handle error case - retry next cycle?
+      continue;
+    }
+    write_batch_entry_t *entry = batch->head;
+    while (entry) {
+      eng_cache_node_t *dirty_node = entry->dirty_node;
+      if (!_write_cached_node_to_db(c, txn, dirty_node)) {
+      }
+      entry = entry->next;
+    }
+  }
 
   // 2. For each container in your grouped list:
   //    a. Start a single LMDB write transaction for that container.
@@ -27,21 +141,26 @@ static void _flush_dirty_list_to_db(eng_cache_node_t *dirty_list_head) {
 // The main function for the background writer thread.
 static void background_writer_main(void *arg) {
   ;
-  // while (!g_shutdown_flag) {
-  //   // Sleep for a short interval (e.g., 100ms).
-  //   uv_sleep(100);
+  (void)arg;
+  eng_cache_node_t **dirty_head = NULL;
+  eng_cache_node_t **dirty_tail = NULL;
+  while (!g_shutdown_flag) {
+    uv_sleep(100);
 
-  //   // --- The Lock-and-Swap Pattern ---
-  //   uv_mutex_lock(&g_cache.dirty_list_lock);
-  //   eng_cache_node_t *local_dirty_head = g_cache.dirty_head;
-  //   g_cache.dirty_head = NULL;
-  //   g_cache.dirty_tail = NULL;
-  //   uv_mutex_unlock(&g_cache.dirty_list_lock);
+    // --- The Lock-and-Swap Pattern ---
+    eng_cache_lock_dirty_list();
+    eng_cache_get_dirty_list(dirty_head, dirty_tail);
+    if (!*dirty_head) {
+      eng_cache_unlock_dirty_list();
+      continue;
+    }
+    eng_cache_node_t *local_dirty_head = *dirty_head;
+    *dirty_head = NULL;
+    *dirty_tail = NULL;
+    eng_cache_unlock_dirty_list();
 
-  //   if (local_dirty_head) {
-  //     _flush_dirty_list_to_ddb(local_dirty_head);
-  //   }
-  // }f
+    _flush_dirty_list_to_db(local_dirty_head);
+  }
 }
 
 bool eng_writer_start() {
@@ -57,23 +176,3 @@ bool eng_writer_stop() {
   }
   return true;
 }
-
-// commit global id directory txn first - if `usr_commit` fails, it's OK.
-// bool sys_commit = db_commit_txn(sys_c_txn);
-// if (!sys_commit) {
-//   r->err_msg = ENG_TXN_COMMIT_ERR;
-
-//   // cleanup
-//   _eng_release_container(dc);
-
-//   return;
-// }
-// bool usr_commit = db_commit_txn(usr_c_txn);
-// if (!usr_commit) {
-//   r->err_msg = ENG_TXN_COMMIT_ERR;
-
-//   // cleanup
-//   _eng_release_container(dc);
-
-//   return;
-// }

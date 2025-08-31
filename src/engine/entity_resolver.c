@@ -1,6 +1,5 @@
 #include "entity_resolver.h"
 #include "core/db.h"
-#include "engine/engine.h"
 #include "id_manager.h"
 #include "lmdb.h"
 #include "uthash.h"

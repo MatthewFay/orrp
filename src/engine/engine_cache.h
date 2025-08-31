@@ -1,6 +1,7 @@
 #ifndef ENGINE_CACHE_H
 #define ENGINE_CACHE_H
 
+#include "container.h"
 #include "uthash.h"
 #include "uv.h" // IWYU pragma: keep
 #include <stdbool.h>
@@ -16,8 +17,12 @@ typedef enum { CACHE_LOCK_READ, CACHE_LOCK_WRITE } eng_cache_node_lock_type_t;
 // The unified cache node. It's a member of a hash map, an LRU list,
 // and a dirty list all at once.
 typedef struct eng_cache_node_s {
+  char *container_name;
+  char *db_name;
+  char *db_key;
+
   // --- Hash Map Fields ---
-  char *key; // Key: "container:db:key". Must be heap-allocated.
+  char *key; // Composite Key: "container/db/key". Must be heap-allocated.
   UT_hash_handle hh;
 
   // --- LRU List Fields ---
@@ -63,12 +68,14 @@ typedef struct eng_cache_mgr_s {
 void eng_cache_init(int capacity);
 
 // Destroys the cache, freeing all nodes and data. Called on shutdown.
-void eng_cache_destroy();
+void eng_cache_destroy(void);
 
 // Gets a node from the cache by key. If the node exists, its ref count
 // is incremented. If it does not exist, a new node is created and returned,
 // but its data_object will be NULL.
-eng_cache_node_t *eng_cache_get_or_create(const char *key,
+eng_cache_node_t *eng_cache_get_or_create(eng_container_t *c,
+                                          const char *db_name,
+                                          const char *db_key,
                                           eng_cache_node_lock_type_t lock_type);
 
 // Releases a node that was previously acquired with cache_get_or_create.
@@ -93,5 +100,13 @@ void eng_cache_mark_dirty(eng_cache_node_t *node);
 
 // Removes a node from the dirty list (e.g., after it's been flushed).
 void eng_cache_remove_from_dirty_list(eng_cache_node_t *node);
+
+// Lock the dirty list - used by writer during flush
+void eng_cache_lock_dirty_list(void);
+// Unlock the dirty list - used by writer during flush
+void eng_cache_unlock_dirty_list(void);
+// Get the dirty list - used by writer during flush
+void eng_cache_get_dirty_list(eng_cache_node_t **dirty_head,
+                              eng_cache_node_t **dirty_tail);
 
 #endif // ENGINE_CACHE_H

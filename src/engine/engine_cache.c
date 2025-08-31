@@ -5,6 +5,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define MAX_CACHE_KEY_SIZE 640
+
 // Global instance of our cache
 static eng_cache_mgr_t g_cache;
 
@@ -43,6 +45,9 @@ static void _free_data_obj(eng_cache_node_t *node) {
 static void _free_node(eng_cache_node_t *node) {
   uv_rwlock_destroy(&node->node_lock);
   _free_data_obj(node);
+  free(node->container_name);
+  free(node->db_name);
+  free(node->db_key);
   free(node->key);
   free(node);
 }
@@ -108,8 +113,25 @@ void eng_cache_destroy() {
   uv_mutex_destroy(&g_cache.dirty_list_lock);
 }
 
+static bool _get_cache_key(char *buffer, size_t buffer_size,
+                           const char *container_name, const char *db_name,
+                           const char *db_key) {
+  int r = snprintf(buffer, buffer_size, "%s/%s/%s", container_name, db_name,
+                   db_key);
+  if (r < 0 || (size_t)r >= buffer_size) {
+    return false;
+  }
+  return true;
+}
+
 eng_cache_node_t *
-eng_cache_get_or_create(const char *key, eng_cache_node_lock_type_t lock_type) {
+eng_cache_get_or_create(eng_container_t *c, const char *db_name,
+                        const char *db_key,
+                        eng_cache_node_lock_type_t lock_type) {
+  char cache_key[MAX_CACHE_KEY_SIZE];
+  if (!_get_cache_key(cache_key, sizeof(cache_key), c->name, db_name, db_key)) {
+    return NULL;
+  }
   /*
   Consider optimizing in future - For now, always taking a write lock.
   */
@@ -117,7 +139,7 @@ eng_cache_get_or_create(const char *key, eng_cache_node_lock_type_t lock_type) {
 
   eng_cache_node_t *node = NULL;
 
-  HASH_FIND_STR(g_cache.nodes_hash, key, node);
+  HASH_FIND_STR(g_cache.nodes_hash, cache_key, node);
 
   if (node) {
     node->ref_count++;
@@ -137,7 +159,10 @@ eng_cache_get_or_create(const char *key, eng_cache_node_lock_type_t lock_type) {
     return NULL;
   }
 
-  node->key = strdup(key);
+  node->container_name = strdup(c->name);
+  node->db_name = strdup(db_name);
+  node->db_key = strdup(db_key);
+  node->key = strdup(cache_key);
   node->ref_count = 1;
   // Caller is responsible for loading data object!
   node->data_object = NULL;
@@ -273,4 +298,15 @@ void eng_cache_remove_from_dirty_list(eng_cache_node_t *node) {
   node->dirty_next = NULL;
 
   uv_mutex_unlock(&g_cache.dirty_list_lock);
+}
+
+void eng_cache_lock_dirty_list() { uv_mutex_lock(&g_cache.dirty_list_lock); }
+void eng_cache_unlock_dirty_list() {
+  uv_mutex_unlock(&g_cache.dirty_list_lock);
+}
+
+void eng_cache_get_dirty_list(eng_cache_node_t **dirty_head,
+                              eng_cache_node_t **dirty_tail) {
+  *dirty_head = g_cache.dirty_head;
+  *dirty_tail = g_cache.dirty_tail;
 }

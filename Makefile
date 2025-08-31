@@ -3,7 +3,7 @@
 # --- Compiler and Flags ---
 CC = gcc
 # Compiler flags
-# TODO: Seperate release (with optimizations) + debug builds
+# TODO: Seperate release (with optimizations) + dev builds
 CFLAGS = -Iinclude \
 	 -Isrc \
 	 -Itests/unity \
@@ -12,7 +12,7 @@ CFLAGS = -Iinclude \
 	 -Ilib/log.c \
 	 -Ilib/libuv/include \
 	 -Ilib/uthash \
-	 -Wall -Wextra -g -O0
+	 -Wall -Wextra -g -O0 # No optimizations currently for development purposes
 
 # LDFLAGS: Linker flags
 # Note: LMDB requires the -lrt library for real-time extensions (e.g., mmap) on some systems.
@@ -31,6 +31,10 @@ LIBS = -luv -lm -lpthread
 # Main application sources
 APP_SRCS = src/main.c \
 		   src/engine/api.c \
+			 src/engine/cmd_context.c \
+			 src/engine/container.c \
+			 src/engine/context.c \
+			 src/engine/dc_cache.c \
 			 src/engine/engine_cache.c \
 			 src/engine/engine_writer.c \
 		   src/engine/engine.c \
@@ -46,7 +50,7 @@ APP_SRCS = src/main.c \
 		   src/query/tokenizer.c \
 		   src/query/parser.c
 
-# New variable excluding main.c for tests
+# excluding main.c for tests
 TEST_APP_SRCS = $(filter-out src/main.c, $(APP_SRCS))
 
 # Library sources
@@ -119,11 +123,17 @@ $(LIBUV_A):
 #    ./bin/test_server
 #
 # 4. Finally, copy the rule and modify it for the new test:
-#    bin/test_server: tests/networking/test_server.c src/networking/server.c tests/unity/unity.c | $(BIN_DIR)
+#    bin/test_server: tests/networking/test_server.c $(TEST_APP_SRCS) ${UNITY_SRC} | $(BIN_DIR)
 #      $(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 # Main 'test' target: builds and runs all listed test executables
-test: bin/test_tokenizer bin/test_ast bin/test_parser bin/test_stack bin/test_queue bin/test_api bin/test_event_api
+test: bin/test_tokenizer \
+ 		  bin/test_ast \
+			bin/test_parser \
+			bin/test_stack \
+			bin/test_queue \
+			bin/test_api \
+			bin/test_event_api
 	@echo "--- Running tokenizer test ---"
 	./bin/test_tokenizer
 	@echo "--- Running ast test ---"
@@ -141,38 +151,64 @@ test: bin/test_tokenizer bin/test_ast bin/test_parser bin/test_stack bin/test_qu
 	@echo "--- All tests finished ---"
 
 # 'test_build' target: builds all test executables
-test_build: bin/test_tokenizer bin/test_ast bin/test_parser bin/test_stack bin/test_queue bin/test_event_api
+test_build: bin/test_tokenizer \
+					  bin/test_ast \
+					  bin/test_parser \
+						bin/test_stack \
+						bin/test_queue \
+						bin/test_api \
+						bin/test_event_api
 
 # --- INDIVIDUAL TEST BUILD RULES ---
 
 # Rule to build the tokenizer test executable
-bin/test_tokenizer: tests/query/test_tokenizer.c src/query/tokenizer.c src/core/queue.c tests/unity/unity.c | $(BIN_DIR)
+bin/test_tokenizer: tests/query/test_tokenizer.c \
+									  src/query/tokenizer.c \
+										src/core/queue.c \
+										${UNITY_SRC} | $(BIN_DIR)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 # Rule to build the ast test executable
-bin/test_ast: tests/query/test_ast.c src/query/ast.c tests/unity/unity.c | $(BIN_DIR)
+bin/test_ast: tests/query/test_ast.c \
+              src/query/ast.c \
+							${UNITY_SRC} | $(BIN_DIR)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 # Rule to build the parser test executable
-bin/test_parser: tests/query/test_parser.c src/query/parser.c src/core/queue.c src/core/stack.c src/query/ast.c src/query/tokenizer.c src/core/conversions.c tests/unity/unity.c | $(BIN_DIR)
+bin/test_parser: tests/query/test_parser.c \
+ 							   src/query/parser.c \
+								 src/core/queue.c \
+								 src/core/stack.c \
+								 src/query/ast.c \
+								 src/query/tokenizer.c \
+								 src/core/conversions.c \
+								 ${UNITY_SRC} | $(BIN_DIR)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 # Rule to build the stack test executable
-bin/test_stack: tests/core/test_stack.c src/core/stack.c tests/unity/unity.c | $(BIN_DIR)
+bin/test_stack: tests/core/test_stack.c \
+							  src/core/stack.c \
+								${UNITY_SRC} | $(BIN_DIR)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 # Rule to build the queue test executable
-bin/test_queue: tests/core/test_queue.c src/core/queue.c tests/unity/unity.c | $(BIN_DIR)
+bin/test_queue: tests/core/test_queue.c \
+								src/core/queue.c \
+								${UNITY_SRC} | $(BIN_DIR)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 # Rule to build the api test executable
-bin/test_api: tests/engine/test_api.c src/engine/api.c src/query/ast.c tests/unity/unity.c | $(BIN_DIR)
+bin/test_api: tests/engine/test_api.c \
+							src/engine/api.c \
+							src/query/ast.c \
+							${UNITY_SRC} | $(BIN_DIR)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 ### --- INTEGRATION TESTS --- ###
 
 # Rule to build the event api test executable
-bin/test_event_api: tests/integration/test_event_api.c tests/unity/unity.c $(TEST_APP_SRCS) $(LIB_SRCS) | $(BIN_DIR)
+bin/test_event_api: tests/integration/test_event_api.c \
+  $(TEST_APP_SRCS) ${UNITY_SRC} $(LIB_SRCS) | $(BIN_DIR)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 # --- OBJECT FILE COMPILATION ---

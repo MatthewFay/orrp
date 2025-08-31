@@ -1,7 +1,8 @@
 #ifndef ENTITY_RESOLVER_H
 #define ENTITY_RESOLVER_H
 
-#include "engine/engine.h"
+#include "container.h"
+#include "context.h"
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -21,7 +22,7 @@ void entity_resolver_init(eng_context_t *ctx, int capacity);
 /**
  * @brief Destroys the entity resolver resources. Called on graceful shutdown.
  */
-void entity_resolver_destroy();
+void entity_resolver_destroy(void);
 
 /**
  * @brief Resolves a string entity ID to its corresponding integer ID.
@@ -63,7 +64,7 @@ bool entity_resolver_resolve_string(eng_container_t *sys_c, uint32_t int_id,
  * empty. The caller is responsible for freeing this list with
  * entity_resolver_free_dirty_list().
  */
-er_dirty_item_t *entity_resolver_get_dirty_mappings();
+er_dirty_item_t *entity_resolver_get_dirty_mappings(void);
 
 /**
  * @brief Frees the memory for a list of dirty items retrieved by the writer.

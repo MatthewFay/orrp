@@ -1,8 +1,9 @@
 #ifndef ID_MANAGER_H
 #define ID_MANAGER_H
 
-#include "engine/engine.h"
+#include "context.h"
 #include "lmdb.h"
+#include <stdbool.h>
 #include <stdint.h>
 
 // Initializes the ID manager. Must be called once at server startup.
@@ -10,15 +11,15 @@
 bool id_manager_init(eng_context_t *ctx);
 
 // Destroys the ID manager resources. Called on graceful shutdown.
-void id_manager_destroy();
+void id_manager_destroy(void);
 
 // --- Entity ID Functions ---
 
 // Gets the next available global entity ID. Thread-safe.
-uint32_t id_manager_get_next_entity_id();
+uint32_t id_manager_get_next_entity_id(void);
 
 // Gets the last reserved entity ID for the background writer to persist.
-uint32_t id_manager_get_last_reserved_entity_id();
+uint32_t id_manager_get_last_reserved_entity_id(void);
 
 // --- Event ID Functions ---
 

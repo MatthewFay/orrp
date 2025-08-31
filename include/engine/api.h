@@ -1,7 +1,9 @@
 #ifndef API_H
 #define API_H
 
-#include "engine.h"
+// --- Public Engine API --- //
+
+#include "engine/context.h"
 #include "query/ast.h"
 #include <stdbool.h>
 
@@ -16,7 +18,10 @@ typedef struct api_response_s {
 
 void free_api_response(api_response_t *r);
 
-// The single entry point into the API/Engine layer.
+eng_context_t *api_start_eng(void);
+void api_stop_eng(eng_context_t *ctx);
+
+// The single entry point into the API/Engine layer for executing commands.
 api_response_t *api_exec(ast_node_t *ast, eng_context_t *ctx);
 
 #endif // API_H

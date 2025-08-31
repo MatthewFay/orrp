@@ -30,6 +30,9 @@ void eng_event(api_response_t *resp, eng_context_t *ctx, ast_node_t *ast) {
   resp->err_msg = NULL;
 }
 
+eng_context_t *eng_init(void) { return NULL; }
+void eng_shutdown(eng_context_t *ctx) { (void)ctx; }
+
 // Helper to create a minimal valid EVENT AST
 static ast_node_t *make_event_ast(const char *container, const char *entity) {
   ast_node_t *cmd = ast_create_command_node(CMD_EVENT, NULL);

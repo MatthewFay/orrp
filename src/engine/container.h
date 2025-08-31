@@ -1,20 +1,7 @@
-#ifndef ENG_H
-#define ENG_H
+#ifndef CONTAINER_H
+#define CONTAINER_H
 
 #include "lmdb.h"
-#include "query/ast.h"
-
-#define MAX_CUSTOM_TAGS 10
-// TODO: db_constants.h
-extern const char *SYS_NEXT_ENT_ID_KEY;
-extern const u_int32_t SYS_NEXT_ENT_ID_INIT_VAL;
-extern const char *SYS_DB_METADATA_NAME;
-extern const char *USR_NEXT_EVENT_ID_KEY;
-extern const u_int32_t USR_NEXT_EVENT_ID_INIT_VAL;
-extern const char *USR_DB_METADATA_NAME;
-
-struct api_response_s;
-
 typedef enum { CONTAINER_TYPE_SYSTEM, CONTAINER_TYPE_USER } eng_dc_type_t;
 
 // System data container
@@ -76,11 +63,8 @@ typedef struct eng_container_s {
 
 } eng_container_t;
 
-typedef struct eng_context_s {
-  eng_container_t *sys_c;
-} eng_context_t;
+eng_container_t *eng_container_create(eng_dc_type_t type);
 
-eng_context_t *eng_init(void);
-void eng_close_ctx(eng_context_t *ctx);
-void eng_event(struct api_response_s *r, eng_context_t *ctx, ast_node_t *ast);
-#endif
+void eng_container_close(eng_container_t *c);
+
+#endif // CONTAINER_H
