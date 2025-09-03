@@ -1,5 +1,6 @@
 #include "engine_writer.h"
 #include "container.h"
+#include "core/bitmaps.h"
 #include "core/db.h"
 #include "dc_cache.h"
 #include "engine_cache.h"
@@ -29,6 +30,12 @@ static void _free_batch_hash(write_batch_t *batch_hash) {
     return;
   write_batch_t *n, *tmp;
   HASH_ITER(hh, batch_hash, n, tmp) {
+    write_batch_entry_t *entry = n->head;
+    while (entry) {
+      write_batch_entry_t *next_entry = entry->next;
+      free(entry);
+      entry = next_entry;
+    }
     HASH_DEL(batch_hash, n);
     free(n->container_name);
     free(n);
@@ -74,6 +81,7 @@ _group_dirty_nodes_by_container(eng_cache_node_t *dirty_list_head) {
         _free_batch_hash(batch_hash);
         return NULL;
       }
+      dirty_node = dirty_node->dirty_next;
       continue;
     }
 
@@ -93,8 +101,45 @@ _group_dirty_nodes_by_container(eng_cache_node_t *dirty_list_head) {
   return batch_hash;
 }
 
+static bool _get_val(eng_cache_node_t *node, void **val_out,
+                     size_t *val_size_out) {
+  switch (node->type) {
+  case CACHE_TYPE_BITMAP:
+    *val_out = bitmap_serialize(node->data_object, val_size_out);
+    if (!*val_out) {
+      return false;
+    }
+    break;
+  case CACHE_TYPE_UINT32:
+    *val_out = node->data_object;
+    *val_size_out = sizeof(uint32_t);
+    break;
+  case CACHE_TYPE_STRING:
+    *val_out = node->data_object;
+    *val_size_out = strlen(node->data_object);
+    break;
+  }
+
+  return true;
+}
+
+// Flush dirty data to disk
 static bool _write_cached_node_to_db(eng_container_t *c, MDB_txn *txn,
-                                     eng_cache_node_t *node) {}
+                                     eng_cache_node_t *node) {
+  MDB_dbi target_db;
+  size_t val_size;
+  void *val;
+  if (!eng_container_get_user_db(c, node->db_type, &target_db)) {
+    return false;
+  }
+  if (!_get_val(node, &val, &val_size)) {
+    return false;
+  }
+  if (!db_put(target_db, txn, &node->db_key, val, val_size, false)) {
+    return false;
+  }
+  return true;
+}
 
 // This function processes a list of dirty nodes, flushing them to DB.
 static void _flush_dirty_list_to_db(eng_cache_node_t *dirty_list_head) {
@@ -114,50 +159,53 @@ static void _flush_dirty_list_to_db(eng_cache_node_t *dirty_list_head) {
     MDB_txn *txn = db_create_txn(c->env, false);
     if (!txn) {
       // TODO: handle error case - retry next cycle?
+      eng_dc_cache_release_container(c);
       continue;
     }
     write_batch_entry_t *entry = batch->head;
+    bool all_successful = true;
     while (entry) {
-      eng_cache_node_t *dirty_node = entry->dirty_node;
-      if (!_write_cached_node_to_db(c, txn, dirty_node)) {
+      if (!_write_cached_node_to_db(c, txn, entry->dirty_node)) {
+        all_successful = false;
+        break; // Stop processing this batch on first error
       }
       entry = entry->next;
     }
+    if (all_successful) {
+      db_commit_txn(txn);
+      // NOW perform cleanup on all nodes in the batch (set is_dirty=false,
+      // etc.)
+    } else {
+      db_abort_txn(txn); // Roll back all changes for this batch
+    }
+    eng_dc_cache_release_container(c);
   }
-
-  // 2. For each container in your grouped list:
-  //    a. Start a single LMDB write transaction for that container.
-  //    b. Iterate through all the dirty nodes for that container.
-  //    c. Serialize the data_object (e.g., bitmap) and db_put() it.
-  //    d. Commit the transaction.
-  //    e. If the commit was successful:
-  //       - For each node just written, set node->is_dirty = false.
-  //       - If a node was marked for eviction, now is the time to
-  //       _free_node(node).
-  //    f. If the commit failed, the nodes remain dirty and will be picked up
-  //       in the next writer cycle.
 }
+
+// 2. For each container in your grouped list:
+//    a. Start a single LMDB write transaction for that container.
+//    b. Iterate through all the dirty nodes for that container.
+//    c. Serialize the data_object (e.g., bitmap) and db_put() it.
+//    d. Commit the transaction.
+//    e. If the commit was successful:
+//       - For each node just written, set node->is_dirty = false.
+//       - If a node was marked for eviction, now is the time to
+//       _free_node(node). - How to tell if a node is marked for eviction??
+//       Ref count = 0 ? ? new flag ??
+//    f. If the commit failed, the nodes remain dirty and will be picked up
+//       in the next writer cycle.
 
 // The main function for the background writer thread.
 static void background_writer_main(void *arg) {
   ;
   (void)arg;
-  eng_cache_node_t **dirty_head = NULL;
-  eng_cache_node_t **dirty_tail = NULL;
   while (!g_shutdown_flag) {
     uv_sleep(100);
 
-    // --- The Lock-and-Swap Pattern ---
-    eng_cache_lock_dirty_list();
-    eng_cache_get_dirty_list(dirty_head, dirty_tail);
-    if (!*dirty_head) {
-      eng_cache_unlock_dirty_list();
+    eng_cache_node_t *local_dirty_head = eng_cache_swap_dirty_list();
+    if (!local_dirty_head) {
       continue;
     }
-    eng_cache_node_t *local_dirty_head = *dirty_head;
-    *dirty_head = NULL;
-    *dirty_tail = NULL;
-    eng_cache_unlock_dirty_list();
 
     _flush_dirty_list_to_db(local_dirty_head);
   }

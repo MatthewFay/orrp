@@ -3,7 +3,6 @@
 #include "container.h"
 #include "context.h"
 #include "core/bitmaps.h"
-#include "core/conversions.h"
 #include "core/db.h"
 #include "dc_cache.h"
 #include "engine/api.h"
@@ -252,23 +251,21 @@ static bool _write_to_event_index(eng_container_t *dc, cmd_ctx_t *cmd_ctx,
                                   int *num_custom_tags) {
   db_get_result_t get_r;
   db_key_t key;
-  char key_buffer[512];
-
   key.type = DB_KEY_STRING;
-
+  char key_buffer[512];
   ast_node_t *custom_tag = cmd_ctx->custom_tags_head;
-  while (custom_tag) {
 
+  while (custom_tag) {
     if (!_custom_tag_into(key_buffer, sizeof(key_buffer), custom_tag)) {
       return false;
     }
+    key.key.s = key_buffer;
 
     eng_cache_node_t *cn = eng_cache_get_or_create(
-        dc, USR_DB_INVERTED_EVENT_INDEX_NAME, key_buffer, CACHE_LOCK_WRITE);
+        dc, USER_DB_INVERTED_EVENT_INDEX, key, CACHE_LOCK_WRITE);
     if (cn == NULL) {
       return false;
     }
-    key.key.s = key_buffer;
 
     if (cn->data_object == NULL) {
       if (!db_get(dc->data.usr->inverted_event_index_db, txn, &key, &get_r)) {
@@ -298,14 +295,12 @@ static bool _write_to_event_index(eng_container_t *dc, cmd_ctx_t *cmd_ctx,
 static bool _write_to_ev2ent_map(eng_container_t *dc, u_int32_t event_id,
                                  u_int32_t ent_id,
                                  eng_cache_node_t **event_id_to_ent_node) {
-  char event_id_str[512];
-  if (conv_uint32_to_string(event_id_str, sizeof(event_id_str), event_id) ==
-      -1) {
-    return false;
-  }
+  db_key_t key;
+  key.type = DB_KEY_INTEGER;
+  key.key.i = event_id;
 
-  *event_id_to_ent_node = eng_cache_get_or_create(
-      dc, USR_DB_EVENT_TO_ENT_NAME, event_id_str, CACHE_LOCK_WRITE);
+  *event_id_to_ent_node = eng_cache_get_or_create(dc, USER_DB_EVENT_TO_ENTITY,
+                                                  key, CACHE_LOCK_WRITE);
   if (!*event_id_to_ent_node) {
     return false;
   }
@@ -317,6 +312,9 @@ static bool _write_to_ev2ent_map(eng_container_t *dc, u_int32_t event_id,
     *ent_id_ptr = ent_id;
     (*event_id_to_ent_node)->data_object = ent_id_ptr;
     (*event_id_to_ent_node)->type = CACHE_TYPE_UINT32;
+  } else {
+    // Error case- Should not exist
+    return false;
   }
 
   return true;

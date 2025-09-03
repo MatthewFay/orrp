@@ -2,6 +2,7 @@
 #define CONTAINER_H
 
 #include "lmdb.h"
+#include <stdbool.h>
 typedef enum { CONTAINER_TYPE_SYSTEM, CONTAINER_TYPE_USER } eng_dc_type_t;
 
 // System data container
@@ -51,6 +52,16 @@ typedef struct eng_user_dc_s {
   MDB_dbi count_index_db;
 } eng_user_dc_t;
 
+// User data container DB type
+typedef enum {
+  USER_DB_INVERTED_EVENT_INDEX = 0,
+  USER_DB_EVENT_TO_ENTITY,
+  USER_DB_METADATA,
+  USER_DB_COUNTER_STORE,
+  USER_DB_COUNT_INDEX,
+  USER_DB_COUNT
+} eng_user_dc_db_type_t;
+
 typedef struct eng_container_s {
   char *name;
   MDB_env *env;
@@ -66,5 +77,8 @@ typedef struct eng_container_s {
 eng_container_t *eng_container_create(eng_dc_type_t type);
 
 void eng_container_close(eng_container_t *c);
+
+bool eng_container_get_user_db(eng_container_t *c, eng_user_dc_db_type_t type,
+                               MDB_dbi *db_out);
 
 #endif // CONTAINER_H

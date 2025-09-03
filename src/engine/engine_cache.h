@@ -1,10 +1,16 @@
 #ifndef ENGINE_CACHE_H
 #define ENGINE_CACHE_H
 
+// --- ENGINE CACHE --- //
+
 #include "container.h"
+#include "core/db.h"
 #include "uthash.h"
 #include "uv.h" // IWYU pragma: keep
+#include <stdatomic.h>
 #include <stdbool.h>
+
+#define MAX_CACHE_KEY_SIZE 640
 
 typedef enum {
   CACHE_TYPE_BITMAP,
@@ -17,12 +23,15 @@ typedef enum { CACHE_LOCK_READ, CACHE_LOCK_WRITE } eng_cache_node_lock_type_t;
 // The unified cache node. It's a member of a hash map, an LRU list,
 // and a dirty list all at once.
 typedef struct eng_cache_node_s {
-  char *container_name;
-  char *db_name;
-  char *db_key;
+  char container_name[128];
+  eng_user_dc_db_type_t db_type;
+  db_key_t db_key;
 
   // --- Hash Map Fields ---
-  char *key; // Composite Key: "container/db/key". Must be heap-allocated.
+  char cache_key[MAX_CACHE_KEY_SIZE]; // Unique Composite Cache Key:
+                                      // "container_name/db_type/db_key".
+                                      // Must be heap-allocated.
+
   UT_hash_handle hh;
 
   // --- LRU List Fields ---
@@ -36,8 +45,12 @@ typedef struct eng_cache_node_s {
   // --- Data Payload & State ---
   eng_cache_node_type_t type;
   void *data_object; // Pointer to the actual data (e.g., bitmap_t*).
-  int ref_count;     // Tracks current users of the node.
-  bool is_dirty;     // Has `data_object` been modified?
+  atomic_uint_fast32_t ref_count; // Tracks current users of the node.
+  bool is_dirty;                  // Has `data_object` been modified?
+  bool is_flushing;               // Prevent double-flush
+  bool evict;                     // Mark for post-flush eviction
+  uint32_t current_version;       // Incremented on every modification
+  uint32_t flush_version;
 
   uv_rwlock_t node_lock;
 } eng_cache_node_t;
@@ -74,8 +87,8 @@ void eng_cache_destroy(void);
 // is incremented. If it does not exist, a new node is created and returned,
 // but its data_object will be NULL.
 eng_cache_node_t *eng_cache_get_or_create(eng_container_t *c,
-                                          const char *db_name,
-                                          const char *db_key,
+                                          eng_user_dc_db_type_t db_type,
+                                          db_key_t db_key,
                                           eng_cache_node_lock_type_t lock_type);
 
 // Releases a node that was previously acquired with cache_get_or_create.
@@ -101,12 +114,8 @@ void eng_cache_mark_dirty(eng_cache_node_t *node);
 // Removes a node from the dirty list (e.g., after it's been flushed).
 void eng_cache_remove_from_dirty_list(eng_cache_node_t *node);
 
-// Lock the dirty list - used by writer during flush
-void eng_cache_lock_dirty_list(void);
-// Unlock the dirty list - used by writer during flush
-void eng_cache_unlock_dirty_list(void);
-// Get the dirty list - used by writer during flush
-void eng_cache_get_dirty_list(eng_cache_node_t **dirty_head,
-                              eng_cache_node_t **dirty_tail);
+eng_cache_node_t *eng_cache_swap_dirty_list();
+
+void eng_cache_free_node(eng_cache_node_t *node);
 
 #endif // ENGINE_CACHE_H
