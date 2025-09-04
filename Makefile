@@ -12,18 +12,19 @@ CFLAGS = -Iinclude \
 	 -Ilib/log.c \
 	 -Ilib/libuv/include \
 	 -Ilib/uthash \
+	 -Ilib/ck/include \
 	 -Wall -Wextra -g -O0 # No optimizations currently for development purposes
 
 # LDFLAGS: Linker flags
-# Note: LMDB requires the -lrt library for real-time extensions (e.g., mmap) on some systems.
-# On some systems (like macOS), this functionality is part of the standard C library
-# and -lrt is not needed and can cause "library not found" errors.
 LDFLAGS = -Llib/libuv/.libs
 
 # LIBS: Libraries to link against
 # -luv: The libuv library
 # -lm: Math library
-# -lpthread: POSIX threads library (required by libuv)
+# -lpthread: POSIX threads library (required by libuv and ck)
+# Note: LMDB and ck require the -lrt library for real-time extensions (e.g., mmap) on some systems.
+# On some systems (like macOS), this functionality is part of the standard C library
+# and -lrt is not needed and can cause "library not found" errors.
 LIBS = -luv -lm -lpthread
 
 # --- SOURCE FILES ---
@@ -55,10 +56,9 @@ TEST_APP_SRCS = $(filter-out src/main.c, $(APP_SRCS))
 
 # Library sources
 LIB_SRCS = \
-	lib/roaring/roaring.c \
-	lib/lmdb/mdb.c \
-	lib/lmdb/midl.c \
-	lib/log.c/log.c
+  $(wildcard lib/roaring/*.c) \
+  $(wildcard lib/lmdb/*.c) \
+  $(wildcard lib/log.c/*.c) \
 
 # Unity testing framework source
 UNITY_SRC = tests/unity/unity.c
@@ -69,16 +69,21 @@ UNITY_SRC = tests/unity/unity.c
 BIN_DIR = bin
 OBJ_DIR = obj
 
-# Object files for the main application (used for the final binary)
-APP_OBJS = $(patsubst src/%.c, $(OBJ_DIR)/src/%.o, $(APP_SRCS))
-LIB_OBJS = $(patsubst lib/%.c, $(OBJ_DIR)/lib/%.o, $(LIB_SRCS))
-OBJS = $(APP_OBJS) $(LIB_OBJS)
+# Combine all application and library source files into one list
+ALL_SRCS = $(APP_SRCS) $(LIB_SRCS)
+
+# Automatically generate all object file paths by replacing the extension
+# and prepending the object directory. This handles any subdirectory.
+OBJS = $(patsubst %.c,$(OBJ_DIR)/%.o,$(ALL_SRCS))
 
 # Target executable for the main application
 TARGET = $(BIN_DIR)/orrp
 
 # Path to the bundled libuv static library
 LIBUV_A = lib/libuv/.libs/libuv.a
+
+# Path to the bundled Concurrency Kit static library
+LIBCK_A = lib/ck/src/libck.a
 
 # --- BUILD RULES ---
 
@@ -90,9 +95,9 @@ $(BIN_DIR) $(OBJ_DIR):
 	@mkdir -p $@
 
 # Build the main application
-$(TARGET): $(BIN_DIR) $(OBJS) $(LIBUV_A)
+$(TARGET): $(BIN_DIR) $(OBJS) $(LIBUV_A) $(LIBCK_A)
 	@echo "==> Linking final executable: $(TARGET)"
-	$(CC) $(LDFLAGS) -o $@ $(OBJS) $(LIBS)
+	$(CC) $(LDFLAGS) -o $@ $(OBJS) $(LIBCK_A) $(LIBS)
 	@echo "==> ✅ Build complete! Run with: ./$(TARGET)"
 
 # Rule to build the bundled libuv library
@@ -109,6 +114,16 @@ $(LIBUV_A):
 	$(MAKE) -C lib/libuv
 	@echo "==> Finished building libuv"
 
+$(LIBCK_A):
+	@echo "==> Building bundled dependency: Concurrency Kit"
+	@if [ ! -f lib/ck/configure ]; then \
+		(echo "Error: Concurrency Kit config not found."; exit 1); \
+	fi
+	@if [ ! -f lib/ck/Makefile ]; then \
+		(cd lib/ck && ./configure); \
+	fi
+	$(MAKE) -C lib/ck
+	@echo "==> Finished building Concurrency Kit"
 
 # --- TESTING ---
 
@@ -213,13 +228,12 @@ bin/test_event_api: tests/integration/test_event_api.c \
 
 # --- OBJECT FILE COMPILATION ---
 
-# Rule to compile a source file from the 'src' directory
-$(OBJ_DIR)/src/%.o: src/%.c
-	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -c $< -o $@
-
-# Rule to compile a source file from a library directory
-$(OBJ_DIR)/lib/%.o: lib/%.c
+# Generic rule to compile any .c file into its corresponding .o file
+# inside the object directory, preserving the path.
+# e.g., src/engine/api.c -> obj/src/engine/api.o
+# e.g., lib/ck/src/ck_pr.c -> obj/lib/ck/src/ck_pr.o
+$(OBJ_DIR)/%.o: %.c
+	@echo "==> Compiling $<"
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 
@@ -231,6 +245,10 @@ clean:
 	@if [ -f lib/libuv/Makefile ]; then \
 		$(MAKE) -C lib/libuv clean; \
 	fi
+	@if [ -f lib/ck/Makefile ]; then \
+    $(MAKE) -C lib/ck clean; \
+  fi
 
 # Phony targets
 .PHONY: all test clean
+
