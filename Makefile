@@ -13,7 +13,7 @@ CFLAGS = -Iinclude \
 	 -Ilib/libuv/include \
 	 -Ilib/uthash \
 	 -Ilib/ck/include \
-	 -Wall -Wextra -g -O0 # No optimizations currently for development purposes
+	 -Wall -Wextra -g -std=c11 -O0 # No optimizations currently for development purposes
 
 # LDFLAGS: Linker flags
 LDFLAGS = -Llib/libuv/.libs
