@@ -1,11 +1,14 @@
 #ifndef BITMAP_CACHE_H
 #define BITMAP_CACHE_H
 
+#include "cache_entry.h"
 #include "core/bitmaps.h"
 #include "core/db.h"
 #include "engine/container.h"
 #include <stdbool.h>
 #include <stdint.h>
+
+#define NUM_SHARDS 16 // Power of 2 for fast modulo
 
 typedef struct bitmap_cache_handle_s bitmap_cache_handle_t;
 
@@ -15,9 +18,20 @@ typedef struct bitmap_cache_key_s {
   const db_key_t *db_key;
 } bitmap_cache_key_t;
 
+// Dirty list snapshot for flushing
+typedef struct bm_cache_dirty_snapshot_s {
+  uint32_t shard_id;
+  bm_cache_value_entry_t *dirty_entries; // Linked list
+  uint32_t entry_count;
+} bm_cache_dirty_snapshot_t;
+
+typedef struct bm_cache_flush_batch_s {
+  bm_cache_dirty_snapshot_t shards[NUM_SHARDS];
+  uint32_t total_entries;
+} bm_cache_flush_batch_t;
+
 bool bitmap_cache_init(void);
-void bitmap_cache_shutdown(void);
-void bitmap_cache_flush_all(void);
+bool bitmap_cache_shutdown(void);
 
 bool bitmap_cache_ingest(const bitmap_cache_key_t *key, uint32_t value,
                          const char *idempotency_key);
@@ -54,5 +68,9 @@ const bitmap_t *bitmap_cache_get_bitmap(bitmap_cache_handle_t *handle,
  * @param handle The handle to end.
  */
 void bitmap_cache_query_end(bitmap_cache_handle_t *handle);
+
+int bm_cache_prepare_flush_batch(bm_cache_flush_batch_t *batch);
+int bm_cache_complete_flush_batch(bm_cache_flush_batch_t *batch, bool success);
+void bm_cache_free_flush_batch(bm_cache_flush_batch_t *batch);
 
 #endif // BITMAP_CACHE_H

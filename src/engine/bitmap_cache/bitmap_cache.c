@@ -2,11 +2,13 @@
 #include "cache_queue_msg.h"
 #include "cache_shard.h"
 #include "ck_epoch.h"
-#include "ck_ht.h"
+// #include "ck_ht.h"
 #include "ck_pr.h"
 #include "core/bitmaps.h"
 #include "core/db.h"
 #include "core/hash.h"
+#include "engine/bitmap_cache/cache_entry.h"
+#include "engine/bitmap_cache/cache_queue_consumer.h"
 #include "uv.h"
 #include <stdatomic.h>
 #include <stddef.h>
@@ -15,8 +17,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define NUM_SHARDS 16 // Power of 2 for fast modulo
 #define SHARD_MASK (NUM_SHARDS - 1)
+#define NUM_CONSUMER_THREADS 4
+#define SHARDS_PER_CONSUMER (NUM_SHARDS / NUM_CONSUMER_THREADS)
 
 #define MAX_CACHE_KEY_SIZE 256
 #define MAX_ENQUEUE_ATTEMPTS 3
@@ -27,45 +30,34 @@ typedef struct bitmap_cache_handle_s {
 
 typedef struct bm_cache_s {
   bm_cache_shard_t shards[NUM_SHARDS];
+  bm_cache_consumer_t consumers[NUM_CONSUMER_THREADS];
+  bool is_initialized;
 } bm_cache_t;
 
 // =============================================================================
 // --- Epoch Reclamation Callbacks ---
 // =============================================================================
 
-// not sure yet who will handle reclamation - prob writer/flush thread
-static void _free_value_entry(bm_cache_value_entry_t *value) {
-  if (!value)
-    return;
-  bitmap_t *bm = atomic_load(value->bitmap);
-  bitmap_free(bm);
-  if (value->db_key.type == DB_KEY_STRING) {
-    free((char *)value->db_key.key.s);
-  }
-  free(value->key_entry);
-  free(value);
-}
-
 // Callback to free a Cache Entry and its associated Cache Value.
 // This is used when an entry is evicted from the cache completely.
-static void _entry_dispose_callback(void *p) {
-  if (!p)
-    return;
-  bm_cache_key_entry_t *entry = p;
-  ck_ht_entry_t *ht_entry =
-      (ck_ht_entry_t *)((char *)entry - sizeof(uintptr_t));
-  bm_cache_value_entry_t *value = ck_ht_entry_value(ht_entry);
-  _free_value_entry(value);
-  free(entry);
-}
+// static void _entry_dispose_callback(void *p) {
+//   if (!p)
+//     return;
+//   bm_cache_key_entry_t *entry = p;
+//   ck_ht_entry_t *ht_entry =
+//       (ck_ht_entry_t *)((char *)entry - sizeof(uintptr_t));
+//   bm_cache_value_entry_t *value = ck_ht_entry_value(ht_entry);
+//   bm_cache_free_entry(value);
+//   free(entry);
+// }
 
-// Callback to free an old Cache Value
-static void _old_value_dispose_callback(void *p) {
-  if (!p)
-    return;
-  bm_cache_value_entry_t *value = p;
-  _free_value_entry(value);
-}
+// // Callback to free an old Cache Value
+// static void _old_value_dispose_callback(void *p) {
+//   if (!p)
+//     return;
+//   bm_cache_value_entry_t *value = p;
+//   bm_cache_free_entry(value);
+// }
 
 // =============================================================================
 // --- LRU List Helpers ---
@@ -181,6 +173,21 @@ static _Thread_local ck_epoch_record_t *thread_epoch_record;
 // Global epoch for entire cache.
 static ck_epoch_t g_epoch;
 
+static bool _enqueue_msg(const char *cache_key, bm_cache_queue_msg_t *msg) {
+  int s_idx = _get_shard_index(cache_key);
+  bool enqueued = false;
+  for (int i = 0; i < MAX_ENQUEUE_ATTEMPTS; i++) {
+    if (shard_enqueue_msg(&g_cache.shards[s_idx], msg)) {
+      enqueued = true;
+      break;
+    }
+    // Ring buffer is full
+    ck_pr_stall();
+    // might add a short sleep here
+  }
+  return enqueued;
+}
+
 // --- Public API Implementations ---
 
 bool bitmap_cache_init(void) {
@@ -189,6 +196,19 @@ bool bitmap_cache_init(void) {
       return false;
     }
   }
+
+  for (int i = 0; i < NUM_CONSUMER_THREADS; i++) {
+    bm_cache_consumer_config_t config = {.shards = g_cache.shards,
+                                         .shard_start = i * SHARDS_PER_CONSUMER,
+                                         .shard_count = SHARDS_PER_CONSUMER,
+                                         .consumer_id = i};
+
+    if (!bm_cache_consumer_start(&g_cache.consumers[i], &config)) {
+      return false;
+    }
+  }
+
+  g_cache.is_initialized = true;
   return true;
 }
 
@@ -209,18 +229,7 @@ bool bitmap_cache_ingest(const bitmap_cache_key_t *key, uint32_t value,
     return false;
   }
 
-  int s_idx = _get_shard_index(cache_key);
-  bool enqueued = false;
-  for (int i = 0; i < MAX_ENQUEUE_ATTEMPTS; i++) {
-    if (shard_enqueue_msg(&g_cache.shards[s_idx], msg)) {
-      enqueued = true;
-      break;
-    }
-    // Ring buffer is full
-    ck_pr_stall();
-    // might add a short sleep here
-  }
-  if (!enqueued) {
+  if (!_enqueue_msg(cache_key, msg)) {
     bm_cache_free_msg(msg);
     return false;
   }
@@ -244,6 +253,59 @@ void bitmap_cache_query_end(bitmap_cache_handle_t *handle) {
     return;
   ck_epoch_end(thread_epoch_record, &handle->epoch_section);
   free(handle);
+}
+
+int bm_cache_prepare_flush_batch(bm_cache_flush_batch_t *batch) {
+  batch->total_entries = 0;
+
+  for (int i = 0; i < NUM_SHARDS; i++) {
+    bm_cache_shard_t *shard = &g_cache.shards[i];
+
+    uv_mutex_lock(&shard->dirty_list_lock);
+
+    // Swap dirty list (atomic operation)
+    batch->shards[i].dirty_entries = shard->dirty_head;
+    // batch->shards[i].entry_count = shard->dirty_count;
+    batch->shards[i].shard_id = i;
+
+    // Reset shard dirty list
+    shard->dirty_head = NULL;
+    // shard->dirty_count = 0;
+
+    uv_mutex_unlock(&shard->dirty_list_lock);
+
+    batch->total_entries += batch->shards[i].entry_count;
+  }
+
+  return 0;
+}
+
+int bm_cache_complete_flush_batch(bm_cache_flush_batch_t *batch, bool success) {
+  if (!success) {
+    // On failure, re-add entries to dirty lists
+    for (int i = 0; i < NUM_SHARDS; i++) {
+      if (batch->shards[i].dirty_entries) {
+        bm_cache_shard_t *shard = &g_cache.shards[i];
+        uv_mutex_lock(&shard->dirty_list_lock);
+
+        // Re-add to dirty list (prepend for efficiency)
+        bm_cache_value_entry_t *last = batch->shards[i].dirty_entries;
+        while (last->dirty_next)
+          last = last->dirty_next;
+
+        last->dirty_next = shard->dirty_head;
+        shard->dirty_head = batch->shards[i].dirty_entries;
+        // shard->dirty_count += batch->shards[i].entry_count;
+
+        uv_mutex_unlock(&shard->dirty_list_lock);
+      }
+    }
+  } else {
+    // On success, entries can be safely freed or marked clean
+    // bm_cache_free_flush_batch(batch);
+  }
+
+  return 0;
 }
 
 // Evicts the least recently used entry if it's not in use.
@@ -280,7 +342,17 @@ void bitmap_cache_query_end(bitmap_cache_handle_t *handle) {
 //   g_cache.size--;
 // }
 
-void bitmap_cache_shutdown(void) {}
+// TODO: This is tricky - need to flush in-flight and in-memory data to disk
+bool bitmap_cache_shutdown(void) {
+  bool success = true;
+  for (int i = 0; i < NUM_CONSUMER_THREADS; i++) {
+    if (!bm_cache_consumer_stop(&g_cache.consumers[i])) {
+      success = false;
+    }
+  }
+
+  return success;
+}
 
 // bm_cache_entry_t *
 // eng_cache_get_or_create(eng_container_t *c, eng_user_dc_db_type_t db_type,

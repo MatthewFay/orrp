@@ -1,3 +1,76 @@
+// Run reclamation after every N flush cycles
+// if (worker->flush_cycles % 5 == 0) {
+//     perform_reclamation_cycle(worker);
+// }
+
+// static void maintenance_worker_thread(void *arg) {
+//     maintenance_worker_t *worker = (maintenance_worker_t *)arg;
+
+//     uint64_t last_flush = uv_now(uv_default_loop());
+//     uint64_t last_reclaim = uv_now(uv_default_loop());
+
+//     while (!worker->should_stop) {
+//         uint64_t now = uv_now(uv_default_loop());
+
+//         // Handle flushing
+//         if (now - last_flush >= worker->config.flush_interval_ms) {
+//             perform_flush_cycle(worker);
+//             last_flush = now;
+//         }
+
+//         // Handle epoch reclamation
+//         if (now - last_reclaim >= worker->config.reclaim_interval_ms) {
+//             perform_reclamation_cycle(worker);
+//             last_reclaim = now;
+//         }
+
+//         // Sleep briefly to avoid spinning
+//         uv_sleep(10); // 10ms
+//     }
+// }
+
+// static void perform_reclamation_cycle(maintenance_worker_t *worker) {
+//     // Trigger epoch synchronization
+//     ck_epoch_synchronize(&global_epoch_record);
+
+//     // Reclaim memory from all shards
+//     bm_cache_t *cache = worker->config.cache;
+//     for (int i = 0; i < NUM_SHARDS; i++) {
+//         uint32_t reclaimed =
+//         ck_epoch_reclaim(&cache->shards[i].epoch_record);
+//         worker->objects_reclaimed += reclaimed;
+//     }
+
+//     worker->reclaim_cycles++;
+// }
+
+// static void engine_writer_flush_cycle(engine_writer_t *writer) {
+//     bm_cache_flush_batch_t batch;
+
+//     // Get dirty data from cache
+//     if (bm_cache_prepare_flush_batch(writer->config.cache, &batch) != 0) {
+//         return;
+//     }
+
+//     if (batch.total_entries == 0) {
+//         return; // Nothing to flush
+//     }
+
+//     bool success = true;
+
+//     // Process each shard's dirty entries
+//     for (int i = 0; i < NUM_SHARDS && success; i++) {
+//         if (batch.shards[i].entry_count > 0) {
+//             success = flush_shard_entries_to_lmdb(&batch.shards[i]);
+//         }
+//     }
+
+//     // Report results back to cache
+//     bm_cache_complete_flush_batch(writer->config.cache, &batch, success);
+
+//     writer->entries_written += batch.total_entries;
+// }
+
 // #include "engine_writer.h"
 // #include "container.h"
 // #include "core/bitmaps.h"

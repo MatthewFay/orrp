@@ -33,4 +33,7 @@ typedef struct bm_cache_value_entry_s {
   char container_name[]; // Flexible array member
 } bm_cache_value_entry_t;
 
+// Free both value and key entry
+void bm_cache_free_entry(bm_cache_value_entry_t *value);
+
 #endif
