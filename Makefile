@@ -3,7 +3,7 @@
 # --- Compiler and Flags ---
 CC = gcc
 # Compiler flags
-# TODO: Seperate release (with optimizations) + dev builds
+# TODO: Seperate release (with optimizations) and dev builds
 CFLAGS = -Iinclude \
 	 -Isrc \
 	 -Itests/unity \
@@ -13,7 +13,8 @@ CFLAGS = -Iinclude \
 	 -Ilib/libuv/include \
 	 -Ilib/uthash \
 	 -Ilib/ck/include \
-	 -Wall -Wextra -g -std=c11 -O0 # No optimizations currently for development purposes
+	 -Wall -Wextra -g -std=c11 \
+	 -O0 # No optimizations currently for development purposes
 
 # LDFLAGS: Linker flags
 LDFLAGS = -Llib/libuv/.libs
@@ -31,12 +32,16 @@ LIBS = -luv -lm -lpthread
 
 # Main application sources
 APP_SRCS = src/main.c \
+			 src/engine/bitmap_cache/bitmap_cache.c \
+			 src/engine/bitmap_cache/cache_entry.c \
+			 src/engine/bitmap_cache/cache_queue_consumer.c \
+			 src/engine/bitmap_cache/cache_queue_msg.c \
+			 src/engine/bitmap_cache/cache_shard.c \
 		   src/engine/api.c \
 			 src/engine/cmd_context.c \
 			 src/engine/container.c \
 			 src/engine/context.c \
 			 src/engine/dc_cache.c \
-			 src/engine/engine_cache.c \
 			 src/engine/engine_writer.c \
 		   src/engine/engine.c \
 			 src/engine/entity_resolver.c \
@@ -44,6 +49,7 @@ APP_SRCS = src/main.c \
 		   src/core/bitmaps.c \
 			 src/core/conversions.c \
 		   src/core/db.c \
+			 src/core/hash.c \
 		   src/core/stack.c \
 		   src/core/queue.c \
 		   src/networking/server.c \
@@ -58,7 +64,7 @@ TEST_APP_SRCS = $(filter-out src/main.c, $(APP_SRCS))
 LIB_SRCS = \
   $(wildcard lib/roaring/*.c) \
   $(wildcard lib/lmdb/*.c) \
-  $(wildcard lib/log.c/*.c) \
+  $(wildcard lib/log.c/*.c)
 
 # Unity testing framework source
 UNITY_SRC = tests/unity/unity.c
@@ -114,6 +120,7 @@ $(LIBUV_A):
 	$(MAKE) -C lib/libuv
 	@echo "==> Finished building libuv"
 
+# Rule to build Concurrency Kit (ck)
 $(LIBCK_A):
 	@echo "==> Building bundled dependency: Concurrency Kit"
 	@if [ ! -f lib/ck/configure ]; then \
@@ -224,7 +231,7 @@ bin/test_api: tests/engine/test_api.c \
 # Rule to build the event api test executable
 bin/test_event_api: tests/integration/test_event_api.c \
   $(TEST_APP_SRCS) ${UNITY_SRC} $(LIB_SRCS) | $(BIN_DIR)
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS) $(LIBCK_A)
 
 # --- OBJECT FILE COMPILATION ---
 

@@ -1,12 +1,11 @@
 #include "engine.h"
+#include "bitmap_cache/bitmap_cache.h"
 #include "cmd_context.h"
 #include "container.h"
 #include "context.h"
-#include "core/bitmaps.h"
 #include "core/db.h"
 #include "dc_cache.h"
 #include "engine/api.h"
-#include "engine_cache.h"
 #include "entity_resolver.h"
 #include "id_manager.h"
 #include "lmdb.h"
@@ -27,7 +26,6 @@ const char *USR_DB_METADATA_NAME = "user_dc_metadata_db";
 #define MAX_PATH_LENGTH 128
 #define SYS_CONTAINER_NAME "system"
 const size_t CONTAINER_SIZE = 1048576;
-const int ENG_CACHE_CAPACITY = 16000;
 const int ENTITY_RESOLVER_CACHE_CAPACITY = 262144;
 #define CONTAINER_CACHE_CAPACITY 64
 
@@ -158,7 +156,7 @@ eng_context_t *eng_init(void) {
   ctx->sys_c = sys_c;
 
   eng_dc_cache_init(CONTAINER_CACHE_CAPACITY, _get_or_create_user_dc);
-  eng_cache_init(ENG_CACHE_CAPACITY);
+  bitmap_cache_init();
   id_manager_init(ctx);
   entity_resolver_init(ctx, ENTITY_RESOLVER_CACHE_CAPACITY);
 
@@ -169,7 +167,7 @@ eng_context_t *eng_init(void) {
 void eng_shutdown(eng_context_t *ctx) {
   eng_close_ctx(ctx);
   eng_dc_cache_destroy();
-  eng_cache_destroy();
+  bitmap_cache_shutdown();
   id_manager_destroy();
   entity_resolver_destroy();
 }
@@ -246,10 +244,11 @@ static bool _custom_tag_into(char *out_buf, size_t size,
 }
 
 static bool _write_to_event_index(eng_container_t *dc, cmd_ctx_t *cmd_ctx,
-                                  MDB_txn *txn, u_int32_t event_id,
-                                  eng_cache_node_t *custom_tag_nodes[],
-                                  int *num_custom_tags) {
-  db_get_result_t get_r;
+                                  u_int32_t event_id) {
+  bitmap_cache_key_t bm_c_key;
+  bm_c_key.container_name = dc->name;
+  bm_c_key.db_type = USER_DB_INVERTED_EVENT_INDEX;
+
   db_key_t key;
   key.type = DB_KEY_STRING;
   char key_buffer[512];
@@ -260,72 +259,76 @@ static bool _write_to_event_index(eng_container_t *dc, cmd_ctx_t *cmd_ctx,
       return false;
     }
     key.key.s = key_buffer;
+    bm_c_key.db_key = &key;
 
-    eng_cache_node_t *cn = eng_cache_get_or_create(
-        dc, USER_DB_INVERTED_EVENT_INDEX, key, CACHE_LOCK_WRITE);
-    if (cn == NULL) {
+    if (!bitmap_cache_ingest(&bm_c_key, event_id, NULL)) {
       return false;
     }
 
-    if (cn->data_object == NULL) {
-      if (!db_get(dc->data.usr->inverted_event_index_db, txn, &key, &get_r)) {
-        return false;
-      }
-      if (get_r.status == DB_GET_OK) {
-        cn->data_object = bitmap_deserialize(get_r.value, get_r.value_len);
-      } else {
-        cn->data_object = bitmap_create();
-      }
-      free(get_r.value);
-      if (!cn->data_object) {
-        return false;
-      }
-      cn->type = CACHE_TYPE_BITMAP;
-    }
-    bitmap_t *bm = cn->data_object;
-    bitmap_add(bm, event_id);
+    // eng_cache_node_t *cn = eng_cache_get_or_create(
+    //     dc, USER_DB_INVERTED_EVENT_INDEX, key, CACHE_LOCK_WRITE);
+    // if (cn == NULL) {
+    //   return false;
+    // }
+
+    // if (cn->data_object == NULL) {
+    //   if (!db_get(dc->data.usr->inverted_event_index_db, txn, &key, &get_r))
+    //   {
+    //     return false;
+    //   }
+    //   if (get_r.status == DB_GET_OK) {
+    //     cn->data_object = bitmap_deserialize(get_r.value, get_r.value_len);
+    //   } else {
+    //     cn->data_object = bitmap_create();
+    //   }
+    //   free(get_r.value);
+    //   if (!cn->data_object) {
+    //     return false;
+    //   }
+    //   cn->type = CACHE_TYPE_BITMAP;
+    // }
+    // bitmap_t *bm = cn->data_object;
+    // bitmap_add(bm, event_id);
 
     custom_tag = custom_tag->next;
-    custom_tag_nodes[*num_custom_tags] = cn;
-    (*num_custom_tags)++;
+    // custom_tag_nodes[*num_custom_tags] = cn;
+    // (*num_custom_tags)++;
   }
   return true;
 }
 
-static bool _write_to_ev2ent_map(eng_container_t *dc, u_int32_t event_id,
-                                 u_int32_t ent_id,
-                                 eng_cache_node_t **event_id_to_ent_node) {
-  db_key_t key;
-  key.type = DB_KEY_INTEGER;
-  key.key.i = event_id;
+// TODO: this should not write to bitmap cache
+// static bool _write_to_ev2ent_map(eng_container_t *dc, u_int32_t event_id,
+//                                  u_int32_t ent_id,
+//                                  eng_cache_node_t **event_id_to_ent_node) {
+//   db_key_t key;
+//   key.type = DB_KEY_INTEGER;
+//   key.key.i = event_id;
 
-  *event_id_to_ent_node = eng_cache_get_or_create(dc, USER_DB_EVENT_TO_ENTITY,
-                                                  key, CACHE_LOCK_WRITE);
-  if (!*event_id_to_ent_node) {
-    return false;
-  }
-  if (!(*event_id_to_ent_node)->data_object) {
-    uint32_t *ent_id_ptr = malloc(sizeof(uint32_t));
-    if (!ent_id_ptr) {
-      return false;
-    }
-    *ent_id_ptr = ent_id;
-    (*event_id_to_ent_node)->data_object = ent_id_ptr;
-    (*event_id_to_ent_node)->type = CACHE_TYPE_UINT32;
-  } else {
-    // Error case- Should not exist
-    return false;
-  }
+//   *event_id_to_ent_node = eng_cache_get_or_create(dc,
+//   USER_DB_EVENT_TO_ENTITY,
+//                                                   key, CACHE_LOCK_WRITE);
+//   if (!*event_id_to_ent_node) {
+//     return false;
+//   }
+//   if (!(*event_id_to_ent_node)->data_object) {
+//     uint32_t *ent_id_ptr = malloc(sizeof(uint32_t));
+//     if (!ent_id_ptr) {
+//       return false;
+//     }
+//     *ent_id_ptr = ent_id;
+//     (*event_id_to_ent_node)->data_object = ent_id_ptr;
+//     (*event_id_to_ent_node)->type = CACHE_TYPE_UINT32;
+//   } else {
+//     // Error case- Should not exist
+//     return false;
+//   }
 
-  return true;
-}
+//   return true;
+// }
 
 // TODO: counters store and index
 void eng_event(api_response_t *r, eng_context_t *ctx, ast_node_t *ast) {
-  eng_cache_node_t *event_id_to_ent_node = NULL;
-  eng_cache_node_t *custom_tag_nodes[MAX_CUSTOM_TAGS];
-  int num_custom_tag_nodes = 0;
-
   uint32_t event_id = 0;
   uint32_t ent_int_id = 0;
   eng_container_t *sys_c = ctx->sys_c;
@@ -358,39 +361,24 @@ void eng_event(api_response_t *r, eng_context_t *ctx, ast_node_t *ast) {
     goto cleanup;
   }
 
-  if (!_write_to_event_index(dc, &cmd_ctx, usr_c_txn, event_id,
-                             custom_tag_nodes, &num_custom_tag_nodes)) {
+  if (!_write_to_event_index(dc, &cmd_ctx, event_id)) {
     goto cleanup;
   }
 
-  if (!_write_to_ev2ent_map(dc, event_id, ent_int_id, &event_id_to_ent_node)) {
-    goto cleanup;
-  }
+  // if (!_write_to_ev2ent_map(dc, event_id, ent_int_id, &event_id_to_ent_node))
+  // {
+  //   goto cleanup;
+  // }
 
   // TODO:Support countable tags
 
-  for (int i = 0; i < num_custom_tag_nodes; i++) {
-    eng_cache_mark_dirty(custom_tag_nodes[i]);
-    eng_cache_unlock_and_release(custom_tag_nodes[i], CACHE_LOCK_WRITE);
-  }
-  eng_cache_mark_dirty(event_id_to_ent_node);
-  eng_cache_unlock_and_release(event_id_to_ent_node, CACHE_LOCK_WRITE);
-
   db_abort_txn(usr_c_txn);
-  eng_dc_cache_release_container(dc);
 
   r->is_ok = true;
   return;
 
 cleanup:
-  for (int i = 0; i < num_custom_tag_nodes; i++) {
-    if (custom_tag_nodes[i]) {
-      eng_cache_cancel_and_release(custom_tag_nodes[i], CACHE_LOCK_WRITE);
-    }
+  if (usr_c_txn) {
+    db_abort_txn(usr_c_txn);
   }
-  if (event_id_to_ent_node) {
-    eng_cache_cancel_and_release(event_id_to_ent_node, CACHE_LOCK_WRITE);
-  }
-  db_abort_txn(usr_c_txn);
-  eng_dc_cache_release_container(dc);
 }
