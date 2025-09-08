@@ -8,7 +8,7 @@
 #include "uv.h" // IWYU pragma: keep
 #include <stdbool.h>
 
-#define CAPACITY_PER_SHARD 10240
+#define CAPACITY_PER_SHARD 16384
 
 typedef struct bm_cache_shard_s {
   ck_ht_t table;
