@@ -241,7 +241,7 @@ static void _free_batch_hash(queue_msg_batch_t *batch_hash) {
 static bool _batch_by_container(const bm_cache_consumer_config_t *config,
                                 queue_msg_batch_t **batch_hash_out,
                                 bool *batched_any_out) {
-  bm_cache_queue_msg_t msg;
+  bm_cache_queue_msg_t *msg;
   queue_msg_batch_t *batch = NULL;
 
   for (uint32_t i = 0; i < config->shard_count; i++) {
@@ -253,15 +253,16 @@ static bool _batch_by_container(const bm_cache_consumer_config_t *config,
       if (!ck_ring_dequeue_mpsc(&shard->ring, shard->ring_buffer, &msg)) {
         break; // No more messages in this shard
       }
-      HASH_FIND_STR(*batch_hash_out, msg.container_name, batch);
+      batch = NULL;
+      HASH_FIND_STR(*batch_hash_out, msg->container_name, batch);
       if (batch) {
-        if (!_add_msg_to_batch(batch, &msg, shard)) {
+        if (!_add_msg_to_batch(batch, msg, shard)) {
           _free_batch_hash(*batch_hash_out);
           return false;
         }
       } else {
-        batch = _create_batch(msg.container_name);
-        if (!batch || !_add_msg_to_batch(batch, &msg, shard)) {
+        batch = _create_batch(msg->container_name);
+        if (!batch || !_add_msg_to_batch(batch, msg, shard)) {
           _free_batch_hash(*batch_hash_out);
           return false;
         }
@@ -292,6 +293,8 @@ static void _consumer_thread_func(void *arg) {
 
     if (batched_any) {
       _process_batches(batch_hash);
+      _free_batch_hash(batch_hash);
+      batch_hash = NULL;
     } else {
       // If no work, yield briefly to avoid spinning
       uv_sleep(1);
