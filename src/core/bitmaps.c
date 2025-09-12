@@ -28,6 +28,12 @@ void bitmap_add(bitmap_t *bm, uint32_t value) {
   }
 }
 
+void bitmap_remove(bitmap_t *bm, uint32_t value) {
+  if (bm && bm->rb) {
+    roaring_bitmap_remove(bm->rb, value);
+  }
+}
+
 bool bitmap_contains(bitmap_t *bm, uint32_t value) {
   if (bm && bm->rb) {
     return roaring_bitmap_contains(bm->rb, value);
@@ -43,6 +49,21 @@ void bitmap_free(bitmap_t *bm) {
     }
     free(bm);
   }
+}
+
+bitmap_t *bitmap_copy(bitmap_t *bm) {
+  if (!bm || !bm->rb)
+    return NULL;
+  bitmap_t *copy = malloc(sizeof(bitmap_t));
+  if (copy == NULL)
+    return NULL;
+  roaring_bitmap_t *copy_rb = roaring_bitmap_copy(bm->rb);
+  if (!copy_rb) {
+    free(copy);
+    return NULL;
+  }
+  copy->rb = copy_rb;
+  return copy;
 }
 
 typedef struct {

@@ -42,7 +42,7 @@ APP_SRCS = src/main.c \
 			 src/engine/container.c \
 			 src/engine/context.c \
 			 src/engine/dc_cache.c \
-			 src/engine/maintenance_worker.c \
+			 src/engine/engine_writer.c \
 		   src/engine/engine.c \
 			 src/engine/entity_resolver.c \
 			 src/engine/id_manager.c \

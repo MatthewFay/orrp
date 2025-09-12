@@ -26,12 +26,18 @@ bm_cache_create_msg(bm_cache_queue_op_type op_type,
   return msg;
 }
 
-void bm_cache_free_msg(bm_cache_queue_msg_t *msg) {
+void bm_cache_free_msg_contents(bm_cache_queue_msg_t *msg) {
   if (!msg)
     return;
   if (msg->db_key.type == DB_KEY_STRING) {
     free((char *)msg->db_key.key.s);
   }
   free((char *)msg->container_name);
+}
+
+void bm_cache_free_msg(bm_cache_queue_msg_t *msg) {
+  if (!msg)
+    return;
+  bm_cache_free_msg_contents(msg);
   free(msg);
 }

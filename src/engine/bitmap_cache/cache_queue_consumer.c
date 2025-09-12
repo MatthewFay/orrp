@@ -1,35 +1,306 @@
 #include "cache_queue_consumer.h"
+#include "core/bitmaps.h"
+#include "core/db.h"
+#include "engine/bitmap_cache/bitmap_cache.h"
+#include "engine/bitmap_cache/cache_entry.h"
+#include "engine/bitmap_cache/cache_queue_msg.h"
+#include "engine/bitmap_cache/cache_shard.h"
+#include "engine/container.h"
+#include "engine/dc_cache.h"
+#include "lmdb.h"
+#include "uthash.h"
 #include "uv.h"
+#include <stdatomic.h>
+#include <stdbool.h>
+#include <stdlib.h>
 
+#define MAX_BATCH_SIZE_PER_SHARD 128
+
+typedef struct queue_msg_batch_entry_s {
+  bm_cache_queue_msg_t *msg;
+  struct queue_msg_batch_entry_s *next;
+} queue_msg_batch_entry_t;
+
+typedef struct queue_msg_batch_key_s {
+  UT_hash_handle hh;
+  const char *cache_key; // hash key
+  queue_msg_batch_entry_t *head;
+  queue_msg_batch_entry_t *tail;
+
+  bm_cache_shard_t *shard;
+} queue_msg_batch_key_t;
+
+typedef struct queue_msg_batch_s {
+  UT_hash_handle hh;
+  const char *container_name;  // outer hash key
+  queue_msg_batch_key_t *keys; // inner hash table
+} queue_msg_batch_t;
+
+static bm_cache_value_entry_t *
+_get_or_Create_cached_entry(eng_container_t *dc, queue_msg_batch_key_t *key,
+                            bm_cache_queue_msg_t *msg, MDB_dbi db, MDB_txn *txn,
+                            bool *was_cached_out) {
+  *was_cached_out = false;
+
+  db_get_result_t r;
+  bm_cache_value_entry_t *cached_entry = NULL;
+  if (!shard_get_entry(key->shard, key->cache_key, &cached_entry)) {
+    return false;
+  }
+  if (cached_entry) {
+    *was_cached_out = true;
+    return cached_entry;
+  }
+  if (!db_get(db, txn, &msg->db_key, &r)) {
+    return NULL;
+  }
+  bm_cache_value_entry_t *new_cv_entry =
+      bm_cache_create_val_entry(msg->db_type, msg->db_key, dc);
+  if (!new_cv_entry) {
+    return NULL;
+  }
+  if (r.status == DB_GET_OK) {
+    atomic_store(&new_cv_entry->bitmap, r.value);
+    return new_cv_entry;
+  }
+  bitmap_t *new_BITMAP = bitmap_create();
+  if (!new_BITMAP) {
+    // free bm_cache_value_entry_t
+    return NULL;
+  }
+  atomic_store(&new_cv_entry->bitmap, new_BITMAP);
+  return new_cv_entry;
+}
+
+// Process all messages for a container
+static bool _process_cache_msgs(eng_container_t *dc,
+                                queue_msg_batch_key_t *keys, MDB_txn *txn) {
+  queue_msg_batch_key_t *key, *tmp;
+  bm_cache_queue_msg_t *msg;
+
+  HASH_ITER(hh, keys, key, tmp) {
+    bool was_cached;
+    queue_msg_batch_entry_t *b_entry = key->head;
+    MDB_dbi db;
+    if (!eng_container_get_user_db(dc, b_entry->msg->db_type, &db)) {
+      return false;
+    }
+    bm_cache_value_entry_t *cached_entry = _get_or_Create_cached_entry(
+        dc, key, b_entry->msg, db, txn, &was_cached);
+    bitmap_t *old_bm;
+    bitmap_t *bm = atomic_load(&cached_entry->bitmap);
+    if (was_cached) {
+      old_bm = bm;
+      bm = bitmap_copy(bm);
+    }
+    while (b_entry) {
+      msg = b_entry->msg;
+
+      switch (msg->op_type) {
+      case BM_CACHE_BITMAP:
+        // Will be cached, no work to do
+        break;
+      case BM_CACHE_ADD_VALUE:
+        bitmap_add(bm, msg->value);
+        break;
+      case BM_CACHE_REMOVE_VALUE:
+        bitmap_remove(bm, msg->value);
+        break;
+      default:
+        break;
+      }
+      b_entry = b_entry->next;
+    }
+    atomic_store(&cached_entry->bitmap, bm);
+    if (was_cached) {
+      ck_epoch_call(bitmap_cache_thread_epoch_record, &old_bm->epoch_entry,
+                    bm_cache_dispose);
+    }
+  }
+
+  return true;
+}
+
+// returns number of msgs processed, or -1 on error
+// TODO: return detail results (processed vs unprocessd etc)
+static int _process_batch(queue_msg_batch_t *batch) {
+  if (!batch || !batch->container_name || !batch->keys)
+    return -1;
+  int n = 0;
+  queue_msg_batch_key_t *keys = batch->keys;
+
+  eng_container_t *dc = eng_dc_cache_get(batch->container_name);
+  if (!dc) {
+    return -1;
+  }
+
+  MDB_txn *txn = db_create_txn(dc->env, true);
+  if (!txn) {
+    eng_dc_cache_release_container(dc);
+    return -1;
+  }
+
+  if (!_process_cache_msgs(dc, keys, txn)) {
+    db_abort_txn(txn);
+    eng_dc_cache_release_container(dc);
+    return -1;
+  }
+
+  db_abort_txn(txn);
+  eng_dc_cache_release_container(dc);
+
+  return n;
+}
+
+static void _process_batches(queue_msg_batch_t *batch_hash) {
+  queue_msg_batch_t *batch, *tmp;
+  HASH_ITER(hh, batch_hash, batch, tmp) { _process_batch(batch); }
+}
+
+static queue_msg_batch_t *_create_batch(const char *container_name) {
+  queue_msg_batch_t *batch = calloc(1, sizeof(queue_msg_batch_t));
+  if (!batch) {
+    return NULL;
+  }
+  batch->container_name = container_name;
+  batch->keys = NULL;
+  return batch;
+}
+
+static queue_msg_batch_entry_t *_create_batch_entry(bm_cache_queue_msg_t *msg) {
+  queue_msg_batch_entry_t *m = calloc(1, sizeof(queue_msg_batch_entry_t));
+  if (!m) {
+    return NULL;
+  }
+  m->msg = msg;
+  m->next = NULL;
+  return m;
+}
+
+static bool _add_msg_to_batch(queue_msg_batch_t *batch,
+                              bm_cache_queue_msg_t *msg,
+                              bm_cache_shard_t *shard) {
+  bool new_key = false;
+  queue_msg_batch_key_t *key = NULL;
+  HASH_FIND_STR(batch->keys, msg->key, key);
+  if (!key) {
+    new_key = true;
+    key = calloc(1, sizeof(queue_msg_batch_key_t));
+    if (!key) {
+      return false;
+    }
+    key->shard = shard;
+    key->cache_key = msg->key;
+    key->head = NULL;
+    key->tail = NULL;
+    HASH_ADD_KEYPTR(hh, batch->keys, msg->key, strlen(msg->key), key);
+  }
+
+  queue_msg_batch_entry_t *m = _create_batch_entry(msg);
+  if (!m) {
+    if (new_key)
+      free(key);
+    return false;
+  }
+
+  if (!key->head) {
+    key->head = m;
+    key->tail = m;
+    return true;
+  }
+  key->tail->next = m;
+  key->tail = m;
+
+  return true;
+}
+
+static void _free_batch_hash(queue_msg_batch_t *batch_hash) {
+  if (!batch_hash)
+    return;
+  queue_msg_batch_t *b, *tmp;
+  queue_msg_batch_key_t *k, *tmp_k;
+  queue_msg_batch_entry_t *b_entry, *b_entry_tmp;
+  HASH_ITER(hh, batch_hash, b, tmp) {
+    queue_msg_batch_key_t *keys = b->keys;
+    HASH_ITER(hh, keys, k, tmp_k) {
+      b_entry = k->head;
+      while (b_entry) {
+        b_entry_tmp = b_entry->next;
+        free(b_entry);
+        b_entry = b_entry_tmp;
+      }
+      HASH_DEL(keys, k);
+      free(k);
+    }
+    HASH_DEL(batch_hash, b);
+    free(b);
+  }
+}
+
+// TODO: return list of msgs unable to process
+static bool _batch_by_container(const bm_cache_consumer_config_t *config,
+                                queue_msg_batch_t **batch_hash_out,
+                                bool *batched_any_out) {
+  bm_cache_queue_msg_t msg;
+  queue_msg_batch_t *batch = NULL;
+
+  for (uint32_t i = 0; i < config->shard_count; i++) {
+    uint32_t shard_idx = config->shard_start + i;
+    bm_cache_shard_t *shard = &config->shards[shard_idx];
+
+    for (int j = 0; j < MAX_BATCH_SIZE_PER_SHARD; j++) {
+      // MPSC: Multi Producer, Single Consumer
+      if (!ck_ring_dequeue_mpsc(&shard->ring, shard->ring_buffer, &msg)) {
+        break; // No more messages in this shard
+      }
+      HASH_FIND_STR(*batch_hash_out, msg.container_name, batch);
+      if (batch) {
+        if (!_add_msg_to_batch(batch, &msg, shard)) {
+          _free_batch_hash(*batch_hash_out);
+          return false;
+        }
+      } else {
+        batch = _create_batch(msg.container_name);
+        if (!batch || !_add_msg_to_batch(batch, &msg, shard)) {
+          _free_batch_hash(*batch_hash_out);
+          return false;
+        }
+        HASH_ADD_KEYPTR(hh, *batch_hash_out, batch->container_name,
+                        strlen(batch->container_name), batch);
+      }
+      *batched_any_out = true;
+    }
+  }
+  return true;
+}
+
+// TODO: store queue msgs unable to process (DLQ)
 static void _consumer_thread_func(void *arg) {
   (void)arg;
   bm_cache_consumer_t *consumer = (bm_cache_consumer_t *)arg;
   const bm_cache_consumer_config_t *config = &consumer->config;
+  queue_msg_batch_t *batch_hash = NULL;
+  bool batched_any = false;
 
+  // TODO: weigh sleep approach vs. libuv notify approach (w/ focus on
+  // performance)
   while (!consumer->should_stop) {
-    bool processed_any = false;
+    batched_any = false;
 
-    for (uint32_t i = 0; i < config->shard_count; i++) {
-      uint32_t shard_idx = config->shard_start + i;
-      bm_cache_shard_t *shard = &config->shards[shard_idx];
+    // KIS for now ( need err handling)
+    _batch_by_container(config, &batch_hash, &batched_any);
 
-      bm_cache_queue_msg_t msg;
-      if (ck_ring_dequeue_spsc(&shard->ring, shard->ring_buffer, &msg)) {
-        // process_cache_message(shard, &msg);
-        consumer->messages_processed++;
-        processed_any = true;
-      }
-    }
-
-    // If no work, yield briefly to avoid spinning
-    if (!processed_any) {
+    if (batched_any) {
+      _process_batches(batch_hash);
+    } else {
+      // If no work, yield briefly to avoid spinning
       uv_sleep(1);
     }
   }
 }
 
 bool bm_cache_consumer_start(bm_cache_consumer_t *consumer,
-                          const bm_cache_consumer_config_t *config) {
+                             const bm_cache_consumer_config_t *config) {
   consumer->config = *config;
   consumer->should_stop = false;
   consumer->messages_processed = 0;

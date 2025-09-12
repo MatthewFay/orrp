@@ -2,7 +2,6 @@
 #include "cache_queue_msg.h"
 #include "cache_shard.h"
 #include "ck_epoch.h"
-// #include "ck_ht.h"
 #include "ck_pr.h"
 #include "core/bitmaps.h"
 #include "core/db.h"
@@ -24,6 +23,10 @@
 #define MAX_CACHE_KEY_SIZE 256
 #define MAX_ENQUEUE_ATTEMPTS 3
 
+_Thread_local ck_epoch_record_t *bitmap_cache_thread_epoch_record = NULL;
+
+ck_epoch_t bitmap_cache_g_epoch;
+
 typedef struct bitmap_cache_handle_s {
   ck_epoch_section_t epoch_section;
 } bitmap_cache_handle_t;
@@ -35,29 +38,15 @@ typedef struct bm_cache_s {
 } bm_cache_t;
 
 // =============================================================================
-// --- Epoch Reclamation Callbacks ---
+// --- Epoch Reclamation Callback ---
 // =============================================================================
 
-// Callback to free a Cache Entry and its associated Cache Value.
-// This is used when an entry is evicted from the cache completely.
-// static void _entry_dispose_callback(void *p) {
-//   if (!p)
-//     return;
-//   bm_cache_key_entry_t *entry = p;
-//   ck_ht_entry_t *ht_entry =
-//       (ck_ht_entry_t *)((char *)entry - sizeof(uintptr_t));
-//   bm_cache_value_entry_t *value = ck_ht_entry_value(ht_entry);
-//   bm_cache_free_entry(value);
-//   free(entry);
-// }
+CK_EPOCH_CONTAINER(bitmap_t, epoch_entry, get_bitmap_from_epoch)
 
-// // Callback to free an old Cache Value
-// static void _old_value_dispose_callback(void *p) {
-//   if (!p)
-//     return;
-//   bm_cache_value_entry_t *value = p;
-//   bm_cache_free_entry(value);
-// }
+void bm_cache_dispose(ck_epoch_entry_t *entry) {
+  bitmap_t *bm = get_bitmap_from_epoch(entry);
+  bitmap_free(bm);
+}
 
 // =============================================================================
 // --- LRU List Helpers ---
@@ -122,7 +111,7 @@ static bitmap_t *_load_from_backend_storage(const char *key, size_t key_len) {
 
 // Get shard index from key
 static int _get_shard_index(const char *key) {
-  return xxhash64(key, sizeof(key), 0) & SHARD_MASK;
+  return xxhash64(key, strlen(key), 0) & SHARD_MASK;
 }
 
 static void _add_entry_to_dirty_list(bm_cache_shard_t *shard,
@@ -165,13 +154,6 @@ static bool _get_cache_key(char *buffer, size_t buffer_size,
 
 // Global instance of our cache
 static bm_cache_t g_cache;
-
-// The THREAD-LOCAL epoch record pointer.
-// Each thread gets its own "ID badge".
-static _Thread_local ck_epoch_record_t *thread_epoch_record;
-
-// Global epoch for entire cache.
-static ck_epoch_t g_epoch;
 
 static bool _enqueue_msg(const char *cache_key, bm_cache_queue_msg_t *msg) {
   int s_idx = _get_shard_index(cache_key);
@@ -241,17 +223,18 @@ bitmap_cache_handle_t *bitmap_cache_query_begin(void) {
   bitmap_cache_handle_t *h = malloc(sizeof(bitmap_cache_handle_t));
   if (!h)
     return NULL;
-  if (thread_epoch_record == NULL) {
-    ck_epoch_register(&g_epoch, thread_epoch_record, NULL);
+  if (bitmap_cache_thread_epoch_record == NULL) {
+    ck_epoch_register(&bitmap_cache_g_epoch, bitmap_cache_thread_epoch_record,
+                      NULL);
   }
-  ck_epoch_begin(thread_epoch_record, &h->epoch_section);
+  ck_epoch_begin(bitmap_cache_thread_epoch_record, &h->epoch_section);
   return h;
 }
 
 void bitmap_cache_query_end(bitmap_cache_handle_t *handle) {
   if (!handle)
     return;
-  ck_epoch_end(thread_epoch_record, &handle->epoch_section);
+  ck_epoch_end(bitmap_cache_thread_epoch_record, &handle->epoch_section);
   free(handle);
 }
 

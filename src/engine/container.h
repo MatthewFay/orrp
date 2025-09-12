@@ -78,6 +78,7 @@ eng_container_t *eng_container_create(eng_dc_type_t type);
 
 void eng_container_close(eng_container_t *c);
 
+// Map DB type to actual DB handle
 bool eng_container_get_user_db(eng_container_t *c, eng_user_dc_db_type_t type,
                                MDB_dbi *db_out);
 

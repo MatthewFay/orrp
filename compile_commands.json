@@ -967,10 +967,10 @@
       "lib/ck/src/libck.a",
       "-o",
       "bin/test_event_api",
-      "src/engine/maintenance_worker.c"
+      "src/engine/engine_writer.c"
     ],
     "directory": "/Users/matthewfay/dev/orrp",
-    "file": "/Users/matthewfay/dev/orrp/src/engine/maintenance_worker.c",
+    "file": "/Users/matthewfay/dev/orrp/src/engine/engine_writer.c",
     "output": "/Users/matthewfay/dev/orrp/bin/test_event_api"
   },
   {
@@ -1764,12 +1764,12 @@
       "-O0",
       "-c",
       "-o",
-      "obj/src/engine/maintenance_worker.o",
-      "src/engine/maintenance_worker.c"
+      "obj/src/engine/engine_writer.o",
+      "src/engine/engine_writer.c"
     ],
     "directory": "/Users/matthewfay/dev/orrp",
-    "file": "/Users/matthewfay/dev/orrp/src/engine/maintenance_worker.c",
-    "output": "/Users/matthewfay/dev/orrp/obj/src/engine/maintenance_worker.o"
+    "file": "/Users/matthewfay/dev/orrp/src/engine/engine_writer.c",
+    "output": "/Users/matthewfay/dev/orrp/obj/src/engine/engine_writer.o"
   },
   {
     "arguments": [

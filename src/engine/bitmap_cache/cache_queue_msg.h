@@ -13,7 +13,7 @@ typedef enum {
 
 typedef struct bm_cache_queue_msg_s {
   bm_cache_queue_op_type op_type;
-  const char *container_name;
+  char *container_name;
   eng_user_dc_db_type_t db_type;
   db_key_t db_key;
   uint32_t value;
@@ -26,6 +26,7 @@ bm_cache_create_msg(bm_cache_queue_op_type op_type,
                     const bitmap_cache_key_t *bm_cache_key, uint32_t value,
                     const char *cache_key);
 
+void bm_cache_free_msg_contents(bm_cache_queue_msg_t *msg);
 void bm_cache_free_msg(bm_cache_queue_msg_t *msg);
 
 #endif

@@ -20,7 +20,7 @@ typedef struct bm_cache_value_entry_s {
 
   struct bm_cache_value_entry_s *dirty_next;
 
-  _Atomic(bitmap_t *) *bitmap; // atomic Pointer to the actual bitmap
+  _Atomic(bitmap_t *) bitmap; // atomic Pointer to the actual bitmap
 
   atomic_bool is_dirty;    // Has `bitmap` been modified?
   atomic_bool is_flushing; // Prevent double-flush
@@ -36,4 +36,7 @@ typedef struct bm_cache_value_entry_s {
 // Free both value and key entry
 void bm_cache_free_entry(bm_cache_value_entry_t *value);
 
+bm_cache_value_entry_t *bm_cache_create_val_entry(eng_user_dc_db_type_t db_type,
+                                                  db_key_t db_key,
+                                                  eng_container_t *dc);
 #endif
