@@ -48,87 +48,9 @@ void bm_cache_dispose(ck_epoch_entry_t *entry) {
   bitmap_free(bm);
 }
 
-// =============================================================================
-// --- LRU List Helpers ---
-// =============================================================================
-
-// Used to add an existing entry to front of LRU
-static void _lru_add_to_front(bm_cache_shard_t *shard,
-                              bm_cache_value_entry_t *entry) {
-  if (!entry || entry == shard->lru_head)
-    return;
-  entry->lru_prev->lru_next = entry->lru_next;
-  if (entry == shard->lru_tail) {
-    shard->lru_tail = entry->lru_prev;
-  } else {
-    entry->lru_next->lru_prev = entry->lru_prev;
-  }
-  entry->lru_prev = NULL;
-  entry->lru_next = shard->lru_head;
-  shard->lru_head->lru_prev = entry;
-  shard->lru_head = entry;
-}
-
-static void _lru_remove_entry(bm_cache_shard_t *shard,
-                              bm_cache_value_entry_t *entry) {
-  if (entry->lru_prev) {
-    entry->lru_prev->lru_next = entry->lru_next;
-  } else {
-    shard->lru_head = entry->lru_next;
-  }
-
-  if (entry->lru_next) {
-    entry->lru_next->lru_prev = entry->lru_prev;
-  } else {
-    shard->lru_tail = entry->lru_prev;
-  }
-
-  entry->lru_prev = entry->lru_next = NULL;
-}
-
-// Used to add a new entry to the head of LRU
-static void _lru_add_to_head(bm_cache_shard_t *shard,
-                             bm_cache_value_entry_t *entry) {
-  entry->lru_next = shard->lru_head;
-  entry->lru_prev = NULL;
-
-  if (shard->lru_head) {
-    shard->lru_head->lru_prev = entry;
-  } else {
-    shard->lru_tail = entry;
-  }
-
-  shard->lru_head = entry;
-}
-
-static bitmap_t *_load_from_backend_storage(const char *key, size_t key_len) {
-  // printf("CACHE MISS: Loading '%.*s' from backend storage (LMDB).\n",
-  // (int)key_len, key);
-  (void)key;
-  (void)key_len;
-  return NULL;
-}
-
 // Get shard index from key
 static int _get_shard_index(const char *key) {
   return xxhash64(key, strlen(key), 0) & SHARD_MASK;
-}
-
-static void _add_entry_to_dirty_list(bm_cache_shard_t *shard,
-                                     bm_cache_value_entry_t *entry) {
-
-  // Need mutex to protect against flush thread
-  uv_mutex_lock(&shard->dirty_list_lock);
-
-  entry->dirty_next = NULL;
-
-  if (shard->dirty_head) {
-    shard->dirty_head->dirty_next = entry;
-  }
-
-  shard->dirty_head = entry;
-
-  uv_mutex_unlock(&shard->dirty_list_lock);
 }
 
 // Get unique cache key for entry
@@ -272,7 +194,7 @@ int bm_cache_complete_flush_batch(bm_cache_flush_batch_t *batch, bool success) {
         uv_mutex_lock(&shard->dirty_list_lock);
 
         // Re-add to dirty list (prepend for efficiency)
-        bm_cache_value_entry_t *last = batch->shards[i].dirty_entries;
+        bm_cache_entry_t *last = batch->shards[i].dirty_entries;
         while (last->dirty_next)
           last = last->dirty_next;
 
@@ -291,40 +213,6 @@ int bm_cache_complete_flush_batch(bm_cache_flush_batch_t *batch, bool success) {
   return 0;
 }
 
-// Evicts the least recently used entry if it's not in use.
-// static void _evict_lru_entry() {
-//   bm_cache_entry_t *entry_to_evict = g_cache.lru_tail;
-//   if (!entry_to_evict || entry_to_evict->evict ||
-//       entry_to_evict->ref_count > 0) {
-//     return;
-//   }
-
-//   if (entry_to_evict->is_dirty) {
-//     // If dirty, DO NOT remove from cache, else risk data corruption.
-//     // Background writer only removes after successful flush.
-//     entry_to_evict->evict = true; // Mark for later eviction
-//     return;
-//   }
-
-//   if (entry_to_evict->prev) {
-//     entry_to_evict->prev->next = entry_to_evict->next;
-//   } else {
-//     g_cache.lru_head = entry_to_evict->next;
-//   }
-
-//   if (entry_to_evict->next) {
-//     entry_to_evict->next->prev = entry_to_evict->prev;
-//   } else {
-//     g_cache.lru_tail = entry_to_evict->prev;
-//   }
-
-//   HASH_DEL(g_cache.entrys_hash, entry_to_evict);
-
-//   eng_cache_free_entry(entry_to_evict);
-
-//   g_cache.size--;
-// }
-
 // TODO: This is tricky - need to flush in-flight and in-memory data to disk
 bool bitmap_cache_shutdown(void) {
   bool success = true;
@@ -336,96 +224,6 @@ bool bitmap_cache_shutdown(void) {
 
   return success;
 }
-
-// bm_cache_entry_t *
-// eng_cache_get_or_create(eng_container_t *c, eng_user_dc_db_type_t db_type,
-//                         db_key_t db_key,
-//                         eng_cache_entry_lock_type_t lock_type) {
-//   bm_cache_entry_t *entry = NULL;
-//   char cache_key[MAX_CACHE_KEY_SIZE];
-//   if (!_get_cache_key(cache_key, sizeof(cache_key), c->name, db_type,
-//   db_key)) {
-//     return NULL;
-//   }
-
-//   /*
-//   TODO: This is a bottleneck that serializes all cache access.
-//   Branch on lock_type?
-//   */
-//   uv_rwlock_wrlock(&g_cache.lock);
-
-//   HASH_FIND_STR(g_cache.entrys_hash, cache_key, entry);
-
-//   if (entry) {
-//     atomic_fetch_add(&entry->ref_count, 1);
-//     _move_to_front(entry);
-//     uv_rwlock_wrlock(
-//         &entry->entry_lock); // need this but then writes happen serially
-//     uv_rwlock_wrunlock(&g_cache.lock);
-//     return entry;
-//   }
-
-//   if (g_cache.size >= g_cache.capacity) {
-//     // (Note: eviction might fail if the LRU entry is in use)
-//     _evict_lru_entry();
-//   }
-
-//   entry = malloc(sizeof(bm_cache_entry_t));
-//   if (!entry) {
-//     uv_rwlock_wrunlock(&g_cache.lock);
-//     return NULL;
-//   }
-
-//   if (snprintf(entry->container_name, sizeof(entry->container_name), "%s",
-//                c->name) < 0 ||
-//       snprintf(entry->cache_key, sizeof(entry->cache_key), "%s", cache_key) <
-//           0) {
-//     eng_cache_free_entry(entry);
-//     uv_rwlock_wrunlock(&g_cache.lock);
-//     return NULL;
-//   }
-//   entry->db_type = db_type;
-//   entry->db_key = db_key;
-//   if (db_key.type == DB_KEY_STRING) {
-//     entry->db_key.key.s = strdup(db_key.key.s);
-//   }
-//   atomic_init(&entry->ref_count, 1);
-//   entry->current_version = 1;
-//   entry->flush_version = 0;
-
-//   // Caller is responsible for loading data object!
-//   entry->data_object = NULL;
-//   entry->is_dirty = false;
-//   entry->evict = false;
-//   entry->is_flushing = false;
-//   uv_rwlock_init(&entry->entry_lock);
-
-//   HASH_ADD_KEYPTR(hh, g_cache.entrys_hash, entry->cache_key,
-//                   strlen(entry->cache_key), entry);
-
-//   if (g_cache.lru_head) {
-//     entry->next = g_cache.lru_head;
-//     g_cache.lru_head->prev = entry;
-//     g_cache.lru_head = entry;
-//   } else {
-//     g_cache.lru_head = entry;
-//     g_cache.lru_tail = entry;
-//   }
-
-//   g_cache.size++;
-
-//   // Important:
-//   // Before releasing the global lock, acquire the lock on the specific
-//   entry. if (lock_type == CACHE_LOCK_WRITE) {
-//     uv_rwlock_wrlock(&entry->entry_lock);
-//   } else {
-//     uv_rwlock_rdlock(&entry->entry_lock);
-//   }
-
-//   // Unlock global cache lock
-//   uv_rwlock_wrunlock(&g_cache.lock);
-//   return entry;
-// }
 
 // void bm_cache_mark_dirty(bm_cache_entry_t *entry) {
 //   if (!entry)

@@ -256,6 +256,11 @@ clean:
     $(MAKE) -C lib/ck clean; \
   fi
 
+
+bear:
+	bear -- make
+	bear --append -- make test_build
+
 # Phony targets
 .PHONY: all test clean
 

@@ -29,7 +29,7 @@ typedef struct bitmap_cache_key_s {
 // Dirty list snapshot for flushing
 typedef struct bm_cache_dirty_snapshot_s {
   uint32_t shard_id;
-  bm_cache_value_entry_t *dirty_entries; // Linked list
+  bm_cache_entry_t *dirty_entries; // Linked list
   uint32_t entry_count;
 } bm_cache_dirty_snapshot_t;
 

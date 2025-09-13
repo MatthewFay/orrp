@@ -6,19 +6,13 @@
 #include "engine/container.h"
 #include <stdatomic.h>
 
-// The key entry stored in the hash table.
-typedef struct bm_cache_key_entry_s {
-  size_t key_len;
-  char key[]; // Flexible array member
-} bm_cache_key_entry_t;
-
-// The Bitmap cache value entry. It's a member of a hash map, an LRU list,
+// The Bitmap cache entry. It's a member of a hash map, an LRU list,
 // and a dirty list all at once.
-typedef struct bm_cache_value_entry_s {
-  struct bm_cache_value_entry_s *lru_prev;
-  struct bm_cache_value_entry_s *lru_next;
+typedef struct bm_cache_entry_s {
+  struct bm_cache_entry_s *lru_prev;
+  struct bm_cache_entry_s *lru_next;
 
-  struct bm_cache_value_entry_s *dirty_next;
+  struct bm_cache_entry_s *dirty_next;
 
   _Atomic(bitmap_t *) bitmap; // atomic Pointer to the actual bitmap
 
@@ -29,14 +23,11 @@ typedef struct bm_cache_value_entry_s {
   eng_user_dc_db_type_t db_type;
   db_key_t db_key;
 
-  bm_cache_key_entry_t *key_entry;
   char container_name[]; // Flexible array member
-} bm_cache_value_entry_t;
+} bm_cache_entry_t;
 
-// Free both value and key entry
-void bm_cache_free_entry(bm_cache_value_entry_t *value);
+void bm_cache_free_entry(bm_cache_entry_t *value);
 
-bm_cache_value_entry_t *bm_cache_create_val_entry(eng_user_dc_db_type_t db_type,
-                                                  db_key_t db_key,
-                                                  eng_container_t *dc);
+bm_cache_entry_t *bm_cache_create_entry(eng_user_dc_db_type_t db_type,
+                                        db_key_t db_key, eng_container_t *dc);
 #endif

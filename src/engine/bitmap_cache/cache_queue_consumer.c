@@ -36,14 +36,15 @@ typedef struct queue_msg_batch_s {
   queue_msg_batch_key_t *keys; // inner hash table
 } queue_msg_batch_t;
 
-static bm_cache_value_entry_t *
-_get_or_Create_cached_entry(eng_container_t *dc, queue_msg_batch_key_t *key,
-                            bm_cache_queue_msg_t *msg, MDB_dbi db, MDB_txn *txn,
-                            bool *was_cached_out) {
+static bm_cache_entry_t *_get_or_Create_cache_entry(eng_container_t *dc,
+                                                    queue_msg_batch_key_t *key,
+                                                    bm_cache_queue_msg_t *msg,
+                                                    MDB_dbi db, MDB_txn *txn,
+                                                    bool *was_cached_out) {
   *was_cached_out = false;
 
   db_get_result_t r;
-  bm_cache_value_entry_t *cached_entry = NULL;
+  bm_cache_entry_t *cached_entry = NULL;
   if (!shard_get_entry(key->shard, key->cache_key, &cached_entry)) {
     return false;
   }
@@ -54,22 +55,22 @@ _get_or_Create_cached_entry(eng_container_t *dc, queue_msg_batch_key_t *key,
   if (!db_get(db, txn, &msg->db_key, &r)) {
     return NULL;
   }
-  bm_cache_value_entry_t *new_cv_entry =
-      bm_cache_create_val_entry(msg->db_type, msg->db_key, dc);
-  if (!new_cv_entry) {
+  bm_cache_entry_t *new_cache_entry =
+      bm_cache_create_entry(msg->db_type, msg->db_key, dc);
+  if (!new_cache_entry) {
     return NULL;
   }
   if (r.status == DB_GET_OK) {
-    atomic_store(&new_cv_entry->bitmap, r.value);
-    return new_cv_entry;
+    atomic_store(&new_cache_entry->bitmap, r.value);
+    return new_cache_entry;
   }
   bitmap_t *new_BITMAP = bitmap_create();
   if (!new_BITMAP) {
-    // free bm_cache_value_entry_t
+    // free bm_cache_entry_t
     return NULL;
   }
-  atomic_store(&new_cv_entry->bitmap, new_BITMAP);
-  return new_cv_entry;
+  atomic_store(&new_cache_entry->bitmap, new_BITMAP);
+  return new_cache_entry;
 }
 
 // Process all messages for a container
@@ -85,14 +86,15 @@ static bool _process_cache_msgs(eng_container_t *dc,
     if (!eng_container_get_user_db(dc, b_entry->msg->db_type, &db)) {
       return false;
     }
-    bm_cache_value_entry_t *cached_entry = _get_or_Create_cached_entry(
-        dc, key, b_entry->msg, db, txn, &was_cached);
+    bm_cache_entry_t *cache_entry =
+        _get_or_Create_cache_entry(dc, key, b_entry->msg, db, txn, &was_cached);
     bitmap_t *old_bm;
-    bitmap_t *bm = atomic_load(&cached_entry->bitmap);
+    bitmap_t *bm = atomic_load(&cache_entry->bitmap);
     if (was_cached) {
       old_bm = bm;
       bm = bitmap_copy(bm);
     }
+    bool dirty = false;
     while (b_entry) {
       msg = b_entry->msg;
 
@@ -102,19 +104,29 @@ static bool _process_cache_msgs(eng_container_t *dc,
         break;
       case BM_CACHE_ADD_VALUE:
         bitmap_add(bm, msg->value);
+        dirty = true;
         break;
       case BM_CACHE_REMOVE_VALUE:
         bitmap_remove(bm, msg->value);
+        dirty = true;
         break;
       default:
         break;
       }
       b_entry = b_entry->next;
     }
-    atomic_store(&cached_entry->bitmap, bm);
+    atomic_store(&cache_entry->bitmap, bm);
     if (was_cached) {
       ck_epoch_call(bitmap_cache_thread_epoch_record, &old_bm->epoch_entry,
                     bm_cache_dispose);
+    }
+    if (dirty) {
+      atomic_store(&cache_entry->is_dirty, dirty);
+    }
+    if (was_cached) {
+      shard_lru_move_to_front(key->shard, cache_entry);
+    } else if (!shard_add_entry(key->shard, key->cache_key, cache_entry)) {
+      // TODO: handle error
     }
   }
 
@@ -249,8 +261,7 @@ static bool _batch_by_container(const bm_cache_consumer_config_t *config,
     bm_cache_shard_t *shard = &config->shards[shard_idx];
 
     for (int j = 0; j < MAX_BATCH_SIZE_PER_SHARD; j++) {
-      // MPSC: Multi Producer, Single Consumer
-      if (!ck_ring_dequeue_mpsc(&shard->ring, shard->ring_buffer, &msg)) {
+      if (!shard_dequeue_msg(shard, &msg)) {
         break; // No more messages in this shard
       }
       batch = NULL;

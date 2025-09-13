@@ -17,13 +17,11 @@ typedef struct bm_cache_shard_s {
   ck_ring_buffer_t ring_buffer[CAPACITY_PER_SHARD];
 
   uint32_t n_entries;
-  bm_cache_value_entry_t
-      *lru_head; // Head of the LRU list (most recently used).
-  bm_cache_value_entry_t
-      *lru_tail; // Tail of the LRU list (least recently used).
+  bm_cache_entry_t *lru_head; // Head of the LRU list (most recently used).
+  bm_cache_entry_t *lru_tail; // Tail of the LRU list (least recently used).
 
   // Reversed linked list
-  bm_cache_value_entry_t *dirty_head;
+  bm_cache_entry_t *dirty_head;
   uv_mutex_t dirty_list_lock;
 } bm_cache_shard_t;
 
@@ -31,6 +29,14 @@ bool bm_init_shard(bm_cache_shard_t *shard);
 
 bool shard_enqueue_msg(bm_cache_shard_t *shard, bm_cache_queue_msg_t *msg);
 
+bool shard_dequeue_msg(bm_cache_shard_t *shard, bm_cache_queue_msg_t **msg_out);
+
 bool shard_get_entry(bm_cache_shard_t *shard, const char *cache_key,
-                     bm_cache_value_entry_t **entry_out);
+                     bm_cache_entry_t **entry_out);
+
+bool shard_add_entry(bm_cache_shard_t *shard, const char *cache_key,
+                     bm_cache_entry_t *entry);
+
+void shard_lru_move_to_front(bm_cache_shard_t *shard, bm_cache_entry_t *entry);
+
 #endif
