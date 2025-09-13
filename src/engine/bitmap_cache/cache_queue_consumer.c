@@ -106,10 +106,6 @@ static bool _process_cache_msgs(eng_container_t *dc,
         bitmap_add(bm, msg->value);
         dirty = true;
         break;
-      case BM_CACHE_REMOVE_VALUE:
-        bitmap_remove(bm, msg->value);
-        dirty = true;
-        break;
       default:
         break;
       }

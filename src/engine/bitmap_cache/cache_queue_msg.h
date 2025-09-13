@@ -6,9 +6,8 @@
 #include "engine/container.h"
 #include <stdint.h>
 typedef enum {
-  BM_CACHE_ADD_VALUE,    // Add value to bitmap
-  BM_CACHE_REMOVE_VALUE, // Remove value from bitmap
-  BM_CACHE_BITMAP        // Cache bitmap
+  BM_CACHE_ADD_VALUE, // Add value to bitmap
+  BM_CACHE_BITMAP     // Cache bitmap
 } bm_cache_queue_op_type;
 
 typedef struct bm_cache_queue_msg_s {
