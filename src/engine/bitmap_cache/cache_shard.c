@@ -187,6 +187,9 @@ bool shard_add_entry(bm_cache_shard_t *shard, const char *cache_key,
   bool put_r = ck_ht_put_spmc(&shard->table, hash, &ck_entry);
   if (put_r) {
     shard->n_entries = new_size;
+    if (entry->is_dirty) {
+      _add_entry_to_dirty_list(shard, entry);
+    }
     return true;
   }
   _lru_remove_entry(shard, entry);
