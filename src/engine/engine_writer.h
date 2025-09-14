@@ -7,8 +7,6 @@
 typedef struct eng_writer_config_s {
   // Engine writer config
   uint32_t flush_interval_ms;
-  uint32_t flush_batch_size;
-  uint64_t flush_cycles;
 
   // Epoch reclamation config
   uint32_t reclaim_every; // Run reclamation after every N flush cycles
@@ -27,17 +25,7 @@ typedef struct eng_writer_s {
   uint64_t objects_reclaimed;
 } eng_writer_t;
 
-int eng_writer_start(eng_writer_t *worker, const eng_writer_t *config);
-int eng_writer_stop(eng_writer_t *worker);
-int eng_writer_force_flush(eng_writer_t *worker);
-
-// engine_writer_config_t writer_config = {
-//         .cache = cache,
-//         .db_path = "data.lmdb",
-//         .flush_interval_ms = 1000,
-//         .batch_size = 1000
-//     };
-
-//     return engine_writer_start(&cache->writer, &writer_config);
-
+bool eng_writer_start(eng_writer_t *worker, const eng_writer_config_t *config);
+bool eng_writer_stop(eng_writer_t *worker);
+bool eng_writer_force_flush(eng_writer_t *worker);
 #endif

@@ -91,6 +91,7 @@ static bool _process_cache_msgs(eng_container_t *dc,
     bitmap_t *old_bm;
     bitmap_t *bm = atomic_load(&cache_entry->bitmap);
     if (was_cached) {
+      // if cached, create a copy because other threads could be using it
       old_bm = bm;
       bm = bitmap_copy(bm);
     }
@@ -111,17 +112,23 @@ static bool _process_cache_msgs(eng_container_t *dc,
       }
       b_entry = b_entry->next;
     }
-    atomic_store(&cache_entry->bitmap, bm);
-    if (was_cached) {
-      ck_epoch_call(bitmap_cache_thread_epoch_record, &old_bm->epoch_entry,
-                    bm_cache_dispose);
-    }
     if (dirty) {
-      atomic_store(&cache_entry->is_dirty, dirty);
+      bm->version++;
+      // store the copied bitmap in cache entry
+      atomic_store(&cache_entry->bitmap, bm);
+      if (was_cached) {
+        ck_epoch_call(bitmap_cache_thread_epoch_record, &old_bm->epoch_entry,
+                      bm_cache_dispose);
+      }
+    } else {
+      // destroy the copy, not needed
+      bitmap_free(bm);
     }
+
     if (was_cached) {
-      shard_lru_move_to_front(key->shard, cache_entry);
-    } else if (!shard_add_entry(key->shard, key->cache_key, cache_entry)) {
+      shard_lru_move_to_front(key->shard, cache_entry, dirty);
+    } else if (!shard_add_entry(key->shard, key->cache_key, cache_entry,
+                                dirty)) {
       // TODO: handle error
     }
   }
@@ -284,7 +291,6 @@ static bool _batch_by_container(const bm_cache_consumer_config_t *config,
 
 // TODO: store queue msgs unable to process (DLQ)
 static void _consumer_thread_func(void *arg) {
-  (void)arg;
   bm_cache_consumer_t *consumer = (bm_cache_consumer_t *)arg;
   const bm_cache_consumer_config_t *config = &consumer->config;
   queue_msg_batch_t *batch_hash = NULL;
@@ -315,7 +321,11 @@ bool bm_cache_consumer_start(bm_cache_consumer_t *consumer,
   consumer->should_stop = false;
   consumer->messages_processed = 0;
 
-  return uv_thread_create(&consumer->thread, _consumer_thread_func, consumer);
+  if (uv_thread_create(&consumer->thread, _consumer_thread_func, consumer) !=
+      0) {
+    return false;
+  }
+  return true;
 }
 
 bool bm_cache_consumer_stop(bm_cache_consumer_t *consumer) {

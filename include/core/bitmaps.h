@@ -9,13 +9,11 @@
 typedef struct bitmap_s {
   roaring_bitmap_t *rb;
   ck_epoch_entry_t epoch_entry; // Required for epoch reclamation
+  uint64_t version;
 } bitmap_t;
 
 // Function to create a new bitmap
 bitmap_t *bitmap_create(void);
-
-// Create new bitmap with a single value
-bitmap_t *bitmap_create_new_with_val(u_int32_t val);
 
 // Function to add a value to the bitmap
 void bitmap_add(bitmap_t *bm, uint32_t value);

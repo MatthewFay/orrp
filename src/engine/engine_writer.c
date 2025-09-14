@@ -1,3 +1,5 @@
+#include "engine_writer.h"
+
 // Run reclamation after every N flush cycles
 // if (worker->flush_cycles % 5 == 0) {
 //     perform_reclamation_cycle(worker);
@@ -284,16 +286,27 @@
 //   }
 // }
 
-// bool eng_writer_start() {
-//   if (uv_thread_create(&g_writer_thread, background_writer_main, NULL) == 0)
-//     return true;
-//   return false;
-// }
+static void _eng_writer_thread_func(void *arg) {
+  eng_writer_t *writer = (eng_writer_t *)arg;
+  const eng_writer_config_t *config = &writer->config;
+}
 
-// bool eng_writer_stop() {
-//   g_shutdown_flag = true;
-//   if (uv_thread_join(&g_writer_thread) != 0) {
-//     return false;
-//   }
-//   return true;
-// }
+bool eng_writer_start(eng_writer_t *worker, const eng_writer_config_t *config) {
+  worker->config = *config;
+  worker->should_stop = false;
+  worker->entries_written = 0;
+  worker->objects_reclaimed = 0;
+  worker->reclaim_cycles = 0;
+
+  if (uv_thread_create(&worker->thread, _eng_writer_thread_func, worker) != 0) {
+    return false;
+  }
+  return true;
+}
+bool eng_writer_stop(eng_writer_t *worker) {
+  worker->should_stop = true;
+  if (uv_thread_join(&worker->thread) != 0) {
+    return false;
+  }
+  return true;
+}

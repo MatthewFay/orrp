@@ -5,6 +5,7 @@
 #include "core/db.h"
 #include "engine/container.h"
 #include <stdatomic.h>
+#include <stdint.h>
 
 // The Bitmap cache entry. It's a member of a hash map, an LRU list,
 // and a dirty list all at once.
@@ -16,9 +17,7 @@ typedef struct bm_cache_entry_s {
 
   _Atomic(bitmap_t *) bitmap; // atomic Pointer to the actual bitmap
 
-  atomic_bool is_dirty;    // Has `bitmap` been modified?
-  atomic_bool is_flushing; // Prevent double-flush
-  atomic_bool evict;       // Mark for post-flush eviction
+  _Atomic(uint64_t) flush_version;
 
   eng_user_dc_db_type_t db_type;
   db_key_t db_key;

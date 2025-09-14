@@ -1,5 +1,6 @@
 #include "core/bitmaps.h"
 #include "roaring.h"
+#include <stdint.h>
 
 bitmap_t *bitmap_create() {
   bitmap_t *bm = malloc(sizeof(bitmap_t));
@@ -10,15 +11,7 @@ bitmap_t *bitmap_create() {
     free(bm);
     return NULL;
   }
-  return bm;
-}
-
-bitmap_t *bitmap_create_new_with_val(u_int32_t val) {
-  bitmap_t *bm = bitmap_create();
-  if (!bm) {
-    return NULL;
-  }
-  bitmap_add(bm, val);
+  bm->version = 0;
   return bm;
 }
 
@@ -63,11 +56,13 @@ bitmap_t *bitmap_copy(bitmap_t *bm) {
     return NULL;
   }
   copy->rb = copy_rb;
+  copy->version = bm->version;
   return copy;
 }
 
 typedef struct {
   size_t roaring_bitmap_size;
+  uint64_t version;
 } bitmap_serialization_header_t;
 
 void *bitmap_serialize(bitmap_t *bm, size_t *out_size) {
@@ -86,7 +81,8 @@ void *bitmap_serialize(bitmap_t *bm, size_t *out_size) {
 
   char *p = (char *)buffer;
   bitmap_serialization_header_t header = {.roaring_bitmap_size =
-                                              roaring_bitmap_size};
+                                              roaring_bitmap_size,
+                                            .version = bm->version};
   memcpy(p, &header, sizeof(header));
   p += sizeof(header);
 
@@ -131,6 +127,8 @@ bitmap_t *bitmap_deserialize(void *buffer, size_t buffer_size) {
   } else {
     b->rb = NULL;
   }
+
+  b->version = header->version;
 
   return b;
 }

@@ -35,8 +35,9 @@ bool shard_get_entry(bm_cache_shard_t *shard, const char *cache_key,
                      bm_cache_entry_t **entry_out);
 
 bool shard_add_entry(bm_cache_shard_t *shard, const char *cache_key,
-                     bm_cache_entry_t *entry);
+                     bm_cache_entry_t *entry, bool dirty);
 
-void shard_lru_move_to_front(bm_cache_shard_t *shard, bm_cache_entry_t *entry);
+void shard_lru_move_to_front(bm_cache_shard_t *shard, bm_cache_entry_t *entry,
+                             bool dirty);
 
 #endif

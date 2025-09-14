@@ -28,7 +28,7 @@ static void _add_entry_to_dirty_list(bm_cache_shard_t *shard,
 // =============================================================================
 
 // Used to move an existing entry (already in LRU) to front of LRU
-void shard_lru_move_to_front(bm_cache_shard_t *shard, bm_cache_entry_t *entry) {
+void shard_lru_move_to_front(bm_cache_shard_t *shard, bm_cache_entry_t *entry, bool dirty) {
   if (!entry || entry == shard->lru_head)
     return;
   entry->lru_prev->lru_next = entry->lru_next;
@@ -41,6 +41,10 @@ void shard_lru_move_to_front(bm_cache_shard_t *shard, bm_cache_entry_t *entry) {
   entry->lru_next = shard->lru_head;
   shard->lru_head->lru_prev = entry;
   shard->lru_head = entry;
+
+  if (dirty) {
+    _add_entry_to_dirty_list(shard, entry);
+  }
 }
 
 // Remove entry from LRU
@@ -166,7 +170,7 @@ static void _evict_lru(bm_cache_shard_t *shard) {
 }
 
 bool shard_add_entry(bm_cache_shard_t *shard, const char *cache_key,
-                     bm_cache_entry_t *entry) {
+                     bm_cache_entry_t *entry, bool dirty) {
   ck_ht_hash_t hash;
   ck_ht_entry_t ck_entry;
 
@@ -187,7 +191,7 @@ bool shard_add_entry(bm_cache_shard_t *shard, const char *cache_key,
   bool put_r = ck_ht_put_spmc(&shard->table, hash, &ck_entry);
   if (put_r) {
     shard->n_entries = new_size;
-    if (entry->is_dirty) {
+    if (dirty) {
       _add_entry_to_dirty_list(shard, entry);
     }
     return true;

@@ -23,9 +23,7 @@ bm_cache_entry_t *bm_cache_create_entry(eng_user_dc_db_type_t db_type,
   if (!entry)
     return NULL;
   atomic_init(&entry->bitmap, NULL);
-  atomic_init(&entry->is_dirty, false);
-  atomic_init(&entry->is_flushing, false);
-  atomic_init(&entry->evict, false);
+  atomic_init(&entry->flush_version, 0);
 
   entry->db_type = db_type;
   entry->db_key.type = db_key.type;

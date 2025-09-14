@@ -6,6 +6,7 @@
 #include "core/db.h"
 #include "dc_cache.h"
 #include "engine/api.h"
+#include "engine_writer.h"
 #include "entity_resolver.h"
 #include "id_manager.h"
 #include "lmdb.h"
@@ -44,6 +45,8 @@ const char *USR_DB_INVERTED_EVENT_INDEX_NAME = "inverted_event_index_db";
 const char *USR_DB_EVENT_TO_ENT_NAME = "event_to_entity_db";
 const char *USR_DB_COUNTER_STORE_NAME = "counter_store_db";
 const char *USR_DB_COUNT_INDEX_NAME = "count_index_db";
+
+eng_writer_t g_eng_writer;
 
 // Make sure data directory (where we store data containers) exists
 static bool _ensure_data_dir_exists() {
@@ -159,6 +162,11 @@ eng_context_t *eng_init(void) {
   bitmap_cache_init();
   id_manager_init(ctx);
   entity_resolver_init(ctx, ENTITY_RESOLVER_CACHE_CAPACITY);
+
+  eng_writer_config_t writer_config = {.flush_interval_ms = 100,
+                                       .reclaim_every = 10};
+
+  eng_writer_start(&g_eng_writer, &writer_config);
 
   return ctx;
 }
