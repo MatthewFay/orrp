@@ -9,9 +9,6 @@
 
 static void _add_entry_to_dirty_list(bm_cache_shard_t *shard,
                                      bm_cache_entry_t *entry) {
-  // Need mutex to protect against flush thread
-  uv_mutex_lock(&shard->dirty_list_lock);
-
   entry->dirty_next = NULL;
 
   if (shard->dirty_head) {
@@ -19,8 +16,6 @@ static void _add_entry_to_dirty_list(bm_cache_shard_t *shard,
   }
 
   shard->dirty_head = entry;
-
-  uv_mutex_unlock(&shard->dirty_list_lock);
 }
 
 // =============================================================================
@@ -28,7 +23,8 @@ static void _add_entry_to_dirty_list(bm_cache_shard_t *shard,
 // =============================================================================
 
 // Used to move an existing entry (already in LRU) to front of LRU
-void shard_lru_move_to_front(bm_cache_shard_t *shard, bm_cache_entry_t *entry, bool dirty) {
+void shard_lru_move_to_front(bm_cache_shard_t *shard, bm_cache_entry_t *entry,
+                             bool dirty) {
   if (!entry || entry == shard->lru_head)
     return;
   entry->lru_prev->lru_next = entry->lru_next;
@@ -89,7 +85,6 @@ static struct ck_malloc _my_allocator = {.malloc = _hs_malloc,
                                          .free = _hs_free};
 
 bool bm_init_shard(bm_cache_shard_t *shard) {
-  uv_mutex_init(&shard->dirty_list_lock);
 
   shard->lru_head = shard->lru_tail = NULL;
   shard->dirty_head = NULL;

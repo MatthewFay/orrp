@@ -6,7 +6,7 @@
 #include "core/db.h"
 #include "dc_cache.h"
 #include "engine/api.h"
-#include "engine_writer.h"
+#include "engine_writer/engine_writer.h"
 #include "entity_resolver.h"
 #include "id_manager.h"
 #include "lmdb.h"

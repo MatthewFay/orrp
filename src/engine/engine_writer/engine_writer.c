@@ -1,4 +1,7 @@
 #include "engine_writer.h"
+#include "flush_msg.h"
+
+#define MAX_ENQUEUE_ATTEMPTS 3
 
 // Run reclamation after every N flush cycles
 // if (worker->flush_cycles % 5 == 0) {
@@ -291,21 +294,49 @@ static void _eng_writer_thread_func(void *arg) {
   const eng_writer_config_t *config = &writer->config;
 }
 
-bool eng_writer_start(eng_writer_t *worker, const eng_writer_config_t *config) {
-  worker->config = *config;
-  worker->should_stop = false;
-  worker->entries_written = 0;
-  worker->objects_reclaimed = 0;
-  worker->reclaim_cycles = 0;
+bool eng_writer_start(eng_writer_t *writer, const eng_writer_config_t *config) {
+  writer->config = *config;
+  writer->should_stop = false;
+  writer->entries_written = 0;
+  writer->objects_reclaimed = 0;
+  writer->reclaim_cycles = 0;
 
-  if (uv_thread_create(&worker->thread, _eng_writer_thread_func, worker) != 0) {
+  if (uv_thread_create(&writer->thread, _eng_writer_thread_func, writer) != 0) {
     return false;
   }
   return true;
 }
-bool eng_writer_stop(eng_writer_t *worker) {
-  worker->should_stop = true;
-  if (uv_thread_join(&worker->thread) != 0) {
+bool eng_writer_stop(eng_writer_t *writer) {
+  writer->should_stop = true;
+  if (uv_thread_join(&writer->thread) != 0) {
+    return false;
+  }
+  return true;
+}
+
+static bool _enqueue_msg(eng_writer_t *writer, flush_msg_t *msg) {
+  bool enqueued = false;
+  for (int i = 0; i < MAX_ENQUEUE_ATTEMPTS; i++) {
+    if (ck_ring_enqueue_mpsc(&writer->ring, writer->ring_buffer, msg)) {
+      enqueued = true;
+      break;
+    }
+    // Ring buffer is full
+    ck_pr_stall();
+    // might add a short sleep here
+  }
+  return enqueued;
+}
+
+bool eng_writer_queue_up_bm_dirty_list(eng_writer_t *writer,
+                                       bm_cache_entry_t *dirty_head) {
+  if (!writer || !dirty_head)
+    return false;
+  flush_msg_t *msg = flush_msg_create(BITMAP_DIRTY_LIST, dirty_head);
+  if (!msg)
+    return false;
+  if (!_enqueue_msg(writer, msg)) {
+    flush_msg_free(msg);
     return false;
   }
   return true;

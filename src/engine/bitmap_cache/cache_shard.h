@@ -22,7 +22,6 @@ typedef struct bm_cache_shard_s {
 
   // Reversed linked list
   bm_cache_entry_t *dirty_head;
-  uv_mutex_t dirty_list_lock;
 } bm_cache_shard_t;
 
 bool bm_init_shard(bm_cache_shard_t *shard);

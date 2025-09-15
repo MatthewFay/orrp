@@ -8,7 +8,6 @@
 #include "core/hash.h"
 #include "engine/bitmap_cache/cache_entry.h"
 #include "engine/bitmap_cache/cache_queue_consumer.h"
-#include "uv.h"
 #include <stdatomic.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -166,8 +165,6 @@ int bm_cache_prepare_flush_batch(bm_cache_flush_batch_t *batch) {
   for (int i = 0; i < NUM_SHARDS; i++) {
     bm_cache_shard_t *shard = &g_cache.shards[i];
 
-    uv_mutex_lock(&shard->dirty_list_lock);
-
     // Swap dirty list (atomic operation)
     batch->shards[i].dirty_entries = shard->dirty_head;
     // batch->shards[i].entry_count = shard->dirty_count;
@@ -176,8 +173,6 @@ int bm_cache_prepare_flush_batch(bm_cache_flush_batch_t *batch) {
     // Reset shard dirty list
     shard->dirty_head = NULL;
     // shard->dirty_count = 0;
-
-    uv_mutex_unlock(&shard->dirty_list_lock);
 
     batch->total_entries += batch->shards[i].entry_count;
   }
@@ -191,8 +186,6 @@ int bm_cache_complete_flush_batch(bm_cache_flush_batch_t *batch, bool success) {
     for (int i = 0; i < NUM_SHARDS; i++) {
       if (batch->shards[i].dirty_entries) {
         bm_cache_shard_t *shard = &g_cache.shards[i];
-        uv_mutex_lock(&shard->dirty_list_lock);
-
         // Re-add to dirty list (prepend for efficiency)
         bm_cache_entry_t *last = batch->shards[i].dirty_entries;
         while (last->dirty_next)
@@ -201,8 +194,6 @@ int bm_cache_complete_flush_batch(bm_cache_flush_batch_t *batch, bool success) {
         last->dirty_next = shard->dirty_head;
         shard->dirty_head = batch->shards[i].dirty_entries;
         // shard->dirty_count += batch->shards[i].entry_count;
-
-        uv_mutex_unlock(&shard->dirty_list_lock);
       }
     }
   } else {

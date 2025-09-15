@@ -967,10 +967,37 @@
       "lib/ck/src/libck.a",
       "-o",
       "bin/test_event_api",
-      "src/engine/engine_writer.c"
+      "src/engine/engine_writer/engine_writer.c"
     ],
     "directory": "/Users/matthewfay/dev/orrp",
-    "file": "/Users/matthewfay/dev/orrp/src/engine/engine_writer.c",
+    "file": "/Users/matthewfay/dev/orrp/src/engine/engine_writer/engine_writer.c",
+    "output": "/Users/matthewfay/dev/orrp/bin/test_event_api"
+  },
+  {
+    "arguments": [
+      "/usr/bin/gcc",
+      "-c",
+      "-Iinclude",
+      "-Isrc",
+      "-Itests/unity",
+      "-Ilib/roaring",
+      "-Ilib/lmdb",
+      "-Ilib/log.c",
+      "-Ilib/libuv/include",
+      "-Ilib/uthash",
+      "-Ilib/ck/include",
+      "-Wall",
+      "-Wextra",
+      "-g",
+      "-std=c11",
+      "-O0",
+      "lib/ck/src/libck.a",
+      "-o",
+      "bin/test_event_api",
+      "src/engine/engine_writer/flush_msg.c"
+    ],
+    "directory": "/Users/matthewfay/dev/orrp",
+    "file": "/Users/matthewfay/dev/orrp/src/engine/engine_writer/flush_msg.c",
     "output": "/Users/matthewfay/dev/orrp/bin/test_event_api"
   },
   {
@@ -1764,12 +1791,38 @@
       "-O0",
       "-c",
       "-o",
-      "obj/src/engine/engine_writer.o",
-      "src/engine/engine_writer.c"
+      "obj/src/engine/engine_writer/engine_writer.o",
+      "src/engine/engine_writer/engine_writer.c"
     ],
     "directory": "/Users/matthewfay/dev/orrp",
-    "file": "/Users/matthewfay/dev/orrp/src/engine/engine_writer.c",
-    "output": "/Users/matthewfay/dev/orrp/obj/src/engine/engine_writer.o"
+    "file": "/Users/matthewfay/dev/orrp/src/engine/engine_writer/engine_writer.c",
+    "output": "/Users/matthewfay/dev/orrp/obj/src/engine/engine_writer/engine_writer.o"
+  },
+  {
+    "arguments": [
+      "/usr/bin/gcc",
+      "-Iinclude",
+      "-Isrc",
+      "-Itests/unity",
+      "-Ilib/roaring",
+      "-Ilib/lmdb",
+      "-Ilib/log.c",
+      "-Ilib/libuv/include",
+      "-Ilib/uthash",
+      "-Ilib/ck/include",
+      "-Wall",
+      "-Wextra",
+      "-g",
+      "-std=c11",
+      "-O0",
+      "-c",
+      "-o",
+      "obj/src/engine/engine_writer/flush_msg.o",
+      "src/engine/engine_writer/flush_msg.c"
+    ],
+    "directory": "/Users/matthewfay/dev/orrp",
+    "file": "/Users/matthewfay/dev/orrp/src/engine/engine_writer/flush_msg.c",
+    "output": "/Users/matthewfay/dev/orrp/obj/src/engine/engine_writer/flush_msg.o"
   },
   {
     "arguments": [
