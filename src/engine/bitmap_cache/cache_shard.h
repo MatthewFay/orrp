@@ -7,6 +7,7 @@
 #include "ck_ring.h"
 #include "uv.h" // IWYU pragma: keep
 #include <stdbool.h>
+#include <stdint.h>
 
 #define CAPACITY_PER_SHARD 16384
 
@@ -20,8 +21,9 @@ typedef struct bm_cache_shard_s {
   bm_cache_entry_t *lru_head; // Head of the LRU list (most recently used).
   bm_cache_entry_t *lru_tail; // Tail of the LRU list (least recently used).
 
-  // Reversed linked list
   bm_cache_entry_t *dirty_head;
+  bm_cache_entry_t *dirty_tail;
+  uint32_t num_dirty_entries;
 } bm_cache_shard_t;
 
 bool bm_init_shard(bm_cache_shard_t *shard);
@@ -38,5 +40,11 @@ bool shard_add_entry(bm_cache_shard_t *shard, const char *cache_key,
 
 void shard_lru_move_to_front(bm_cache_shard_t *shard, bm_cache_entry_t *entry,
                              bool dirty);
+
+bm_cache_entry_t *shard_Swap_dirty(bm_cache_shard_t *shard);
+// Used on error
+void shard_put_back_dirty_list(bm_cache_shard_t *shard,
+                               bm_cache_entry_t *dirty_head,
+                               uint32_t num_dirty);
 
 #endif

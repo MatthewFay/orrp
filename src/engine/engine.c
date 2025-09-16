@@ -159,7 +159,6 @@ eng_context_t *eng_init(void) {
   ctx->sys_c = sys_c;
 
   eng_dc_cache_init(CONTAINER_CACHE_CAPACITY, _get_or_create_user_dc);
-  bitmap_cache_init();
   id_manager_init(ctx);
   entity_resolver_init(ctx, ENTITY_RESOLVER_CACHE_CAPACITY);
 
@@ -167,6 +166,8 @@ eng_context_t *eng_init(void) {
                                        .reclaim_every = 10};
 
   eng_writer_start(&g_eng_writer, &writer_config);
+
+  bitmap_cache_init(&g_eng_writer);
 
   return ctx;
 }

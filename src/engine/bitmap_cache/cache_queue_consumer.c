@@ -7,11 +7,13 @@
 #include "engine/bitmap_cache/cache_shard.h"
 #include "engine/container.h"
 #include "engine/dc_cache.h"
+#include "engine/engine_writer/engine_writer.h"
 #include "lmdb.h"
 #include "uthash.h"
 #include "uv.h"
 #include <stdatomic.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdlib.h>
 
 #define MAX_BATCH_SIZE_PER_SHARD 128
@@ -272,6 +274,7 @@ static bool _batch_by_container(const bm_cache_consumer_config_t *config,
       if (batch) {
         if (!_add_msg_to_batch(batch, msg, shard)) {
           _free_batch_hash(*batch_hash_out);
+          // TODO: dont fail everything if unable to process a single msg
           return false;
         }
       } else {
@@ -289,17 +292,49 @@ static bool _batch_by_container(const bm_cache_consumer_config_t *config,
   return true;
 }
 
+static void _check_flush(const bm_cache_consumer_config_t *config) {
+  for (uint32_t i = 0; i < config->shard_count; i++) {
+    uint32_t shard_idx = config->shard_start + i;
+    bm_cache_shard_t *shard = &config->shards[shard_idx];
+    uint32_t num_dirty = shard->num_dirty_entries;
+    if (!num_dirty) {
+      continue;
+    }
+    bm_cache_dirty_snapshot_t *ds =
+        calloc(1, sizeof(bm_cache_dirty_snapshot_t));
+    if (!ds) {
+      // log
+      continue;
+    }
+    bm_cache_entry_t *dirty_head = shard_Swap_dirty(shard);
+    if (!dirty_head) {
+      free(ds);
+      // should not happen
+      continue;
+    }
+    ds->shard = shard;
+    ds->dirty_entries = dirty_head;
+    ds->entry_count = num_dirty;
+    if (!eng_writer_queue_up_bm_dirty_snapshot(config->writer, ds)) {
+      free(ds);
+      shard_put_back_dirty_list(shard, dirty_head, num_dirty);
+    }
+  }
+}
+
 // TODO: store queue msgs unable to process (DLQ)
 static void _consumer_thread_func(void *arg) {
   bm_cache_consumer_t *consumer = (bm_cache_consumer_t *)arg;
   const bm_cache_consumer_config_t *config = &consumer->config;
   queue_msg_batch_t *batch_hash = NULL;
   bool batched_any = false;
+  uint32_t cycle = 0;
 
   // TODO: weigh sleep approach vs. libuv notify approach (w/ focus on
   // performance)
   while (!consumer->should_stop) {
     batched_any = false;
+    cycle++;
 
     // KIS for now ( need err handling)
     _batch_by_container(config, &batch_hash, &batched_any);
@@ -311,6 +346,11 @@ static void _consumer_thread_func(void *arg) {
     } else {
       // If no work, yield briefly to avoid spinning
       uv_sleep(1);
+    }
+
+    if (cycle == config->flush_every_n) {
+      cycle = 0;
+      _check_flush(config);
     }
   }
 }

@@ -7,15 +7,48 @@
 
 #define HT_SEED 0
 
+// =============================================================================
+// --- Dirty List ---
+// =============================================================================
+
 static void _add_entry_to_dirty_list(bm_cache_shard_t *shard,
                                      bm_cache_entry_t *entry) {
   entry->dirty_next = NULL;
 
   if (shard->dirty_head) {
-    shard->dirty_head->dirty_next = entry;
+    shard->dirty_tail->dirty_next = entry;
+    shard->dirty_tail = entry;
+  } else {
+    shard->dirty_head = entry;
+    shard->dirty_tail = entry;
   }
 
-  shard->dirty_head = entry;
+  shard->num_dirty_entries++;
+}
+
+bm_cache_entry_t *shard_Swap_dirty(bm_cache_shard_t *shard) {
+  bm_cache_entry_t *dh = shard->dirty_head;
+  shard->dirty_head = shard->dirty_tail = NULL;
+  shard->num_dirty_entries = 0;
+  return dh;
+}
+
+void shard_put_back_dirty_list(bm_cache_shard_t *shard,
+                               bm_cache_entry_t *dirty_head,
+                               uint32_t num_dirty) {
+  if (!shard || !dirty_head || !num_dirty)
+    return;
+  shard->num_dirty_entries = num_dirty;
+  shard->dirty_head = dirty_head;
+  if (num_dirty == 1) {
+    shard->dirty_tail = dirty_head;
+    return;
+  }
+  bm_cache_entry_t *dirty_entry = dirty_head;
+  while (dirty_entry->dirty_next) {
+    dirty_entry = dirty_entry->dirty_next;
+  }
+  shard->dirty_tail = dirty_entry;
 }
 
 // =============================================================================
@@ -88,7 +121,9 @@ bool bm_init_shard(bm_cache_shard_t *shard) {
 
   shard->lru_head = shard->lru_tail = NULL;
   shard->dirty_head = NULL;
+  shard->dirty_tail = NULL;
   shard->n_entries = 0;
+  shard->num_dirty_entries = 0;
   ck_ring_init(&shard->ring, CAPACITY_PER_SHARD);
   if (!ck_ht_init(&shard->table, CK_HT_MODE_BYTESTRING,
                   NULL, // Initialize with Murmur64 (default)

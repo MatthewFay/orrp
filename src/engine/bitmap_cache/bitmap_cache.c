@@ -6,8 +6,8 @@
 #include "core/bitmaps.h"
 #include "core/db.h"
 #include "core/hash.h"
-#include "engine/bitmap_cache/cache_entry.h"
 #include "engine/bitmap_cache/cache_queue_consumer.h"
+#include "engine/engine_writer/engine_writer.h"
 #include <stdatomic.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -34,6 +34,7 @@ typedef struct bm_cache_s {
   bm_cache_shard_t shards[NUM_SHARDS];
   bm_cache_consumer_t consumers[NUM_CONSUMER_THREADS];
   bool is_initialized;
+  eng_writer_t *writer;
 } bm_cache_t;
 
 // =============================================================================
@@ -74,13 +75,13 @@ static bool _get_cache_key(char *buffer, size_t buffer_size,
 }
 
 // Global instance of our cache
-static bm_cache_t g_cache;
+static bm_cache_t g_bm_cache;
 
 static bool _enqueue_msg(const char *cache_key, bm_cache_queue_msg_t *msg) {
   int s_idx = _get_shard_index(cache_key);
   bool enqueued = false;
   for (int i = 0; i < MAX_ENQUEUE_ATTEMPTS; i++) {
-    if (shard_enqueue_msg(&g_cache.shards[s_idx], msg)) {
+    if (shard_enqueue_msg(&g_bm_cache.shards[s_idx], msg)) {
       enqueued = true;
       break;
     }
@@ -93,25 +94,32 @@ static bool _enqueue_msg(const char *cache_key, bm_cache_queue_msg_t *msg) {
 
 // --- Public API Implementations ---
 
-bool bitmap_cache_init(void) {
+bool bitmap_cache_init(eng_writer_t *writer) {
+  if (!writer)
+    return false;
+
   for (int i = 0; i < NUM_SHARDS; ++i) {
-    if (!bm_init_shard(&g_cache.shards[i])) {
+    if (!bm_init_shard(&g_bm_cache.shards[i])) {
       return false;
     }
   }
 
+  g_bm_cache.writer = writer;
+
   for (int i = 0; i < NUM_CONSUMER_THREADS; i++) {
-    bm_cache_consumer_config_t config = {.shards = g_cache.shards,
+    bm_cache_consumer_config_t config = {.shards = g_bm_cache.shards,
+                                         .writer = g_bm_cache.writer,
+                                         .flush_every_n = 100,
                                          .shard_start = i * SHARDS_PER_CONSUMER,
                                          .shard_count = SHARDS_PER_CONSUMER,
                                          .consumer_id = i};
 
-    if (!bm_cache_consumer_start(&g_cache.consumers[i], &config)) {
+    if (!bm_cache_consumer_start(&g_bm_cache.consumers[i], &config)) {
       return false;
     }
   }
 
-  g_cache.is_initialized = true;
+  g_bm_cache.is_initialized = true;
   return true;
 }
 
@@ -159,56 +167,11 @@ void bitmap_cache_query_end(bitmap_cache_handle_t *handle) {
   free(handle);
 }
 
-int bm_cache_prepare_flush_batch(bm_cache_flush_batch_t *batch) {
-  batch->total_entries = 0;
-
-  for (int i = 0; i < NUM_SHARDS; i++) {
-    bm_cache_shard_t *shard = &g_cache.shards[i];
-
-    // Swap dirty list (atomic operation)
-    batch->shards[i].dirty_entries = shard->dirty_head;
-    // batch->shards[i].entry_count = shard->dirty_count;
-    batch->shards[i].shard_id = i;
-
-    // Reset shard dirty list
-    shard->dirty_head = NULL;
-    // shard->dirty_count = 0;
-
-    batch->total_entries += batch->shards[i].entry_count;
-  }
-
-  return 0;
-}
-
-int bm_cache_complete_flush_batch(bm_cache_flush_batch_t *batch, bool success) {
-  if (!success) {
-    // On failure, re-add entries to dirty lists
-    for (int i = 0; i < NUM_SHARDS; i++) {
-      if (batch->shards[i].dirty_entries) {
-        bm_cache_shard_t *shard = &g_cache.shards[i];
-        // Re-add to dirty list (prepend for efficiency)
-        bm_cache_entry_t *last = batch->shards[i].dirty_entries;
-        while (last->dirty_next)
-          last = last->dirty_next;
-
-        last->dirty_next = shard->dirty_head;
-        shard->dirty_head = batch->shards[i].dirty_entries;
-        // shard->dirty_count += batch->shards[i].entry_count;
-      }
-    }
-  } else {
-    // On success, entries can be safely freed or marked clean
-    // bm_cache_free_flush_batch(batch);
-  }
-
-  return 0;
-}
-
 // TODO: This is tricky - need to flush in-flight and in-memory data to disk
 bool bitmap_cache_shutdown(void) {
   bool success = true;
   for (int i = 0; i < NUM_CONSUMER_THREADS; i++) {
-    if (!bm_cache_consumer_stop(&g_cache.consumers[i])) {
+    if (!bm_cache_consumer_stop(&g_bm_cache.consumers[i])) {
       success = false;
     }
   }
@@ -216,64 +179,3 @@ bool bitmap_cache_shutdown(void) {
   return success;
 }
 
-// void bm_cache_mark_dirty(bm_cache_entry_t *entry) {
-//   if (!entry)
-//     return;
-//   if (!entry->is_dirty) {
-//     entry->is_dirty = true;
-//     _eng_cache_add_to_dirty_list(entry);
-//   }
-//   entry->current_version++;
-// }
-
-// void eng_cache_remove_from_dirty_list(bm_cache_shard_t *shard,
-//                                       bm_cache_entry_t *entry) {
-//   uv_mutex_lock(&shared->dirty_list_lock);
-
-//   if (entry->dirty_prev) {
-//     entry->dirty_prev->dirty_next = entry->dirty_next;
-//   } else {
-//     g_cache.dirty_head = entry->dirty_next;
-//   }
-
-//   if (entry->dirty_next) {
-//     entry->dirty_next->dirty_prev = entry->dirty_prev;
-//   } else {
-//     g_cache.dirty_tail = entry->dirty_prev;
-//   }
-
-//   entry->dirty_prev = NULL;
-//   entry->dirty_next = NULL;
-
-//   uv_mutex_unlock(&shard->dirty_list_lock);
-// }
-
-// // Lock and swap pattern - very fast - used by background writer
-// bm_cache_entry_t *bm_cache_swap_dirty_list(bm_cache_shard_t *shard) {
-//   uv_mutex_lock(&shard->dirty_list_lock);
-//   bm_cache_entry_t *head = shard->dirty_head;
-//   shard->dirty_head = NULL;
-//   shard->dirty_tail = NULL;
-//   uv_mutex_unlock(&shard->dirty_list_lock);
-//   return head;
-// }
-
-// static bm_cache_entry_t *create_entry(const char *cache_key, bitmap_t
-// *bitmap) {
-//   bm_cache_entry_t *entry = malloc(sizeof(bm_cache_entry_t));
-//   if (!entry)
-//     return NULL;
-
-//   entry->cache_key = strdup(key);
-//   if (!entry->key) {
-//     free(entry);
-//     return NULL;
-//   }
-
-//   entry->bitmap = bitmap;
-//   entry->ref_count = 1;
-//   entry->is_dirty = false;
-//   entry->lru_prev = entry->lru_next = NULL;
-
-//   return entry;
-// }

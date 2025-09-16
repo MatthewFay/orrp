@@ -1,11 +1,11 @@
-#include "engine/bitmap_cache/cache_entry.h"
+#include "engine/bitmap_cache/bitmap_cache.h"
 
-typedef enum { BITMAP_DIRTY_LIST } flush_msg_data_type;
+typedef enum { BITMAP_DIRTY_SNAPSHOT } flush_msg_data_type;
 
 typedef struct flush_msg_s {
   flush_msg_data_type data_type;
   union {
-    bm_cache_entry_t *bm_cache_dirty_head;
+    bm_cache_dirty_snapshot_t *bm_cache_dirty_snapshot;
   } data;
 } flush_msg_t;
 

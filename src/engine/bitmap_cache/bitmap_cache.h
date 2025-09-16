@@ -6,6 +6,7 @@
 #include "core/bitmaps.h"
 #include "core/db.h"
 #include "engine/container.h"
+#include "engine/engine_writer/engine_writer.h"
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -19,6 +20,7 @@ extern _Thread_local ck_epoch_record_t *bitmap_cache_thread_epoch_record;
 extern ck_epoch_t bitmap_cache_g_epoch;
 
 typedef struct bitmap_cache_handle_s bitmap_cache_handle_t;
+typedef struct bm_cache_shard_s bm_cache_shard_t;
 
 typedef struct bitmap_cache_key_s {
   const char *container_name;
@@ -28,17 +30,12 @@ typedef struct bitmap_cache_key_s {
 
 // Dirty list snapshot for flushing
 typedef struct bm_cache_dirty_snapshot_s {
-  uint32_t shard_id;
+  bm_cache_shard_t *shard;
   bm_cache_entry_t *dirty_entries; // Linked list
   uint32_t entry_count;
 } bm_cache_dirty_snapshot_t;
 
-typedef struct bm_cache_flush_batch_s {
-  bm_cache_dirty_snapshot_t shards[NUM_SHARDS];
-  uint32_t total_entries;
-} bm_cache_flush_batch_t;
-
-bool bitmap_cache_init(void);
+bool bitmap_cache_init(eng_writer_t *writer);
 bool bitmap_cache_shutdown(void);
 
 bool bitmap_cache_ingest(const bitmap_cache_key_t *key, uint32_t value,
@@ -76,10 +73,6 @@ const bitmap_t *bitmap_cache_get_bitmap(bitmap_cache_handle_t *handle,
  * @param handle The handle to end.
  */
 void bitmap_cache_query_end(bitmap_cache_handle_t *handle);
-
-int bm_cache_prepare_flush_batch(bm_cache_flush_batch_t *batch);
-int bm_cache_complete_flush_batch(bm_cache_flush_batch_t *batch, bool success);
-void bm_cache_free_flush_batch(bm_cache_flush_batch_t *batch);
 
 // Used for epoch reclamation
 void bm_cache_dispose(ck_epoch_entry_t *entry);

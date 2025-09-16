@@ -2,13 +2,17 @@
 #define BM_CACHE_QUEUE_CONSUMER_H
 
 #include "cache_shard.h"
+#include "engine/engine_writer/engine_writer.h"
 #include "uv.h" // IWYU pragma: keep
+#include <stdint.h>
 
 typedef struct bm_cache_consumer_config_s {
   bm_cache_shard_t *shards; // Array of shards to process
-  uint32_t shard_start;     // Starting shard index
-  uint32_t shard_count;     // Number of shards to handle
-  uint32_t consumer_id;     // Thread identifier
+  eng_writer_t *writer;
+  uint32_t flush_every_n;
+  uint32_t shard_start; // Starting shard index
+  uint32_t shard_count; // Number of shards to handle
+  uint32_t consumer_id; // Thread identifier
 } bm_cache_consumer_config_t;
 
 typedef struct bm_cache_consumer_s {

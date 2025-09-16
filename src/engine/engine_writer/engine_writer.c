@@ -328,11 +328,11 @@ static bool _enqueue_msg(eng_writer_t *writer, flush_msg_t *msg) {
   return enqueued;
 }
 
-bool eng_writer_queue_up_bm_dirty_list(eng_writer_t *writer,
-                                       bm_cache_entry_t *dirty_head) {
-  if (!writer || !dirty_head)
+bool eng_writer_queue_up_bm_dirty_snapshot(
+    eng_writer_t *writer, bm_cache_dirty_snapshot_t *dirty_snapshot) {
+  if (!writer || !dirty_snapshot)
     return false;
-  flush_msg_t *msg = flush_msg_create(BITMAP_DIRTY_LIST, dirty_head);
+  flush_msg_t *msg = flush_msg_create(BITMAP_DIRTY_SNAPSHOT, dirty_snapshot);
   if (!msg)
     return false;
   if (!_enqueue_msg(writer, msg)) {
