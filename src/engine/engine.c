@@ -179,6 +179,7 @@ void eng_shutdown(eng_context_t *ctx) {
   bitmap_cache_shutdown();
   id_manager_destroy();
   entity_resolver_destroy();
+  eng_writer_stop(&g_eng_writer);
 }
 
 typedef struct incr_result_s {

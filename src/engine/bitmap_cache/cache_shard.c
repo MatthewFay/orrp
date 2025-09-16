@@ -1,7 +1,9 @@
 #include "cache_shard.h"
 #include "ck_ht.h"
 #include "ck_ring.h"
+#include "core/bitmaps.h"
 #include "engine/bitmap_cache/cache_entry.h"
+#include <stdatomic.h>
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -165,38 +167,38 @@ bool shard_get_entry(bm_cache_shard_t *shard, const char *cache_key,
   return true;
 }
 
+static bool _rem_from_cache_table(bm_cache_shard_t *shard,
+                                  bm_cache_entry_t *entry) {
+  ck_ht_hash_t hash;
+  ck_ht_entry_t ck_entry;
+  unsigned long key_len = strlen(entry->cache_key);
+  ck_ht_hash(&hash, &shard->table, entry->cache_key, key_len);
+  ck_ht_entry_set(&ck_entry, hash, entry->cache_key, key_len, entry);
+  if (!ck_ht_remove_spmc(&shard->table, hash, &ck_entry)) {
+    return false;
+  }
+  return true;
+}
+
 static void _evict_lru(bm_cache_shard_t *shard) {
-  (void)shard;
-  //   bm_cache_entry_t *entry_to_evict = g_cache.lru_tail;
-  //   if (!entry_to_evict || entry_to_evict->evict ||
-  //       entry_to_evict->ref_count > 0) {
-  //     return;
-  //   }
+  if (!shard || !shard->lru_tail)
+    return;
+  bm_cache_entry_t *lru_tail = shard->lru_tail;
+  bitmap_t *bm = atomic_load(&lru_tail->bitmap);
+  uint64_t flush_v = atomic_load(&lru_tail->flush_version);
+  if (bm->version != flush_v) {
+    // dirty!
+    return;
+  }
+  if (!_rem_from_cache_table(shard, lru_tail)) {
+    return;
+  }
+  _lru_remove_entry(shard, lru_tail);
 
-  //   if (entry_to_evict->is_dirty) {
-  //     // If dirty, DO NOT remove from cache, else risk data corruption.
-  //     // Background writer only removes after successful flush.
-  //     entry_to_evict->evict = true; // Mark for later eviction
-  //     return;
-  //   }
+  // Do not free bitmap on purpose - will be free'd later using EBR
+  bm_cache_free_entry(lru_tail);
 
-  //   if (entry_to_evict->prev) {
-  //     entry_to_evict->prev->next = entry_to_evict->next;
-  //   } else {
-  //     g_cache.lru_head = entry_to_evict->next;
-  //   }
-
-  //   if (entry_to_evict->next) {
-  //     entry_to_evict->next->prev = entry_to_evict->prev;
-  //   } else {
-  //     g_cache.lru_tail = entry_to_evict->prev;
-  //   }
-
-  //   HASH_DEL(g_cache.entrys_hash, entry_to_evict);
-
-  //   eng_cache_free_entry(entry_to_evict);
-
-  //   g_cache.size--;
+  shard->n_entries--;
 }
 
 bool shard_add_entry(bm_cache_shard_t *shard, const char *cache_key,

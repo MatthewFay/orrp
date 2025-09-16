@@ -22,11 +22,16 @@ typedef struct bm_cache_entry_s {
   eng_user_dc_db_type_t db_type;
   db_key_t db_key;
 
+  char *cache_key;
+
   char container_name[]; // Flexible array member
 } bm_cache_entry_t;
 
-void bm_cache_free_entry(bm_cache_entry_t *value);
+// Free everything in cache entry EXCEPT bitmap -
+// bitmaps are handled by EBR (deferred free)
+void bm_cache_free_entry(bm_cache_entry_t *entry);
 
 bm_cache_entry_t *bm_cache_create_entry(eng_user_dc_db_type_t db_type,
-                                        db_key_t db_key, eng_container_t *dc);
+                                        db_key_t db_key, eng_container_t *dc,
+                                        const char *cache_key);
 #endif

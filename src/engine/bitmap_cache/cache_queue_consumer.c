@@ -58,7 +58,7 @@ static bm_cache_entry_t *_get_or_Create_cache_entry(eng_container_t *dc,
     return NULL;
   }
   bm_cache_entry_t *new_cache_entry =
-      bm_cache_create_entry(msg->db_type, msg->db_key, dc);
+      bm_cache_create_entry(msg->db_type, msg->db_key, dc, key->cache_key);
   if (!new_cache_entry) {
     return NULL;
   }

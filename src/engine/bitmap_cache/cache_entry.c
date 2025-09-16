@@ -5,19 +5,19 @@
 #include <stddef.h>
 #include <string.h>
 
-void bm_cache_free_entry(bm_cache_entry_t *value) {
-  if (!value)
+void bm_cache_free_entry(bm_cache_entry_t *entry) {
+  if (!entry)
     return;
-  bitmap_t *bm = atomic_load(&value->bitmap);
-  bitmap_free(bm);
-  if (value->db_key.type == DB_KEY_STRING) {
-    free((char *)value->db_key.key.s);
+  if (entry->db_key.type == DB_KEY_STRING) {
+    free((char *)entry->db_key.key.s);
   }
-  free(value);
+  free(entry->cache_key);
+  free(entry);
 }
 
 bm_cache_entry_t *bm_cache_create_entry(eng_user_dc_db_type_t db_type,
-                                        db_key_t db_key, eng_container_t *dc) {
+                                        db_key_t db_key, eng_container_t *dc,
+                                        const char *cache_key) {
   bm_cache_entry_t *entry =
       calloc(1, sizeof(bm_cache_entry_t) + strlen(dc->name) + 1);
   if (!entry)
@@ -30,6 +30,7 @@ bm_cache_entry_t *bm_cache_create_entry(eng_user_dc_db_type_t db_type,
   if (db_key.type == DB_KEY_STRING) {
     entry->db_key.key.s = strdup(db_key.key.s);
   }
+  entry->cache_key = strdup(cache_key);
 
   strcpy(entry->container_name, dc->name);
 
