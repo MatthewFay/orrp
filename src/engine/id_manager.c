@@ -59,7 +59,8 @@ static bool _get_next_id(eng_container_t *c, MDB_txn *txn,
     *int_id_out = c_type == CONTAINER_TYPE_SYSTEM ? SYS_NEXT_ENT_ID_INIT_VAL
                                                   : USR_NEXT_EVENT_ID_INIT_VAL;
   }
-  free(next.value);
+      db_get_result_clear(&next);
+
   return true;
 }
 

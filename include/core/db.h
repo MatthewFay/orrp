@@ -45,7 +45,7 @@ bool db_put(MDB_dbi db, MDB_txn *txn, db_key_t *key, const void *value,
 bool db_get(MDB_dbi db, MDB_txn *txn, db_key_t *key,
             db_get_result_t *result_out);
 
-void db_free_get_result(db_get_result_t *r);
+void db_get_result_clear(db_get_result_t *res);
 
 // Function to close and free the database environment
 void db_close(MDB_env *env, MDB_dbi db);

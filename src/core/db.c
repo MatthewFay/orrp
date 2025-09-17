@@ -18,6 +18,8 @@
 #endif
 
 MDB_env *db_create_env(const char *path, size_t map_size, int max_num_dbs) {
+  if (!path || !map_size || !max_num_dbs)
+    return NULL;
   int rc;
   MDB_env *env;
 
@@ -56,6 +58,8 @@ MDB_env *db_create_env(const char *path, size_t map_size, int max_num_dbs) {
 }
 
 bool db_open(MDB_env *env, const char *db_name, MDB_dbi *db_out) {
+  if (!env || !db_name || !db_out)
+    return false;
   int rc;
   MDB_txn *txn;
   MDB_dbi db;
@@ -86,7 +90,7 @@ bool db_open(MDB_env *env, const char *db_name, MDB_dbi *db_out) {
 
 bool db_put(MDB_dbi db, MDB_txn *txn, db_key_t *key, const void *value,
             size_t value_size, bool auto_commit) {
-  if (txn == NULL)
+  if (txn == NULL || key == NULL || value == NULL || value_size == 0)
     return false;
 
   MDB_val mdb_key, mdb_value;
@@ -136,10 +140,11 @@ bool db_put(MDB_dbi db, MDB_txn *txn, db_key_t *key, const void *value,
   return true;
 }
 
-void db_free_get_result(db_get_result_t *r) {
-  if (r) {
-    free(r->value);
-    free(r);
+void db_get_result_clear(db_get_result_t *res) {
+  if (res && res->value) {
+    free(res->value);
+    res->value = NULL;
+    res->value_len = 0;
   }
 }
 
@@ -208,6 +213,8 @@ void db_env_close(MDB_env *env) {
 }
 
 MDB_txn *db_create_txn(MDB_env *env, bool is_read_only) {
+  if (!env)
+    return NULL;
   MDB_txn *txn;
   int rc = mdb_txn_begin(env, NULL, is_read_only ? MDB_RDONLY : 0, &txn);
   if (rc == MDB_SUCCESS)

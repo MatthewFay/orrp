@@ -233,14 +233,14 @@ bool entity_resolver_resolve_id(eng_container_t *sys_c,
 
   if (r.status == DB_GET_OK) {
     uint32_t val = *(uint32_t *)r.value;
-    free(r.value);
+    db_get_result_clear(&r);
     _create_cache_node(entity_id_str, val);
     *int_id_out = val;
     uv_rwlock_wrunlock(&g_resolver.cache_lock);
     return true;
   }
   if (r.value)
-    free(r.value);
+    db_get_result_clear(&r);
 
   // --- Create New Entity (DB Miss) ---
   uint32_t new_id = id_manager_get_next_entity_id();
@@ -322,12 +322,12 @@ bool entity_resolver_resolve_string(eng_container_t *sys_c, uint32_t int_id,
     char *string_from_db = (char *)r.value;
     er_cache_node_t *new_node = _create_cache_node(string_from_db, int_id);
     *str_id_out = new_node ? new_node->string_id : NULL;
-    free(string_from_db);
+    db_get_result_clear(&r);
     uv_rwlock_wrunlock(&g_resolver.cache_lock);
     return new_node != NULL;
   }
   if (r.value)
-    free(r.value);
+    db_get_result_clear(&r);
 
   // --- Error Case ---
   // If an integer ID is not in the cache and not in the DB, it's a data

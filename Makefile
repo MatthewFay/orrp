@@ -150,45 +150,103 @@ $(LIBCK_A):
 #      $(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 # Main 'test' target: builds and runs all listed test executables
-test: bin/test_tokenizer \
+test: bin/test_bitmaps \
+			bin/test_conversions \
+			bin/test_db \
+			bin/test_hash \
+			bin/test_queue \
+			bin/test_stack \
+			bin/test_api \
+			bin/test_tokenizer \
  		  bin/test_ast \
 			bin/test_parser \
-			bin/test_stack \
-			bin/test_queue \
-			bin/test_api \
 			bin/test_event_api
-	@echo "--- Running tokenizer test ---"
-	./bin/test_tokenizer
+	@echo "--- Running bitmaps test ---"
+	./bin/test_bitmaps
+	@echo "--- Running conversions test ---"
+	./bin/test_conversions
+	@echo "--- Running db test ---"
+	./bin/test_db
+	@echo "--- Running hash test ---"
+	./bin/test_hash
+	@echo "--- Running queue test ---"
+	./bin/test_queue
+	@echo "--- Running stack test ---"
+	./bin/test_stack
+
+	@echo "--- Running api test ---"
+	./bin/test_api
+
 	@echo "--- Running ast test ---"
 	./bin/test_ast
 	@echo "--- Running parser test ---"
 	./bin/test_parser
-	@echo "--- Running stack test ---"
-	./bin/test_stack
-	@echo "--- Running queue test ---"
-	./bin/test_queue
-	@echo "--- Running api test ---"
-	./bin/test_api
+	@echo "--- Running tokenizer test ---"
+	./bin/test_tokenizer
+
 	@echo "--- Running integration test: event api ---"
 	./bin/test_event_api
 	@echo "--- All tests finished ---"
 
 # 'test_build' target: builds all test executables
-test_build: bin/test_tokenizer \
+test_build: bin/test_bitmaps \
+						bin/test_conversions \
+						bin/test_db \
+						bin/test_hash \
+						bin/test_queue \
+						bin/test_stack \
+						bin/test_api \
 					  bin/test_ast \
 					  bin/test_parser \
-						bin/test_stack \
-						bin/test_queue \
-						bin/test_api \
+						bin/test_tokenizer \
 						bin/test_event_api
 
 # --- INDIVIDUAL TEST BUILD RULES ---
 
-# Rule to build the tokenizer test executable
-bin/test_tokenizer: tests/query/test_tokenizer.c \
-									  src/query/tokenizer.c \
-										src/core/queue.c \
+# Rule to build the bitmaps test executable
+bin/test_bitmaps: 	tests/core/test_bitmaps.c \
+										src/core/bitmaps.c \
+										lib/roaring/roaring.c \
 										${UNITY_SRC} | $(BIN_DIR)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
+
+# Rule to build the conversions test executable
+bin/test_conversions: 	tests/core/test_conversions.c \
+										src/core/conversions.c \
+										${UNITY_SRC} | $(BIN_DIR)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
+
+# Rule to build the db test executable
+bin/test_db: 	tests/core/test_db.c \
+										src/core/db.c \
+										$(wildcard lib/lmdb/*.c) \
+										${UNITY_SRC} | $(BIN_DIR)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
+
+# Rule to build the hash test executable
+bin/test_hash: 	tests/core/test_hash.c \
+										src/core/hash.c \
+										$(wildcard lib/lmdb/*.c) \
+										${UNITY_SRC} | $(BIN_DIR)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
+
+# Rule to build the queue test executable
+bin/test_queue: tests/core/test_queue.c \
+								src/core/queue.c \
+								${UNITY_SRC} | $(BIN_DIR)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
+
+# Rule to build the stack test executable
+bin/test_stack: tests/core/test_stack.c \
+							  src/core/stack.c \
+								${UNITY_SRC} | $(BIN_DIR)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
+
+# Rule to build the api test executable
+bin/test_api: tests/engine/test_api.c \
+							src/engine/api.c \
+							src/query/ast.c \
+							${UNITY_SRC} | $(BIN_DIR)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 # Rule to build the ast test executable
@@ -208,23 +266,11 @@ bin/test_parser: tests/query/test_parser.c \
 								 ${UNITY_SRC} | $(BIN_DIR)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
 
-# Rule to build the stack test executable
-bin/test_stack: tests/core/test_stack.c \
-							  src/core/stack.c \
-								${UNITY_SRC} | $(BIN_DIR)
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
-
-# Rule to build the queue test executable
-bin/test_queue: tests/core/test_queue.c \
-								src/core/queue.c \
-								${UNITY_SRC} | $(BIN_DIR)
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
-
-# Rule to build the api test executable
-bin/test_api: tests/engine/test_api.c \
-							src/engine/api.c \
-							src/query/ast.c \
-							${UNITY_SRC} | $(BIN_DIR)
+# Rule to build the tokenizer test executable
+bin/test_tokenizer: tests/query/test_tokenizer.c \
+									  src/query/tokenizer.c \
+										src/core/queue.c \
+										${UNITY_SRC} | $(BIN_DIR)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 ### --- INTEGRATION TESTS --- ###
