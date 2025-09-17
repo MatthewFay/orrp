@@ -6,7 +6,7 @@
 #include "ck_pr.h"
 #include "core/db.h"
 #include "core/hash.h"
-#include "engine/bitmap_cache/cache_queue_consumer.h"
+#include "cache_queue_consumer.h"
 #include "engine/engine_writer/engine_writer.h"
 #include <stdatomic.h>
 #include <stddef.h>

@@ -1,4 +1,4 @@
-#include "engine/bitmap_cache/bitmap_cache.h"
+#include "engine/bitmap_cache/cache_shard.h"
 
 typedef enum { BITMAP_DIRTY_SNAPSHOT } flush_msg_data_type;
 

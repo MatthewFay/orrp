@@ -6,12 +6,11 @@
  * Flushes dirty data to disk and performs memory reclamation.
  */
 #include "ck_ring.h"
+#include "engine/bitmap_cache/cache_shard.h"
 #include "uv.h"
 #include <stdint.h>
 
 #define FLUSH_QUEUE_CAPACITY 32768
-
-typedef struct bm_cache_dirty_snapshot_s bm_cache_dirty_snapshot_t;
 
 typedef struct eng_writer_config_s {
   // Engine writer config

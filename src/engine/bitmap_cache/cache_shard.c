@@ -1,8 +1,8 @@
 #include "cache_shard.h"
+#include "cache_entry.h"
 #include "ck_ht.h"
 #include "ck_ring.h"
 #include "core/bitmaps.h"
-#include "engine/bitmap_cache/cache_entry.h"
 #include <stdatomic.h>
 #include <stdbool.h>
 #include <stdint.h>
