@@ -1,5 +1,8 @@
 #include "cache_queue_msg.h"
 #include "core/db.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 bm_cache_queue_msg_t *
 bm_cache_create_msg(bm_cache_queue_op_type op_type,
@@ -14,11 +17,11 @@ bm_cache_create_msg(bm_cache_queue_op_type op_type,
   }
   msg->container_name = strdup(bm_cache_key->container_name);
   msg->db_type = bm_cache_key->db_type;
-  msg->db_key.type = bm_cache_key->db_key->type;
-  if (bm_cache_key->db_key->type == DB_KEY_STRING) {
-    msg->db_key.key.s = strdup(bm_cache_key->db_key->key.s);
+  msg->db_key.type = bm_cache_key->db_key.type;
+  if (bm_cache_key->db_key.type == DB_KEY_STRING) {
+    msg->db_key.key.s = strdup(bm_cache_key->db_key.key.s);
   } else {
-    msg->db_key.key.i = bm_cache_key->db_key->key.i;
+    msg->db_key.key.i = bm_cache_key->db_key.key.i;
   }
   msg->op_type = op_type;
   msg->value = value;

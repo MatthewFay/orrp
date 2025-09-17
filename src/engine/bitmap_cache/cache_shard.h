@@ -26,6 +26,13 @@ typedef struct bm_cache_shard_s {
   uint32_t num_dirty_entries;
 } bm_cache_shard_t;
 
+// Dirty list snapshot for flushing
+typedef struct bm_cache_dirty_snapshot_s {
+  bm_cache_shard_t *shard;
+  bm_cache_entry_t *dirty_entries; // Linked list
+  uint32_t entry_count;
+} bm_cache_dirty_snapshot_t;
+
 bool bm_init_shard(bm_cache_shard_t *shard);
 
 bool shard_enqueue_msg(bm_cache_shard_t *shard, bm_cache_queue_msg_t *msg);

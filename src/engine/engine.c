@@ -269,7 +269,7 @@ static bool _write_to_event_index(eng_container_t *dc, cmd_ctx_t *cmd_ctx,
       return false;
     }
     key.key.s = key_buffer;
-    bm_c_key.db_key = &key;
+    bm_c_key.db_key = key;
 
     if (!bitmap_cache_ingest(&bm_c_key, event_id, NULL)) {
       return false;

@@ -1,7 +1,7 @@
 #include "cache_queue_consumer.h"
+#include "cache_ebr.h"
 #include "core/bitmaps.h"
 #include "core/db.h"
-#include "engine/bitmap_cache/bitmap_cache.h"
 #include "engine/bitmap_cache/cache_entry.h"
 #include "engine/bitmap_cache/cache_queue_msg.h"
 #include "engine/bitmap_cache/cache_shard.h"

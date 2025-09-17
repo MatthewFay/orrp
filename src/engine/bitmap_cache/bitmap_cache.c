@@ -1,9 +1,9 @@
 #include "bitmap_cache.h"
+#include "cache_ebr.h"
 #include "cache_queue_msg.h"
 #include "cache_shard.h"
 #include "ck_epoch.h"
 #include "ck_pr.h"
-#include "core/bitmaps.h"
 #include "core/db.h"
 #include "core/hash.h"
 #include "engine/bitmap_cache/cache_queue_consumer.h"
@@ -15,16 +15,13 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define NUM_SHARDS 16 // Power of 2 for fast modulo
 #define SHARD_MASK (NUM_SHARDS - 1)
 #define NUM_CONSUMER_THREADS 4
 #define SHARDS_PER_CONSUMER (NUM_SHARDS / NUM_CONSUMER_THREADS)
 
 #define MAX_CACHE_KEY_SIZE 256
 #define MAX_ENQUEUE_ATTEMPTS 3
-
-_Thread_local ck_epoch_record_t *bitmap_cache_thread_epoch_record = NULL;
-
-ck_epoch_t bitmap_cache_g_epoch;
 
 typedef struct bitmap_cache_handle_s {
   ck_epoch_section_t epoch_section;
@@ -37,16 +34,8 @@ typedef struct bm_cache_s {
   eng_writer_t *writer;
 } bm_cache_t;
 
-// =============================================================================
-// --- Epoch Reclamation Callback ---
-// =============================================================================
-
-CK_EPOCH_CONTAINER(bitmap_t, epoch_entry, get_bitmap_from_epoch)
-
-void bm_cache_dispose(ck_epoch_entry_t *entry) {
-  bitmap_t *bm = get_bitmap_from_epoch(entry);
-  bitmap_free(bm);
-}
+// Global instance of our cache
+static bm_cache_t g_bm_cache;
 
 // Get shard index from key
 static int _get_shard_index(const char *key) {
@@ -73,9 +62,6 @@ static bool _get_cache_key(char *buffer, size_t buffer_size,
   }
   return true;
 }
-
-// Global instance of our cache
-static bm_cache_t g_bm_cache;
 
 static bool _enqueue_msg(const char *cache_key, bm_cache_queue_msg_t *msg) {
   int s_idx = _get_shard_index(cache_key);
@@ -130,7 +116,7 @@ bool bitmap_cache_ingest(const bitmap_cache_key_t *key, uint32_t value,
   if (!key || !key->container_name)
     return false;
   if (!_get_cache_key(cache_key, sizeof(cache_key), key->container_name,
-                      key->db_type, *key->db_key)) {
+                      key->db_type, key->db_key)) {
     return false;
   }
 
@@ -144,7 +130,7 @@ bool bitmap_cache_ingest(const bitmap_cache_key_t *key, uint32_t value,
     bm_cache_free_msg(msg);
     return false;
   }
-  // notify queue consumer using libuv
+  // notify queue consumer using libuv?
   return true;
 }
 
@@ -178,4 +164,3 @@ bool bitmap_cache_shutdown(void) {
 
   return success;
 }
-

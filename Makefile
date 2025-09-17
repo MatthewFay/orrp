@@ -33,6 +33,7 @@ LIBS = -luv -lm -lpthread
 # Main application sources
 APP_SRCS = src/main.c \
 			 src/engine/bitmap_cache/bitmap_cache.c \
+			 src/engine/bitmap_cache/cache_ebr.c \
 			 src/engine/bitmap_cache/cache_entry.c \
 			 src/engine/bitmap_cache/cache_queue_consumer.c \
 			 src/engine/bitmap_cache/cache_queue_msg.c \

@@ -1,39 +1,13 @@
 #ifndef BITMAP_CACHE_H
 #define BITMAP_CACHE_H
 
-#include "cache_entry.h"
-#include "ck_epoch.h"
+#include "cache_key.h"
 #include "core/bitmaps.h"
-#include "core/db.h"
-#include "engine/container.h"
 #include "engine/engine_writer/engine_writer.h"
 #include <stdbool.h>
 #include <stdint.h>
 
-#define NUM_SHARDS 16 // Power of 2 for fast modulo
-
-// The THREAD-LOCAL epoch record pointer.
-// Each thread gets its own "ID badge".
-extern _Thread_local ck_epoch_record_t *bitmap_cache_thread_epoch_record;
-
-// Global epoch for entire cache.
-extern ck_epoch_t bitmap_cache_g_epoch;
-
 typedef struct bitmap_cache_handle_s bitmap_cache_handle_t;
-typedef struct bm_cache_shard_s bm_cache_shard_t;
-
-typedef struct bitmap_cache_key_s {
-  const char *container_name;
-  eng_user_dc_db_type_t db_type;
-  const db_key_t *db_key;
-} bitmap_cache_key_t;
-
-// Dirty list snapshot for flushing
-typedef struct bm_cache_dirty_snapshot_s {
-  bm_cache_shard_t *shard;
-  bm_cache_entry_t *dirty_entries; // Linked list
-  uint32_t entry_count;
-} bm_cache_dirty_snapshot_t;
 
 bool bitmap_cache_init(eng_writer_t *writer);
 bool bitmap_cache_shutdown(void);
@@ -73,8 +47,5 @@ const bitmap_t *bitmap_cache_get_bitmap(bitmap_cache_handle_t *handle,
  * @param handle The handle to end.
  */
 void bitmap_cache_query_end(bitmap_cache_handle_t *handle);
-
-// Used for epoch reclamation
-void bm_cache_dispose(ck_epoch_entry_t *entry);
 
 #endif // BITMAP_CACHE_H

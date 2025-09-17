@@ -1,8 +1,8 @@
 #ifndef BM_CACHE_Q_MSG_H
 #define BM_CACHE_Q_MSG_H
 
+#include "cache_key.h"
 #include "core/db.h"
-#include "engine/bitmap_cache/bitmap_cache.h"
 #include "engine/container.h"
 #include <stdint.h>
 typedef enum {
