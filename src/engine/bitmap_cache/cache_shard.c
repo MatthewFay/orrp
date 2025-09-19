@@ -3,6 +3,8 @@
 #include "ck_ht.h"
 #include "ck_ring.h"
 #include "core/bitmaps.h"
+#include "core/db.h"
+#include "engine/bitmap_cache/cache_ebr.h"
 #include <stdatomic.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -28,29 +30,78 @@ static void _add_entry_to_dirty_list(bm_cache_shard_t *shard,
   shard->num_dirty_entries++;
 }
 
-bm_cache_entry_t *shard_Swap_dirty(bm_cache_shard_t *shard) {
-  bm_cache_entry_t *dh = shard->dirty_head;
-  shard->dirty_head = shard->dirty_tail = NULL;
-  shard->num_dirty_entries = 0;
-  return dh;
+bm_cache_dirty_snapshot_t *shard_get_dirty_snapshot(bm_cache_shard_t *shard) {
+  if (!shard)
+    return NULL;
+  uint32_t num_dirty = shard->num_dirty_entries;
+  if (!num_dirty) {
+    return NULL;
+  }
+  bm_cache_entry_t *dirty_cache_entry = shard->dirty_head;
+  if (!dirty_cache_entry) {
+    return NULL;
+  }
+  bm_cache_dirty_snapshot_t *ds = calloc(1, sizeof(bm_cache_dirty_snapshot_t));
+  if (!ds) {
+    return NULL;
+  }
+
+  ds->shard = shard;
+  ds->entry_count = num_dirty;
+
+  ds->dirty_copies = calloc(1, sizeof(bm_cache_dirty_copy_t) * num_dirty);
+  if (!ds->dirty_copies) {
+    free(ds);
+    return NULL;
+  }
+
+  uint32_t i = 0;
+  while (dirty_cache_entry) {
+    bm_cache_dirty_copy_t *copy = &ds->dirty_copies[i];
+    bitmap_t *bm = atomic_load(&dirty_cache_entry->bitmap);
+    if (!bm) {
+      shard_free_dirty_snapshot(ds);
+      return NULL;
+    }
+    copy->bitmap = bitmap_copy(bm);
+    if (!copy->bitmap) {
+      shard_free_dirty_snapshot(ds);
+      return NULL;
+    }
+    copy->flush_version_ptr = &dirty_cache_entry->flush_version;
+    copy->container_name = strdup(dirty_cache_entry->container_name);
+    copy->db_type = dirty_cache_entry->db_type;
+    copy->db_key.type = dirty_cache_entry->db_key.type;
+    if (dirty_cache_entry->db_key.type == DB_KEY_STRING) {
+      copy->db_key.key.s = strdup(dirty_cache_entry->db_key.key.s);
+    } else {
+      copy->db_key.key.i = dirty_cache_entry->db_key.key.i;
+    }
+    dirty_cache_entry = dirty_cache_entry->dirty_next;
+    ++i;
+  }
+  return ds;
 }
 
-void shard_put_back_dirty_list(bm_cache_shard_t *shard,
-                               bm_cache_entry_t *dirty_head,
-                               uint32_t num_dirty) {
-  if (!shard || !dirty_head || !num_dirty)
+void shard_clear_dirty_list(bm_cache_shard_t *shard) {
+  shard->dirty_head = shard->dirty_tail = NULL;
+  shard->num_dirty_entries = 0;
+}
+
+void shard_free_dirty_snapshot(bm_cache_dirty_snapshot_t *snapshot) {
+  if (!snapshot)
     return;
-  shard->num_dirty_entries = num_dirty;
-  shard->dirty_head = dirty_head;
-  if (num_dirty == 1) {
-    shard->dirty_tail = dirty_head;
-    return;
+
+  for (uint32_t i = 0; i < snapshot->entry_count; i++) {
+    bm_cache_dirty_copy_t *copy = &snapshot->dirty_copies[i];
+    bitmap_free(copy->bitmap);
+    free(copy->flush_version_ptr);
+    free(copy->container_name);
+    if (copy->db_key.type == DB_KEY_STRING) {
+      free((char *)copy->db_key.key.s);
+    }
   }
-  bm_cache_entry_t *dirty_entry = dirty_head;
-  while (dirty_entry->dirty_next) {
-    dirty_entry = dirty_entry->dirty_next;
-  }
-  shard->dirty_tail = dirty_entry;
+  free(snapshot);
 }
 
 // =============================================================================
@@ -187,7 +238,7 @@ static void _evict_lru(bm_cache_shard_t *shard) {
   bitmap_t *bm = atomic_load(&lru_tail->bitmap);
   uint64_t flush_v = atomic_load(&lru_tail->flush_version);
   if (bm->version != flush_v) {
-    // dirty!
+    // dirty! do not evict.
     return;
   }
   if (!_rem_from_cache_table(shard, lru_tail)) {
@@ -196,6 +247,7 @@ static void _evict_lru(bm_cache_shard_t *shard) {
   _lru_remove_entry(shard, lru_tail);
 
   // Do not free bitmap on purpose - will be free'd later using EBR
+  bm_cache_ebr_retire(&lru_tail->bitmap->epoch_entry);
   bm_cache_free_entry(lru_tail);
 
   shard->n_entries--;

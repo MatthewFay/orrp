@@ -6,6 +6,7 @@
 #include "ck_ht.h"
 #include "ck_ring.h"
 #include "uv.h" // IWYU pragma: keep
+#include <stdatomic.h>
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -26,10 +27,18 @@ typedef struct bm_cache_shard_s {
   uint32_t num_dirty_entries;
 } bm_cache_shard_t;
 
-// Dirty list snapshot for flushing
+typedef struct bm_cache_dirty_copy_s {
+  bitmap_t *bitmap;
+  _Atomic(uint64_t) *flush_version_ptr;
+  char *container_name;
+  eng_user_dc_db_type_t db_type;
+  db_key_t db_key;
+} bm_cache_dirty_copy_t;
+
+// Dirty list snapshot for flushing - copied data for safety purposes
 typedef struct bm_cache_dirty_snapshot_s {
   bm_cache_shard_t *shard;
-  bm_cache_entry_t *dirty_entries; // Linked list
+  bm_cache_dirty_copy_t *dirty_copies;
   uint32_t entry_count;
 } bm_cache_dirty_snapshot_t;
 
@@ -48,10 +57,10 @@ bool shard_add_entry(bm_cache_shard_t *shard, const char *cache_key,
 void shard_lru_move_to_front(bm_cache_shard_t *shard, bm_cache_entry_t *entry,
                              bool dirty);
 
-bm_cache_entry_t *shard_Swap_dirty(bm_cache_shard_t *shard);
-// Used on error
-void shard_put_back_dirty_list(bm_cache_shard_t *shard,
-                               bm_cache_entry_t *dirty_head,
-                               uint32_t num_dirty);
+bm_cache_dirty_snapshot_t *shard_get_dirty_snapshot(bm_cache_shard_t *shard);
+
+void shard_clear_dirty_list(bm_cache_shard_t *shard);
+
+void shard_free_dirty_snapshot(bm_cache_dirty_snapshot_t *snapshot);
 
 #endif

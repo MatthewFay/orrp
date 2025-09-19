@@ -15,9 +15,6 @@
 typedef struct eng_writer_config_s {
   // Engine writer config
   uint32_t flush_interval_ms;
-
-  // Epoch reclamation config
-  uint32_t reclaim_every; // Run reclamation after every N flush cycles
 } eng_writer_config_t;
 
 typedef struct eng_writer_s {
@@ -29,8 +26,6 @@ typedef struct eng_writer_s {
 
   // Stats
   uint64_t entries_written;
-  uint64_t reclaim_cycles;
-  uint64_t objects_reclaimed;
 
   ck_ring_t ring;
   ck_ring_buffer_t ring_buffer[FLUSH_QUEUE_CAPACITY];

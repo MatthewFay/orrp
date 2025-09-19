@@ -17,6 +17,7 @@
 #include <stdlib.h>
 
 #define MAX_BATCH_SIZE_PER_SHARD 128
+#define RECLAIM_BATCH_SIZE 100
 
 typedef struct queue_msg_batch_entry_s {
   bm_cache_queue_msg_t *msg;
@@ -29,6 +30,7 @@ typedef struct queue_msg_batch_key_s {
   queue_msg_batch_entry_t *head;
   queue_msg_batch_entry_t *tail;
 
+  // Can have same container on multiple shards
   bm_cache_shard_t *shard;
 } queue_msg_batch_key_t;
 
@@ -119,8 +121,7 @@ static bool _process_cache_msgs(eng_container_t *dc,
       // store the copied bitmap in cache entry
       atomic_store(&cache_entry->bitmap, bm);
       if (was_cached) {
-        ck_epoch_call(bitmap_cache_thread_epoch_record, &old_bm->epoch_entry,
-                      bm_cache_dispose);
+        bm_cache_ebr_retire(&old_bm->epoch_entry);
       }
     } else {
       // destroy the copy, not needed
@@ -296,34 +297,20 @@ static void _check_flush(const bm_cache_consumer_config_t *config) {
   for (uint32_t i = 0; i < config->shard_count; i++) {
     uint32_t shard_idx = config->shard_start + i;
     bm_cache_shard_t *shard = &config->shards[shard_idx];
-    uint32_t num_dirty = shard->num_dirty_entries;
-    if (!num_dirty) {
+    bm_cache_dirty_snapshot_t *snap = shard_get_dirty_snapshot(shard);
+    if (!snap)
       continue;
+    if (!eng_writer_queue_up_bm_dirty_snapshot(config->writer, snap)) {
+      shard_free_dirty_snapshot(snap);
     }
-    bm_cache_dirty_snapshot_t *ds =
-        calloc(1, sizeof(bm_cache_dirty_snapshot_t));
-    if (!ds) {
-      // log
-      continue;
-    }
-    bm_cache_entry_t *dirty_head = shard_Swap_dirty(shard);
-    if (!dirty_head) {
-      free(ds);
-      // should not happen
-      continue;
-    }
-    ds->shard = shard;
-    ds->dirty_entries = dirty_head;
-    ds->entry_count = num_dirty;
-    if (!eng_writer_queue_up_bm_dirty_snapshot(config->writer, ds)) {
-      free(ds);
-      shard_put_back_dirty_list(shard, dirty_head, num_dirty);
-    }
+    shard_clear_dirty_list(shard);
   }
 }
 
 // TODO: store queue msgs unable to process (DLQ)
 static void _consumer_thread_func(void *arg) {
+  bm_cache_ebr_reg();
+
   bm_cache_consumer_t *consumer = (bm_cache_consumer_t *)arg;
   const bm_cache_consumer_config_t *config = &consumer->config;
   queue_msg_batch_t *batch_hash = NULL;
@@ -351,6 +338,9 @@ static void _consumer_thread_func(void *arg) {
     if (cycle == config->flush_every_n) {
       cycle = 0;
       _check_flush(config);
+      if (bitmap_cache_thread_epoch_record->n_pending >= RECLAIM_BATCH_SIZE) {
+        bm_cache_reclamation();
+      }
     }
   }
 }

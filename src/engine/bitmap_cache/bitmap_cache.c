@@ -1,12 +1,12 @@
 #include "bitmap_cache.h"
 #include "cache_ebr.h"
+#include "cache_queue_consumer.h"
 #include "cache_queue_msg.h"
 #include "cache_shard.h"
 #include "ck_epoch.h"
 #include "ck_pr.h"
 #include "core/db.h"
 #include "core/hash.h"
-#include "cache_queue_consumer.h"
 #include "engine/engine_writer/engine_writer.h"
 #include <stdatomic.h>
 #include <stddef.h>
@@ -138,10 +138,7 @@ bitmap_cache_handle_t *bitmap_cache_query_begin(void) {
   bitmap_cache_handle_t *h = malloc(sizeof(bitmap_cache_handle_t));
   if (!h)
     return NULL;
-  if (bitmap_cache_thread_epoch_record == NULL) {
-    ck_epoch_register(&bitmap_cache_g_epoch, bitmap_cache_thread_epoch_record,
-                      NULL);
-  }
+  bm_cache_ebr_reg();
   ck_epoch_begin(bitmap_cache_thread_epoch_record, &h->epoch_section);
   return h;
 }

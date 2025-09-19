@@ -162,8 +162,7 @@ eng_context_t *eng_init(void) {
   id_manager_init(ctx);
   entity_resolver_init(ctx, ENTITY_RESOLVER_CACHE_CAPACITY);
 
-  eng_writer_config_t writer_config = {.flush_interval_ms = 100,
-                                       .reclaim_every = 10};
+  eng_writer_config_t writer_config = {.flush_interval_ms = 100};
 
   eng_writer_start(&g_eng_writer, &writer_config);
 
