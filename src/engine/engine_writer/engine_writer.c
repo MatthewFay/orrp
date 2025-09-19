@@ -1,195 +1,179 @@
 #include "engine_writer.h"
 #include "core/bitmaps.h"
 #include "core/db.h"
-#include "engine/bitmap_cache/cache_entry.h"
+#include "engine/bitmap_cache/cache_shard.h"
 #include "engine/container.h"
 #include "engine/dc_cache.h"
 #include "flush_msg.h"
 #include "lmdb.h"
 #include "uthash.h"
 #include "uv.h"
+#include <stdatomic.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdlib.h>
 
 #define MAX_ENQUEUE_ATTEMPTS 3
 #define MAX_DEQUEUE_MSG_COUNT 32
 
+typedef struct write_batch_entry_s {
+  bm_cache_dirty_copy_t *copy;
+  struct write_batch_entry_s *next;
+} write_batch_entry_t;
+
 typedef struct write_batch_s {
   UT_hash_handle hh;
   char *container_name;
-  bm_cache_entry_t *head;
-  bm_cache_entry_t *tail;
+  write_batch_entry_t *head;
+  write_batch_entry_t *tail;
 } write_batch_t;
 
-// static void _free_batch_hash(write_batch_t *batch_hash) {
-//   if (!batch_hash)
-//     return;
-//   write_batch_t *n, *tmp;
-//   HASH_ITER(hh, batch_hash, n, tmp) {
-//     write_batch_entry_t *entry = n->head;
-//     while (entry) {
-//       write_batch_entry_t *next_entry = entry->next;
-//       free(entry);
-//       entry = next_entry;
-//     }
-//     HASH_DEL(batch_hash, n);
-//     free(n->container_name);
-//     free(n);
-//   }
-// }
+// Free batch hash structure (not inner data)
+static void _free_batch_hash(write_batch_t *batch_hash) {
+  if (!batch_hash)
+    return;
+  write_batch_t *b, *tmp;
+  HASH_ITER(hh, batch_hash, b, tmp) {
+    write_batch_entry_t *b_entry = b->head;
+    while (b_entry) {
+      write_batch_entry_t *next = b_entry->next;
+      free(b_entry);
+      b_entry = next;
+    }
+    HASH_DEL(batch_hash, b);
+    free(b);
+  }
+}
 
-// static write_batch_t *_create_batch(char *container_name) {
-//   write_batch_t *batch = calloc(1, sizeof(write_batch_t));
-//   if (!batch) {
-//     return NULL;
-//   }
-//   batch->container_name = strdup(container_name);
-//   return batch;
-// }
+static write_batch_t *_create_batch(char *container_name) {
+  write_batch_t *batch = calloc(1, sizeof(write_batch_t));
+  if (!batch) {
+    return NULL;
+  }
+  batch->container_name = container_name;
+  return batch;
+}
 
-// static bool _add_dirty_node_to_batch(write_batch_t *batch,
-//                                      eng_cache_node_t *dirty_node) {
-//   write_batch_entry_t *entry = calloc(1, sizeof(write_batch_entry_t));
-//   if (!entry) {
-//     return false;
-//   }
-//   entry->dirty_node = dirty_node;
-//   if (!batch->head) {
-//     batch->head = entry;
-//     batch->tail = entry;
-//     return true;
-//   }
-//   batch->tail->next = entry;
-//   batch->tail = entry;
-//   return true;
-// }
+static bool _add_dirty_copy_to_batch(write_batch_t *batch,
+                                     bm_cache_dirty_copy_t *copy) {
+  write_batch_entry_t *entry = calloc(1, sizeof(write_batch_entry_t));
+  if (!entry) {
+    return false;
+  }
+  entry->copy = copy;
+  if (!batch->head) {
+    batch->head = entry;
+    batch->tail = entry;
+    return true;
+  }
+  batch->tail->next = entry;
+  batch->tail = entry;
+  return true;
+}
 
-// static write_batch_t *
-// _group_dirty_nodes_by_container(eng_cache_node_t *dirty_list_head) {
-//   write_batch_t *batch_hash = NULL;
-//   write_batch_t *batch = NULL;
-//   eng_cache_node_t *dirty_node = dirty_list_head;
+static bool _group_dirty_copies_by_container(write_batch_t **b_hash,
+                                             bm_cache_dirty_snapshot_t *snap) {
+  write_batch_t *batch_hash = *b_hash;
+  write_batch_t *batch = NULL;
 
-//   while (dirty_node) {
-//     HASH_FIND_STR(batch_hash, dirty_node->container_name, batch);
-//     if (batch) {
-//       if (!_add_dirty_node_to_batch(batch, dirty_node)) {
-//         _free_batch_hash(batch_hash);
-//         return NULL;
-//       }
-//       dirty_node = dirty_node->dirty_next;
-//       continue;
-//     }
+  for (uint32_t i = 0; i < snap->entry_count; ++i) {
+    bm_cache_dirty_copy_t *copy = &snap->dirty_copies[i];
+    HASH_FIND_STR(batch_hash, copy->container_name, batch);
+    if (batch) {
+      if (!_add_dirty_copy_to_batch(batch, copy)) {
+        _free_batch_hash(batch_hash);
+        return false;
+      }
+      continue;
+    }
 
-//     batch = _create_batch(dirty_node->container_name);
-//     if (!batch) {
-//       _free_batch_hash(batch_hash);
-//       return NULL;
-//     }
+    batch = _create_batch(copy->container_name);
+    if (!batch) {
+      _free_batch_hash(batch_hash);
+      return false;
+    }
 
-//     if (!_add_dirty_node_to_batch(batch, dirty_node)) {
-//       _free_batch_hash(batch_hash);
-//       return NULL;
-//     }
-//     dirty_node = dirty_node->dirty_next;
-//   }
+    if (!_add_dirty_copy_to_batch(batch, copy)) {
+      _free_batch_hash(batch_hash);
+      return false;
+    }
+  }
+  return true;
+}
 
-//   return batch_hash;
-// }
+static bool _get_val(bm_cache_dirty_copy_t *copy, void **val_out,
+                     size_t *val_size_out) {
+  *val_out = bitmap_serialize(copy->bitmap, val_size_out);
+  if (!*val_out) {
+    return false;
+  }
+  return true;
+}
 
-// static bool _get_val(eng_cache_node_t *node, void **val_out,
-//                      size_t *val_size_out) {
-//   switch (node->type) {
-//   case CACHE_TYPE_BITMAP:
-//     *val_out = bitmap_serialize(node->data_object, val_size_out);
-//     if (!*val_out) {
-//       return false;
-//     }
-//     break;
-//   case CACHE_TYPE_UINT32:
-//     *val_out = node->data_object;
-//     *val_size_out = sizeof(uint32_t);
-//     break;
-//   case CACHE_TYPE_STRING:
-//     *val_out = node->data_object;
-//     *val_size_out = strlen(node->data_object);
-//     break;
-//   }
+static bool _write_to_db(eng_container_t *c, MDB_txn *txn,
+                         bm_cache_dirty_copy_t *copy) {
+  MDB_dbi target_db;
+  size_t val_size;
+  void *val;
+  if (!eng_container_get_user_db(c, copy->db_type, &target_db)) {
+    return false;
+  }
+  if (!_get_val(copy, &val, &val_size)) {
+    return false;
+  }
+  if (!db_put(target_db, txn, &copy->db_key, val, val_size, false)) {
+    return false;
+  }
+  return true;
+}
 
-//   return true;
-// }
+static void _bump_flush_version(write_batch_t *container_batch) {
+  write_batch_entry_t *entry = container_batch->head;
+  while (entry) {
+    uint32_t v = entry->copy->bitmap->version;
+    atomic_store(entry->copy->flush_version_ptr, v);
+    entry = entry->next;
+  }
+}
 
-// // Flush dirty data to disk
-// static bool _write_cached_node_to_db(eng_container_t *c, MDB_txn *txn,
-//                                      eng_cache_node_t *node) {
-//   MDB_dbi target_db;
-//   size_t val_size;
-//   void *val;
-//   if (!eng_container_get_user_db(c, node->db_type, &target_db)) {
-//     return false;
-//   }
-//   if (!_get_val(node, &val, &val_size)) {
-//     return false;
-//   }
-//   if (!db_put(target_db, txn, &node->db_key, val, val_size, false)) {
-//     return false;
-//   }
-//   return true;
-// }
+static void _flush_dirty_snapshots_to_db(write_batch_t *hash) {
+  if (!hash)
+    return;
 
-// // This function processes a list of dirty nodes, flushing them to DB.
-// static void _flush_dirty_list_to_db(eng_cache_node_t *dirty_list_head) {
-//   if (!dirty_list_head)
-//     return;
-//   write_batch_t *hash = _group_dirty_nodes_by_container(dirty_list_head);
-//   if (!hash)
-//     return;
+  write_batch_t *batch, *tmp;
+  HASH_ITER(hh, hash, batch, tmp) {
+    eng_container_t *c = eng_dc_cache_get(batch->container_name);
+    if (!c) {
+      // TODO: handle error case - retry next cycle?
+      continue;
+    }
+    MDB_txn *txn = db_create_txn(c->env, false);
+    if (!txn) {
+      // TODO: handle error case - retry next cycle?
+      eng_dc_cache_release_container(c);
+      continue;
+    }
+    write_batch_entry_t *entry = batch->head;
+    bool all_successful = true;
+    while (entry) {
+      if (!_write_to_db(c, txn, entry->copy)) {
+        all_successful = false;
+        break; // Stop processing this batch on first error
+      }
+      entry = entry->next;
+    }
+    if (all_successful && db_commit_txn(txn)) {
+      _bump_flush_version(batch);
+    } else {
+      db_abort_txn(txn); // Roll back all changes for this batch
+    }
+    eng_dc_cache_release_container(c);
+  }
+}
 
-//   write_batch_t *batch, *tmp;
-//   HASH_ITER(hh, hash, batch, tmp) {
-//     eng_container_t *c = eng_dc_cache_get(batch->container_name);
-//     if (!c) {
-//       // TODO: handle error case - retry next cycle?
-//       continue;
-//     }
-//     MDB_txn *txn = db_create_txn(c->env, false);
-//     if (!txn) {
-//       // TODO: handle error case - retry next cycle?
-//       eng_dc_cache_release_container(c);
-//       continue;
-//     }
-//     write_batch_entry_t *entry = batch->head;
-//     bool all_successful = true;
-//     while (entry) {
-//       if (!_write_cached_node_to_db(c, txn, entry->dirty_node)) {
-//         all_successful = false;
-//         break; // Stop processing this batch on first error
-//       }
-//       entry = entry->next;
-//     }
-//     if (all_successful) {
-//       db_commit_txn(txn);
-//       // NOW perform cleanup on all nodes in the batch (set is_dirty=false,
-//       // etc.)
-//     } else {
-//       db_abort_txn(txn); // Roll back all changes for this batch
-//     }
-//     eng_dc_cache_release_container(c);
-//   }
-// }
-
-// // 2. For each container in your grouped list:
-// //    a. Start a single LMDB write transaction for that container.
-// //    b. Iterate through all the dirty nodes for that container.
-// //    c. Serialize the data_object (e.g., bitmap) and db_put() it.
-// //    d. Commit the transaction.
-// //    e. If the commit was successful:
-// //       - For each node just written, set node->is_dirty = false.
-// //       - If a node was marked for eviction, now is the time to
-// //       _free_node(node). - How to tell if a node is marked for eviction??
-// //       Ref count = 0 ? ? new flag ??
-// //    f. If the commit failed, the nodes remain dirty and will be picked up
-// //       in the next writer cycle.
+static bool _deque(eng_writer_t *w, flush_msg_t **msg_out) {
+  return ck_ring_dequeue_mpsc(&w->ring, w->ring_buffer, msg_out);
+}
 
 static void _eng_writer_thread_func(void *arg) {
   eng_writer_t *writer = (eng_writer_t *)arg;
@@ -197,6 +181,26 @@ static void _eng_writer_thread_func(void *arg) {
 
   while (!writer->should_stop) {
     uv_sleep(config->flush_interval_ms);
+
+    write_batch_t *batch_hash = NULL;
+    flush_msg_t *msg;
+    for (int i = 0; i < MAX_DEQUEUE_MSG_COUNT; i++) {
+      bool dq = _deque(writer, &msg);
+      if (!dq)
+        break;
+      bm_cache_dirty_snapshot_t *snap = msg->data.bm_cache_dirty_snapshot;
+      if (!_group_dirty_copies_by_container(&batch_hash, snap)) {
+        shard_free_dirty_snapshot(snap); // todo: retry, use Queue for DLQ
+        flush_msg_free(msg);
+        break;
+      }
+      flush_msg_free(msg);
+    }
+    if (!batch_hash) {
+      // handle err
+      continue;
+    }
+    _flush_dirty_snapshots_to_db(batch_hash);
   }
 }
 

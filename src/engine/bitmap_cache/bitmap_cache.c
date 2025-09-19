@@ -139,14 +139,14 @@ bitmap_cache_handle_t *bitmap_cache_query_begin(void) {
   if (!h)
     return NULL;
   bm_cache_ebr_reg();
-  ck_epoch_begin(bitmap_cache_thread_epoch_record, &h->epoch_section);
+  ck_epoch_begin(&bitmap_cache_thread_epoch_record, &h->epoch_section);
   return h;
 }
 
 void bitmap_cache_query_end(bitmap_cache_handle_t *handle) {
   if (!handle)
     return;
-  ck_epoch_end(bitmap_cache_thread_epoch_record, &handle->epoch_section);
+  ck_epoch_end(&bitmap_cache_thread_epoch_record, &handle->epoch_section);
   free(handle);
 }
 

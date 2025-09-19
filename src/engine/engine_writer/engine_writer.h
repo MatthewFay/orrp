@@ -3,7 +3,7 @@
 
 /**
  * Engine Writer -
- * Flushes dirty data to disk and performs memory reclamation.
+ * Flushes dirty data to disk
  */
 #include "ck_ring.h"
 #include "engine/bitmap_cache/cache_shard.h"

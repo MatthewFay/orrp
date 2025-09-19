@@ -338,7 +338,7 @@ static void _consumer_thread_func(void *arg) {
     if (cycle == config->flush_every_n) {
       cycle = 0;
       _check_flush(config);
-      if (bitmap_cache_thread_epoch_record->n_pending >= RECLAIM_BATCH_SIZE) {
+      if (bitmap_cache_thread_epoch_record.n_pending >= RECLAIM_BATCH_SIZE) {
         bm_cache_reclamation();
       }
     }
