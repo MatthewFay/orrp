@@ -52,6 +52,7 @@ APP_SRCS = src/main.c \
 			 src/core/conversions.c \
 		   src/core/db.c \
 			 src/core/hash.c \
+			 src/core/lock_striped_ht.c \
 		   src/core/stack.c \
 		   src/core/queue.c \
 		   src/networking/server.c \
@@ -155,6 +156,7 @@ test: bin/test_bitmaps \
 			bin/test_conversions \
 			bin/test_db \
 			bin/test_hash \
+			bin/test_lock_striped_ht \
 			bin/test_queue \
 			bin/test_stack \
 			bin/test_api \
@@ -170,6 +172,8 @@ test: bin/test_bitmaps \
 	./bin/test_db
 	@echo "--- Running hash test ---"
 	./bin/test_hash
+	@echo "--- Running lock_striped_ht test ---"
+	./bin/test_lock_striped_ht
 	@echo "--- Running queue test ---"
 	./bin/test_queue
 	@echo "--- Running stack test ---"
@@ -187,13 +191,14 @@ test: bin/test_bitmaps \
 
 	@echo "--- Running integration test: event api ---"
 	./bin/test_event_api
-	@echo "--- All tests finished ---"
+	@echo "--- All tests finished successfully ---"
 
 # 'test_build' target: builds all test executables
 test_build: bin/test_bitmaps \
 						bin/test_conversions \
 						bin/test_db \
 						bin/test_hash \
+						bin/test_lock_striped_ht \
 						bin/test_queue \
 						bin/test_stack \
 						bin/test_api \
@@ -227,9 +232,15 @@ bin/test_db: 	tests/core/test_db.c \
 # Rule to build the hash test executable
 bin/test_hash: 	tests/core/test_hash.c \
 										src/core/hash.c \
-										$(wildcard lib/lmdb/*.c) \
 										${UNITY_SRC} | $(BIN_DIR)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
+
+# Rule to build the lock_striped_ht test executable
+bin/test_lock_striped_ht: 	tests/core/test_lock_striped_ht.c \
+										src/core/lock_striped_ht.c \
+										src/core/hash.c \
+										${UNITY_SRC} | $(BIN_DIR)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS) $(LIBCK_A)
 
 # Rule to build the queue test executable
 bin/test_queue: tests/core/test_queue.c \
