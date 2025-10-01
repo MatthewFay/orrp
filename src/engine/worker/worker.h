@@ -34,6 +34,8 @@ typedef struct worker_s {
 // Call this before `worker_start` - sets up environment for worker threads
 bool worker_init_global(eng_context_t *eng_ctx);
 
+void worker_cleanup(worker_t *worker);
+
 bool worker_start(worker_t *worker, const worker_config_t *config);
 bool worker_stop(worker_t *worker);
 

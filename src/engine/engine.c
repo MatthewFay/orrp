@@ -420,7 +420,7 @@ static bool _eng_enqueue_cmd(cmd_ctx_t *command) {
     return false;
   unsigned long hash =
       xxhash64(command->entity_tag_value->literal.string_value,
-               sizeof(command->entity_tag_value->literal.string_value),
+               strlen(command->entity_tag_value->literal.string_value),
                CMD_QUEUE_HASH_SEED);
   int queue_idx = hash & CMD_QUEUE_MASK;
   cmd_queue_t *queue = &g_cmd_queues[queue_idx];
