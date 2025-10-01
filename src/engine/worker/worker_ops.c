@@ -10,6 +10,19 @@
 #include <stdlib.h>
 #include <string.h>
 
+void worker_ops_free(worker_ops_t *ops) {
+  if (!ops || !ops->ops) {
+    return;
+  }
+
+  for (uint32_t i = 0; i < ops->num_ops; i++) {
+    op_queue_msg_free(ops->ops[i]);
+  }
+  free(ops->ops);
+  ops->ops = NULL;
+  ops->num_ops = 0;
+}
+
 // Turn custom tag AST node into a string representation
 static bool _custom_tag_into(char *out_buf, size_t size,
                              ast_node_t *custom_tag) {
@@ -63,7 +76,8 @@ static bool _append_op(worker_ops_t *ops, char *key_buffer, op_t *op, int *i) {
     return false;
   }
 
-  ops->ops[(*i)++] = msg;
+  ops->ops[*i] = msg;
+  (*i)++;
   return true;
 }
 
@@ -247,36 +261,56 @@ static bool _create_ops(cmd_queue_msg_t *msg, char *container_name,
                         char *entity_id_str, uint32_t entity_id_int32,
                         bool is_new_entity, uint32_t event_id,
                         worker_ops_t *ops_out) {
+  bool success = false;
+  int ops_created = 0;
+
   uint32_t num_ops = (is_new_entity ? 3 : 0) + 2 +
                      msg->command->num_custom_tags +
                      msg->command->num_counter_tags;
+
   ops_out->ops = malloc(num_ops * sizeof(op_queue_msg_t *));
+  if (!ops_out->ops) {
+    goto cleanup;
+  }
   ops_out->num_ops = num_ops;
 
-  int i = 0;
-
   if (is_new_entity) {
-    if (!_create_incr_entity_id_op(entity_id_int32, ops_out, &i)) {
-      return false;
+    if (!_create_incr_entity_id_op(entity_id_int32, ops_out, &ops_created)) {
+      goto cleanup;
     }
-    if (!_create_ent_mapping_ops(entity_id_str, entity_id_int32, ops_out, &i)) {
-      return false;
+    if (!_create_ent_mapping_ops(entity_id_str, entity_id_int32, ops_out,
+                                 &ops_created)) {
+      goto cleanup;
     }
   }
 
-  if (!_create_incr_event_id_op(event_id, ops_out, &i))
-    return false;
-  if (!_create_event_to_entity_op(event_id, entity_id_int32, ops_out, &i))
-    return false;
+  if (!_create_incr_event_id_op(event_id, ops_out, &ops_created))
+    goto cleanup;
+  if (!_create_event_to_entity_op(event_id, entity_id_int32, ops_out,
+                                  &ops_created))
+    goto cleanup;
   if (!_create_write_to_event_index_ops(container_name, event_id, msg, ops_out,
-                                        &i)) {
-    return false;
+                                        &ops_created)) {
+    goto cleanup;
   }
   if (!_create_tag_counter_ops(container_name, entity_id_int32, msg, ops_out,
-                               &i))
-    return false;
+                               &ops_created))
+    goto cleanup;
 
-  return true;
+  success = true;
+
+cleanup:
+  if (!success) {
+    if (ops_out->ops) {
+      for (int i = 0; i < ops_created; i++) {
+        op_queue_msg_free(ops_out->ops[i]);
+      }
+      free(ops_out->ops);
+      ops_out->ops = NULL;
+      ops_out->num_ops = 0;
+    }
+  }
+  return success;
 }
 
 bool worker_create_ops(cmd_queue_msg_t *msg, char *container_name,
@@ -286,12 +320,10 @@ bool worker_create_ops(cmd_queue_msg_t *msg, char *container_name,
   if (!msg || !container_name || !entity_id_str || !ops_out) {
     return false;
   }
-  memset(ops_out, 0, sizeof(worker_ops_t));
-  bool r = _create_ops(msg, container_name, entity_id_str, entity_id_int32,
-                       is_new_entity, event_id, ops_out);
-  if (r) {
-    return true;
-  }
 
-  return false;
+  memset(ops_out, 0, sizeof(worker_ops_t));
+
+  return _create_ops(msg, container_name, entity_id_str, entity_id_int32,
+                     is_new_entity, event_id, ops_out);
+  // If this returns false, ops_out is already cleaned up internally
 }

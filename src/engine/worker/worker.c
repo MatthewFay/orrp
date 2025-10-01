@@ -1,5 +1,6 @@
 #include "worker.h"
 #include "core/db.h"
+#include "core/hash.h"
 #include "core/lock_striped_ht.h"
 #include "engine/cmd_queue/cmd_queue.h"
 #include "engine/cmd_queue/cmd_queue_msg.h"
@@ -17,7 +18,6 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#include "core/hash.h"
 
 // spin count before sleeping
 #define WORKER_SPIN_LIMIT 100
@@ -166,18 +166,14 @@ bool worker_init_global(eng_context_t *eng_ctx) {
 static bool _queue_up_ops(worker_t *worker, worker_ops_t *ops) {
   for (uint32_t i = 0; i < ops->num_ops; i++) {
     op_queue_msg_t *msg = ops->ops[i];
-    unsigned long hash =
-        xxhash64(msg->routing_key,
-                 sizeof(msg->routing_key),
-                 OP_QUEUE_HASH_SEED);
+    unsigned long hash = xxhash64(msg->routing_key, sizeof(msg->routing_key),
+                                  OP_QUEUE_HASH_SEED);
     int queue_idx = hash & (worker->config.op_queue_total_count - 1);
     op_queue_t *queue = &worker->config.op_queues[queue_idx];
     if (!queue) {
-      op_queue_msg_free(msg);
       return false;
     }
     if (!op_queue_enqueue(queue, msg)) {
-      op_queue_msg_free(msg);
       return false;
     }
   }
@@ -208,6 +204,8 @@ static void _process_msg(worker_t *worker, cmd_queue_msg_t *msg,
   }
 
   _queue_up_ops(worker, &ops);
+
+  worker_ops_free(&ops);
 }
 
 // Returns num messages processed
