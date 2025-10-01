@@ -149,17 +149,16 @@ static api_response_t *_create_api_resp(enum api_op_type op_type) {
   return r;
 }
 
-static api_response_t *_api_event(ast_node_t *ast, eng_context_t *ctx,
-                                  api_response_t *r) {
+static api_response_t *_api_event(ast_node_t *ast, api_response_t *r) {
   r->op_type = API_EVENT;
 
-  eng_event(r, ctx, ast);
+  eng_event(r, ast);
   return r;
 }
 
 // The single entry point into the API/Engine layer.
 // Validates the AST before passing it into the core engine for execution.
-api_response_t *api_exec(ast_node_t *ast, eng_context_t *ctx) {
+api_response_t *api_exec(ast_node_t *ast) {
   api_response_t *r = _create_api_resp(API_INVALID);
 
   custom_key *c_keys = NULL;
@@ -179,7 +178,7 @@ api_response_t *api_exec(ast_node_t *ast, eng_context_t *ctx) {
   // Dispatch based on the command type in the AST root.
   switch (ast->type) {
   case CMD_EVENT:
-    _api_event(ast, ctx, r);
+    _api_event(ast, r);
     break;
 
   case CMD_QUERY:;

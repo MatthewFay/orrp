@@ -1,6 +1,6 @@
-#include "cache_queue_consumer.h"
 #include "cache_ebr.h"
 #include "cache_entry.h"
+#include "cache_queue_consumer.h"
 #include "cache_queue_msg.h"
 #include "cache_shard.h"
 #include "core/bitmaps.h"
@@ -11,6 +11,7 @@
 #include "lmdb.h"
 #include "uthash.h"
 #include "uv.h"
+#include "uv/unix.h"
 #include <stdatomic.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -332,6 +333,7 @@ static void _consumer_thread_func(void *arg) {
       batch_hash = NULL;
     } else {
       // If no work, yield briefly to avoid spinning
+      // TODO: change to spin + backoff
       uv_sleep(1);
     }
 

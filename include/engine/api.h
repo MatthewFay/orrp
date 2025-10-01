@@ -3,7 +3,7 @@
 
 // --- Public Engine API --- //
 
-#include "engine/context.h"
+#include "engine/context/context.h"
 #include "query/ast.h"
 #include <stdbool.h>
 
@@ -22,6 +22,7 @@ eng_context_t *api_start_eng(void);
 void api_stop_eng(eng_context_t *ctx);
 
 // The single entry point into the API/Engine layer for executing commands.
-api_response_t *api_exec(ast_node_t *ast, eng_context_t *ctx);
+// Takes ownership of ast - caller must not free
+api_response_t *api_exec(ast_node_t *ast);
 
 #endif // API_H

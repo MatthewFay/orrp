@@ -341,9 +341,8 @@ static void writer_thread_main(void *arg) {
     if (!task)
       continue;
 
-    // Execute the write request (e.g., LMDB transaction)
-    api_response_t *r =
-        api_exec(task->parsed->ast, task->ctx->client->handle.loop->data);
+    // Execute the write request
+    api_response_t *r = api_exec(task->parsed->ast);
     parse_free_result(task->parsed);
 
     // Create completion item and enqueue it.

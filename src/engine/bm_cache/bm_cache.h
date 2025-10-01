@@ -1,9 +1,9 @@
 #ifndef BITMAP_CACHE_H
 #define BITMAP_CACHE_H
 
-#include "cache_key.h"
 #include "core/bitmaps.h"
-#include "engine/engine_writer/engine_writer.h"
+#include "engine/container/container.h"
+// #include "engine/engine_writer/engine_writer.h"
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -12,7 +12,7 @@ typedef struct bitmap_cache_handle_s bitmap_cache_handle_t;
 bool bitmap_cache_init(eng_writer_t *writer);
 bool bitmap_cache_shutdown(void);
 
-bool bitmap_cache_ingest(const bitmap_cache_key_t *key, uint32_t value,
+bool bitmap_cache_ingest(const eng_container_db_key_t *key, uint32_t value,
                          const char *idempotency_key);
 
 /**
@@ -35,7 +35,7 @@ bitmap_cache_handle_t *bitmap_cache_query_begin(void);
  * @return A CONST pointer to the bitmap, or NULL if not found.
  */
 const bitmap_t *bitmap_cache_get_bitmap(bitmap_cache_handle_t *handle,
-                                        const bitmap_cache_key_t *key);
+                                        const eng_container_db_key_t *key);
 
 /**
  * @brief Ends a query session.

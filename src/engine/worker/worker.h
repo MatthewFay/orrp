@@ -1,0 +1,40 @@
+#ifndef WORKER_H
+#define WORKER_H
+
+#include "engine/cmd_queue/cmd_queue.h"
+#include "engine/context/context.h"
+#include "engine/op_queue/op_queue.h"
+#include "uthash.h"
+#include "uv.h" // IWYU pragma: keep
+#include <stdint.h>
+
+typedef struct worker_entity_mapping_s {
+  UT_hash_handle hh;
+  char *ent_str_id;
+  uint32_t ent_int_id;
+} worker_entity_mapping_t;
+
+typedef struct worker_config_s {
+  eng_context_t *eng_ctx;
+  cmd_queue_t *cmd_queues;
+  uint32_t cmd_queue_consume_start; // Starting cmd queue index to consume
+  uint32_t cmd_queue_consume_count; // Number of cmd queues to consume from
+  op_queue_t *op_queues;
+  uint32_t op_queue_total_count; // Total count of op queues
+} worker_config_t;
+
+typedef struct worker_s {
+  worker_config_t config;
+  uv_thread_t thread;
+  worker_entity_mapping_t *entity_mappings;
+  volatile bool should_stop;
+  uint64_t messages_processed; // Stats
+} worker_t;
+
+// Call this before `worker_start` - sets up environment for worker threads
+bool worker_init_global(eng_context_t *eng_ctx);
+
+bool worker_start(worker_t *worker, const worker_config_t *config);
+bool worker_stop(worker_t *worker);
+
+#endif

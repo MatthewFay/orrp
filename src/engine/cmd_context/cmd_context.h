@@ -1,4 +1,8 @@
+#ifndef CMD_CONTEXT_H
+#define CMD_CONTEXT_H
+
 #include "query/ast.h"
+#include <stdint.h>
 
 // --- Command Context --- //
 
@@ -13,7 +17,12 @@ typedef struct {
 
   // --- A Single List for All Custom Tags ---
   ast_node_t *custom_tags_head;
+  uint32_t num_custom_tags;
 
 } cmd_ctx_t;
 
-void build_cmd_context(ast_command_node_t *cmd, cmd_ctx_t *ctx);
+cmd_ctx_t *build_cmd_context(ast_command_node_t *cmd);
+
+void cmd_context_free(cmd_ctx_t *command);
+
+#endif

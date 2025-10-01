@@ -1,6 +1,8 @@
 #include "dc_cache.h"
 #include "container.h"
 
+// TODO: re-write this for performance
+
 // LRU cache for data containers //
 static eng_dc_cache_t g_container_cache;
 

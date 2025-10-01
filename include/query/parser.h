@@ -21,6 +21,7 @@ typedef struct parse_result_s {
 // parse_result_t. Caller must free parse_result_t with parse_free_result().
 parse_result_t *parse(Queue *tokens);
 
+// Does not free AST on purpose - Engine takes ownership
 void parse_free_result(parse_result_t *r);
 
 #endif // PARSER_H

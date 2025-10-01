@@ -1,8 +1,28 @@
 #ifndef CONTAINER_H
 #define CONTAINER_H
 
+#include "core/db.h"
 #include "lmdb.h"
 #include <stdbool.h>
+
+#define NUM_SYS_DBS 3
+#define SYS_DB_ENT_ID_TO_INT_NAME "ent_id_to_int_db"
+#define SYS_DB_INT_TO_ENT_ID_NAME "int_to_ent_id_db"
+#define SYS_DB_METADATA_NAME "sys_dc_metadata_db"
+
+#define SYS_NEXT_ENT_ID_KEY "next_ent_id"
+#define SYS_NEXT_ENT_ID_INIT_VAL 1
+
+#define NUM_USR_DBS 5
+#define USR_DB_INVERTED_EVENT_INDEX_NAME "inverted_event_index_db"
+#define USR_DB_EVENT_TO_ENT_NAME "event_to_entity_db"
+#define USR_DB_COUNTER_STORE_NAME "counter_store_db"
+#define USR_DB_COUNT_INDEX_NAME "count_index_db"
+#define USR_DB_METADATA_NAME "user_dc_metadata_db"
+
+#define USR_NEXT_EVENT_ID_KEY "next_event_id"
+#define USR_NEXT_EVENT_ID_INIT_VAL 1
+
 typedef enum { CONTAINER_TYPE_SYSTEM, CONTAINER_TYPE_USER } eng_dc_type_t;
 
 // System data container
@@ -52,16 +72,6 @@ typedef struct eng_user_dc_s {
   MDB_dbi count_index_db;
 } eng_user_dc_t;
 
-// User data container DB type
-typedef enum {
-  USER_DB_INVERTED_EVENT_INDEX = 0,
-  USER_DB_EVENT_TO_ENTITY,
-  USER_DB_METADATA,
-  USER_DB_COUNTER_STORE,
-  USER_DB_COUNT_INDEX,
-  USER_DB_COUNT
-} eng_user_dc_db_type_t;
-
 typedef struct eng_container_s {
   char *name;
   MDB_env *env;
@@ -74,12 +84,38 @@ typedef struct eng_container_s {
 
 } eng_container_t;
 
+typedef enum {
+  SYS_DB_ENT_ID_TO_INT = 0,
+  SYS_DB_INT_TO_ENT_ID,
+  SYS_DB_METADATA,
+} eng_dc_sys_db_type_t;
+
+typedef enum {
+  USER_DB_INVERTED_EVENT_INDEX = 0,
+  USER_DB_EVENT_TO_ENTITY,
+  USER_DB_METADATA,
+  USER_DB_COUNTER_STORE,
+  USER_DB_COUNT_INDEX,
+  USER_DB_COUNT
+} eng_dc_user_db_type_t;
+
+typedef struct eng_container_db_key_s {
+  eng_dc_type_t dc_type;
+  union {
+    eng_dc_sys_db_type_t sys_db_type;
+    eng_dc_user_db_type_t user_db_type;
+  };
+  char *container_name; // NULL for sys DBs
+  db_key_t db_key;
+} eng_container_db_key_t;
+
 eng_container_t *eng_container_create(eng_dc_type_t type);
 
 void eng_container_close(eng_container_t *c);
 
 // Map DB type to actual DB handle
-bool eng_container_get_user_db(eng_container_t *c, eng_user_dc_db_type_t type,
-                               MDB_dbi *db_out);
+bool eng_container_get_db_handle(eng_container_t *c,
+                                 eng_dc_user_db_type_t db_type,
+                                 MDB_dbi *db_out);
 
 #endif // CONTAINER_H

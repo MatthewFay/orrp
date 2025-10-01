@@ -2,8 +2,10 @@
 #include <stdlib.h>
 #include <string.h>
 
-void build_cmd_context(ast_command_node_t *cmd, cmd_ctx_t *ctx) {
-  memset(ctx, 0, sizeof(cmd_ctx_t));
+cmd_ctx_t *build_cmd_context(ast_command_node_t *cmd) {
+  cmd_ctx_t *ctx = calloc(1, sizeof(cmd_ctx_t));
+  if (!ctx)
+    return NULL;
 
   ast_node_t *custom_tags_tail = NULL;
 
@@ -33,6 +35,8 @@ void build_cmd_context(ast_command_node_t *cmd, cmd_ctx_t *ctx) {
           break;
         }
       } else {
+        // Custom tag
+        ctx->num_custom_tags++;
         if (ctx->custom_tags_head == NULL) {
           ctx->custom_tags_head = tag_node;
           custom_tags_tail = tag_node;
@@ -49,4 +53,6 @@ void build_cmd_context(ast_command_node_t *cmd, cmd_ctx_t *ctx) {
   if (custom_tags_tail != NULL) {
     custom_tags_tail->next = NULL;
   }
+
+  return ctx;
 }

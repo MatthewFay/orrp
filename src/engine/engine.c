@@ -1,14 +1,17 @@
 #include "engine.h"
-#include "bitmap_cache/bitmap_cache.h"
-#include "cmd_context.h"
-#include "container.h"
-#include "context.h"
+#include "bm_cache/bm_cache.h"
+#include "cmd_context/cmd_context.h"
+#include "container/container.h"
+#include "context/context.h"
 #include "core/db.h"
-#include "dc_cache.h"
+#include "core/hash.h"
+#include "dc_cache/dc_cache.h"
 #include "engine/api.h"
+#include "engine/cmd_queue/cmd_queue.h"
+#include "engine/op_queue/op_queue.h"
+#include "engine/worker/worker.h"
 #include "engine_writer/engine_writer.h"
-#include "entity_resolver.h"
-#include "id_manager.h"
+#include "id_mgr/id_mgr.h"
 #include "lmdb.h"
 #include "query/ast.h"
 #include <stdint.h>
@@ -16,18 +19,10 @@
 #include <stdlib.h>
 #include <string.h>
 
-const char *SYS_NEXT_ENT_ID_KEY = "next_ent_id";
-const u_int32_t SYS_NEXT_ENT_ID_INIT_VAL = 1;
-const char *SYS_DB_METADATA_NAME = "sys_dc_metadata_db";
-const char *USR_NEXT_EVENT_ID_KEY = "next_event_id";
-const u_int32_t USR_NEXT_EVENT_ID_INIT_VAL = 1;
-const char *USR_DB_METADATA_NAME = "user_dc_metadata_db";
-
 #define CONTAINER_FOLDER "data"
 #define MAX_PATH_LENGTH 128
 #define SYS_CONTAINER_NAME "system"
 const size_t CONTAINER_SIZE = 1048576;
-const int ENTITY_RESOLVER_CACHE_CAPACITY = 262144;
 #define CONTAINER_CACHE_CAPACITY 64
 
 const char *ENG_TXN_ERR = "Transaction error";
@@ -36,16 +31,19 @@ const char *ENG_COUNTER_ERR = "Counter error";
 const char *ENG_BITMAP_ERR = "Bitmap error";
 const char *ENG_TXN_COMMIT_ERR = "Transaction Commit error";
 
-const int NUM_SYS_DBS = 3;
-const char *SYS_DB_ENT_ID_TO_INT_NAME = "ent_id_to_int_db";
-const char *SYS_DB_INT_TO_ENT_ID_NAME = "int_to_ent_id_db";
+#define NUM_CMD_QUEUEs 16
+#define CMD_QUEUE_MASK (NUM_CMD_QUEUEs - 1)
+#define CMD_QUEUE_HASH_SEED 0
 
-const int NUM_USR_DBS = 5;
-const char *USR_DB_INVERTED_EVENT_INDEX_NAME = "inverted_event_index_db";
-const char *USR_DB_EVENT_TO_ENT_NAME = "event_to_entity_db";
-const char *USR_DB_COUNTER_STORE_NAME = "counter_store_db";
-const char *USR_DB_COUNT_INDEX_NAME = "count_index_db";
+#define NUM_WORKERS 4
+#define CMD_QUEUES_PER_WORKER 4
 
+#define NUM_OP_QUEUES 16
+
+cmd_queue_t g_cmd_queues[NUM_CMD_QUEUEs];
+worker_t g_workers[NUM_WORKERS];
+id_mgr_t g_id_mgrs[NUM_WORKERS];
+op_queue_t g_op_queues[NUM_OP_QUEUES];
 eng_writer_t g_eng_writer;
 
 // Make sure data directory (where we store data containers) exists
@@ -159,14 +157,36 @@ eng_context_t *eng_init(void) {
   ctx->sys_c = sys_c;
 
   eng_dc_cache_init(CONTAINER_CACHE_CAPACITY, _get_or_create_user_dc);
-  id_manager_init(ctx);
-  entity_resolver_init(ctx, ENTITY_RESOLVER_CACHE_CAPACITY);
 
   eng_writer_config_t writer_config = {.flush_interval_ms = 100};
-
   eng_writer_start(&g_eng_writer, &writer_config);
 
   bitmap_cache_init(&g_eng_writer);
+
+  for (int i = 0; i < NUM_CMD_QUEUEs; i++) {
+    if (!cmd_queue_init(&g_cmd_queues[i])) {
+      return false;
+    }
+  }
+
+  for (int i = 0; i < NUM_OP_QUEUES; i++) {
+    if (!op_queue_init(&g_op_queues[i])) {
+      return false;
+    }
+  }
+
+  for (int i = 0; i < NUM_WORKERS; i++) {
+    id_mgr_init(&g_id_mgrs[i], ctx);
+    worker_config_t worker_config = {
+        .eng_ctx = ctx,
+        .cmd_queues = g_cmd_queues,
+        .cmd_queue_consume_start = i * CMD_QUEUES_PER_WORKER,
+        .cmd_queue_consume_count = CMD_QUEUES_PER_WORKER,
+        .op_queues = g_op_queues,
+        .op_queue_total_count = NUM_OP_QUEUES,
+        .id_mgr = &g_id_mgrs[i]};
+    worker_start(&g_workers[i], &worker_config);
+  }
 
   return ctx;
 }
@@ -176,8 +196,10 @@ void eng_shutdown(eng_context_t *ctx) {
   eng_close_ctx(ctx);
   eng_dc_cache_destroy();
   bitmap_cache_shutdown();
-  id_manager_destroy();
-  entity_resolver_destroy();
+  id_mgr_destroy();
+  for (int i = 0; i < NUM_CMD_QUEUEs; i++) {
+    cmd_queue_destroy(&g_cmd_queues[i]);
+  }
   eng_writer_stop(&g_eng_writer);
 }
 
@@ -252,59 +274,61 @@ static bool _custom_tag_into(char *out_buf, size_t size,
   return true;
 }
 
-static bool _write_to_event_index(eng_container_t *dc, cmd_ctx_t *cmd_ctx,
-                                  u_int32_t event_id) {
-  bitmap_cache_key_t bm_c_key;
-  bm_c_key.container_name = dc->name;
-  bm_c_key.db_type = USER_DB_INVERTED_EVENT_INDEX;
+// static bool _write_to_event_index(eng_container_t *dc, cmd_ctx_t *cmd_ctx,
+//                                   u_int32_t event_id) {
+//   bitmap_cache_key_t bm_c_key;
+//   bm_c_key.container_name = dc->name;
+//   bm_c_key.db_type = USER_DB_INVERTED_EVENT_INDEX;
 
-  db_key_t key;
-  key.type = DB_KEY_STRING;
-  char key_buffer[512];
-  ast_node_t *custom_tag = cmd_ctx->custom_tags_head;
+//   db_key_t key;
+//   key.type = DB_KEY_STRING;
+//   char key_buffer[512];
+//   ast_node_t *custom_tag = cmd_ctx->custom_tags_head;
 
-  while (custom_tag) {
-    if (!_custom_tag_into(key_buffer, sizeof(key_buffer), custom_tag)) {
-      return false;
-    }
-    key.key.s = key_buffer;
-    bm_c_key.db_key = key;
+//   while (custom_tag) {
+//     if (!_custom_tag_into(key_buffer, sizeof(key_buffer), custom_tag)) {
+//       return false;
+//     }
+//     key.key.s = key_buffer;
+//     bm_c_key.db_key = key;
 
-    if (!bitmap_cache_ingest(&bm_c_key, event_id, NULL)) {
-      return false;
-    }
+//     if (!bitmap_cache_ingest(&bm_c_key, event_id, NULL)) {
+//       return false;
+//     }
 
-    // eng_cache_node_t *cn = eng_cache_get_or_create(
-    //     dc, USER_DB_INVERTED_EVENT_INDEX, key, CACHE_LOCK_WRITE);
-    // if (cn == NULL) {
-    //   return false;
-    // }
+//     // eng_cache_node_t *cn = eng_cache_get_or_create(
+//     //     dc, USER_DB_INVERTED_EVENT_INDEX, key, CACHE_LOCK_WRITE);
+//     // if (cn == NULL) {
+//     //   return false;
+//     // }
 
-    // if (cn->data_object == NULL) {
-    //   if (!db_get(dc->data.usr->inverted_event_index_db, txn, &key, &get_r))
-    //   {
-    //     return false;
-    //   }
-    //   if (get_r.status == DB_GET_OK) {
-    //     cn->data_object = bitmap_deserialize(get_r.value, get_r.value_len);
-    //   } else {
-    //     cn->data_object = bitmap_create();
-    //   }
-    //   free(get_r.value);
-    //   if (!cn->data_object) {
-    //     return false;
-    //   }
-    //   cn->type = CACHE_TYPE_BITMAP;
-    // }
-    // bitmap_t *bm = cn->data_object;
-    // bitmap_add(bm, event_id);
+//     // if (cn->data_object == NULL) {
+//     //   if (!db_get(dc->data.usr->inverted_event_index_db, txn, &key,
+//     &get_r))
+//     //   {
+//     //     return false;
+//     //   }
+//     //   if (get_r.status == DB_GET_OK) {
+//     //     cn->data_object = bitmap_deserialize(get_r.value,
+//     get_r.value_len);
+//     //   } else {
+//     //     cn->data_object = bitmap_create();
+//     //   }
+//     //   free(get_r.value);
+//     //   if (!cn->data_object) {
+//     //     return false;
+//     //   }
+//     //   cn->type = CACHE_TYPE_BITMAP;
+//     // }
+//     // bitmap_t *bm = cn->data_object;
+//     // bitmap_add(bm, event_id);
 
-    custom_tag = custom_tag->next;
-    // custom_tag_nodes[*num_custom_tags] = cn;
-    // (*num_custom_tags)++;
-  }
-  return true;
-}
+//     custom_tag = custom_tag->next;
+//     // custom_tag_nodes[*num_custom_tags] = cn;
+//     // (*num_custom_tags)++;
+//   }
+//   return true;
+// }
 
 // TODO: this should not write to bitmap cache
 // static bool _write_to_ev2ent_map(eng_container_t *dc, u_int32_t event_id,
@@ -336,58 +360,93 @@ static bool _write_to_event_index(eng_container_t *dc, cmd_ctx_t *cmd_ctx,
 //   return true;
 // }
 
-// TODO: counters store and index
-void eng_event(api_response_t *r, eng_context_t *ctx, ast_node_t *ast) {
-  uint32_t event_id = 0;
-  uint32_t ent_int_id = 0;
-  eng_container_t *sys_c = ctx->sys_c;
-  cmd_ctx_t cmd_ctx;
-  MDB_txn *usr_c_txn = NULL;
-  eng_container_t *dc = NULL;
+// void eng_event(api_response_t *r, eng_context_t *ctx, ast_node_t *ast) {
+//   uint32_t event_id = 0;
+//   uint32_t ent_int_id = 0;
+//   eng_container_t *sys_c = ctx->sys_c;
+//   cmd_ctx_t cmd_ctx;
+//   MDB_txn *usr_c_txn = NULL;
+//   eng_container_t *dc = NULL;
 
-  build_cmd_context(&ast->command, &cmd_ctx);
-  char *str_ent_id = cmd_ctx.entity_tag_value->literal.string_value;
+//   build_cmd_context(&ast->command, &cmd_ctx);
+//   char *str_ent_id = cmd_ctx.entity_tag_value->literal.string_value;
 
-  if (!entity_resolver_resolve_id(sys_c, str_ent_id, &ent_int_id)) {
-    r->err_msg = "Unable to resolve entity ID";
-    goto cleanup;
+//   if (!entity_resolver_resolve_id(sys_c, str_ent_id, &ent_int_id)) {
+//     r->err_msg = "Unable to resolve entity ID";
+//     goto cleanup;
+//   }
+
+//   dc = eng_dc_cache_get(cmd_ctx.in_tag_value->literal.string_value);
+//   if (!dc) {
+//     r->err_msg = "Unable to open data container";
+//     goto cleanup;
+//   }
+
+//   usr_c_txn = db_create_txn(dc->env, true);
+//   if (!usr_c_txn) {
+//     r->err_msg = ENG_TXN_ERR;
+//     goto cleanup;
+//   }
+
+//   event_id = id_manager_get_next_event_id(dc, usr_c_txn);
+//   if (!event_id) {
+//     goto cleanup;
+//   }
+
+//   if (!_write_to_event_index(dc, &cmd_ctx, event_id)) {
+//     goto cleanup;
+//   }
+
+//   // if (!_write_to_ev2ent_map(dc, event_id, ent_int_id,
+//   &event_id_to_ent_node))
+//   // {
+//   //   goto cleanup;
+//   // }
+
+//   // TODO:Support countable tags
+
+//   db_abort_txn(usr_c_txn);
+
+//   r->is_ok = true;
+//   return;
+
+// cleanup:
+//   if (usr_c_txn) {
+//     db_abort_txn(usr_c_txn);
+//   }
+// }
+
+static bool _eng_enqueue_cmd(cmd_ctx_t *command) {
+  cmd_queue_msg_t *msg = cmd_queue_create_msg(command);
+
+  if (!msg)
+    return false;
+  unsigned long hash =
+      xxhash64(command->entity_tag_value->literal.string_value,
+               sizeof(command->entity_tag_value->literal.string_value),
+               CMD_QUEUE_HASH_SEED);
+  int queue_idx = hash & CMD_QUEUE_MASK;
+  cmd_queue_t *queue = &g_cmd_queues[queue_idx];
+  if (!queue) {
+    cmd_queue_free_msg(msg);
+    return false;
   }
-
-  dc = eng_dc_cache_get(cmd_ctx.in_tag_value->literal.string_value);
-  if (!dc) {
-    r->err_msg = "Unable to open data container";
-    goto cleanup;
+  if (!cmd_queue_enqueue(queue, msg)) {
+    cmd_queue_free_msg(msg);
+    return false;
   }
+  return true;
+}
 
-  usr_c_txn = db_create_txn(dc->env, true);
-  if (!usr_c_txn) {
-    r->err_msg = ENG_TXN_ERR;
-    goto cleanup;
+void eng_event(api_response_t *r, ast_node_t *ast) {
+  cmd_ctx_t *cmd_ctx = build_cmd_context(&ast->command);
+  if (!cmd_ctx) {
+    r->err_msg = "Error generating command context";
+    return;
   }
-
-  event_id = id_manager_get_next_event_id(dc, usr_c_txn);
-  if (!event_id) {
-    goto cleanup;
+  if (!_eng_enqueue_cmd(cmd_ctx)) {
+    r->err_msg = "Rate limit error, please try again later";
+    return;
   }
-
-  if (!_write_to_event_index(dc, &cmd_ctx, event_id)) {
-    goto cleanup;
-  }
-
-  // if (!_write_to_ev2ent_map(dc, event_id, ent_int_id, &event_id_to_ent_node))
-  // {
-  //   goto cleanup;
-  // }
-
-  // TODO:Support countable tags
-
-  db_abort_txn(usr_c_txn);
-
   r->is_ok = true;
-  return;
-
-cleanup:
-  if (usr_c_txn) {
-    db_abort_txn(usr_c_txn);
-  }
 }
