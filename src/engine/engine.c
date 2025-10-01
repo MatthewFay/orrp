@@ -11,7 +11,6 @@
 #include "engine/op_queue/op_queue.h"
 #include "engine/worker/worker.h"
 #include "engine_writer/engine_writer.h"
-#include "id_mgr/id_mgr.h"
 #include "lmdb.h"
 #include "query/ast.h"
 #include <stdint.h>
@@ -21,9 +20,8 @@
 
 #define CONTAINER_FOLDER "data"
 #define MAX_PATH_LENGTH 128
-#define SYS_CONTAINER_NAME "system"
 const size_t CONTAINER_SIZE = 1048576;
-#define CONTAINER_CACHE_CAPACITY 64
+#define DC_CACHE_CAPACITY 64
 
 const char *ENG_TXN_ERR = "Transaction error";
 const char *ENG_ID_TRANSL_ERR = "Id translation error";
@@ -42,7 +40,6 @@ const char *ENG_TXN_COMMIT_ERR = "Transaction Commit error";
 
 cmd_queue_t g_cmd_queues[NUM_CMD_QUEUEs];
 worker_t g_workers[NUM_WORKERS];
-id_mgr_t g_id_mgrs[NUM_WORKERS];
 op_queue_t g_op_queues[NUM_OP_QUEUES];
 eng_writer_t g_eng_writer;
 
@@ -156,7 +153,7 @@ eng_context_t *eng_init(void) {
   sys_c->data.sys->int_to_ent_id_db = int_to_ent_id_db;
   ctx->sys_c = sys_c;
 
-  eng_dc_cache_init(CONTAINER_CACHE_CAPACITY, _get_or_create_user_dc);
+  eng_dc_cache_init(DC_CACHE_CAPACITY, _get_or_create_user_dc);
 
   eng_writer_config_t writer_config = {.flush_interval_ms = 100};
   eng_writer_start(&g_eng_writer, &writer_config);
@@ -176,15 +173,13 @@ eng_context_t *eng_init(void) {
   }
 
   for (int i = 0; i < NUM_WORKERS; i++) {
-    id_mgr_init(&g_id_mgrs[i], ctx);
     worker_config_t worker_config = {
         .eng_ctx = ctx,
         .cmd_queues = g_cmd_queues,
         .cmd_queue_consume_start = i * CMD_QUEUES_PER_WORKER,
         .cmd_queue_consume_count = CMD_QUEUES_PER_WORKER,
         .op_queues = g_op_queues,
-        .op_queue_total_count = NUM_OP_QUEUES,
-        .id_mgr = &g_id_mgrs[i]};
+        .op_queue_total_count = NUM_OP_QUEUES};
     worker_start(&g_workers[i], &worker_config);
   }
 
@@ -196,9 +191,11 @@ void eng_shutdown(eng_context_t *ctx) {
   eng_close_ctx(ctx);
   eng_dc_cache_destroy();
   bitmap_cache_shutdown();
-  id_mgr_destroy();
   for (int i = 0; i < NUM_CMD_QUEUEs; i++) {
     cmd_queue_destroy(&g_cmd_queues[i]);
+  }
+  for (int i = 0; i < NUM_OP_QUEUES; i++) {
+    op_queue_destroy(&g_op_queues[i]);
   }
   eng_writer_stop(&g_eng_writer);
 }

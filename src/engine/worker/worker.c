@@ -7,6 +7,7 @@
 #include "engine/dc_cache/dc_cache.h"
 #include "engine/op_queue/op_queue.h"
 #include "engine/op_queue/op_queue_msg.h"
+#include "engine/worker/worker_ops.h"
 #include "lmdb.h"
 #include "uthash.h"
 #include "uv.h"
@@ -16,10 +17,13 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include "core/hash.h"
 
 // spin count before sleeping
 #define WORKER_SPIN_LIMIT 100
 #define WORKER_MAX_SLEEP_MS 64
+
+#define OP_QUEUE_HASH_SEED 0
 
 atomic_uint_fast32_t g_next_entity_id = ATOMIC_VAR_INIT(0);
 
@@ -159,6 +163,27 @@ bool worker_init_global(eng_context_t *eng_ctx) {
   return true;
 }
 
+static bool _queue_up_ops(worker_t *worker, worker_ops_t *ops) {
+  for (uint32_t i = 0; i < ops->num_ops; i++) {
+    op_queue_msg_t *msg = ops->ops[i];
+    unsigned long hash =
+        xxhash64(msg->routing_key,
+                 sizeof(msg->routing_key),
+                 OP_QUEUE_HASH_SEED);
+    int queue_idx = hash & (worker->config.op_queue_total_count - 1);
+    op_queue_t *queue = &worker->config.op_queues[queue_idx];
+    if (!queue) {
+      op_queue_msg_free(msg);
+      return false;
+    }
+    if (!op_queue_enqueue(queue, msg)) {
+      op_queue_msg_free(msg);
+      return false;
+    }
+  }
+  return true;
+}
+
 static void _process_msg(worker_t *worker, cmd_queue_msg_t *msg,
                          MDB_txn *sys_txn) {
   bool is_new_ent = false;
@@ -175,21 +200,14 @@ static void _process_msg(worker_t *worker, cmd_queue_msg_t *msg,
     return;
   }
 
-  if (is_new_ent) {
-    ent_mapping_ops = _create_ent_mapping_ops(em);
-    if (!ent_mapping_ops.ent_id_to_int_op ||
-        !ent_mapping_ops.int_to_ent_id_op) {
-      // TODO: free memory
-      return;
-    }
-  }
+  worker_ops_t ops;
 
-  ops_array_t write_to_ev_index_ops =
-      _create_write_to_event_index_ops(container_name, event_id, msg);
-  if (!write_to_ev_index_ops.is_ok) {
-    // todo: err handling
+  if (!worker_create_ops(msg, container_name, em->ent_str_id, em->ent_int_id,
+                         is_new_ent, event_id, &ops)) {
     return;
   }
+
+  _queue_up_ops(worker, &ops);
 }
 
 // Returns num messages processed

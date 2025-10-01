@@ -18,6 +18,7 @@ typedef struct {
   // --- A Single List for All Custom Tags ---
   ast_node_t *custom_tags_head;
   uint32_t num_custom_tags;
+  uint32_t num_counter_tags;
 
 } cmd_ctx_t;
 

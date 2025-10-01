@@ -10,7 +10,7 @@ typedef struct op_queue_msg_s {
                      // a dedicated thread
 } op_queue_msg_t;
 
-op_queue_msg_t *op_queue_msg_create(const char *key, op_t *op);
+op_queue_msg_t *op_queue_msg_create(const char *routing_key, op_t *op);
 
 void op_queue_msg_free(op_queue_msg_t *msg);
 

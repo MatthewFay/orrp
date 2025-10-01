@@ -5,6 +5,7 @@
 #include "lmdb.h"
 #include <stdbool.h>
 
+#define SYS_CONTAINER_NAME "system"
 #define NUM_SYS_DBS 3
 #define SYS_DB_ENT_ID_TO_INT_NAME "ent_id_to_int_db"
 #define SYS_DB_INT_TO_ENT_ID_NAME "int_to_ent_id_db"

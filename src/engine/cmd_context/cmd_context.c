@@ -37,6 +37,9 @@ cmd_ctx_t *build_cmd_context(ast_command_node_t *cmd) {
       } else {
         // Custom tag
         ctx->num_custom_tags++;
+        if (tag_node->tag.is_counter) {
+          ctx->num_counter_tags++;
+        }
         if (ctx->custom_tags_head == NULL) {
           ctx->custom_tags_head = tag_node;
           custom_tags_tail = tag_node;
