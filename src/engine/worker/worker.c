@@ -221,8 +221,8 @@ static bool _queue_up_ops(worker_t *worker, worker_ops_t *ops) {
 
   for (uint32_t i = 0; i < ops->num_ops; i++) {
     op_queue_msg_t *msg = ops->ops[i];
-    unsigned long hash = xxhash64(msg->routing_key, strlen(msg->routing_key),
-                                  OP_QUEUE_HASH_SEED);
+    unsigned long hash =
+        xxhash64(msg->ser_db_key, strlen(msg->ser_db_key), OP_QUEUE_HASH_SEED);
     int queue_idx = hash & (worker->config.op_queue_total_count - 1);
     op_queue_t *queue = &worker->config.op_queues[queue_idx];
 
@@ -270,10 +270,9 @@ static bool _process_msg(worker_t *worker, cmd_queue_msg_t *msg,
 
   bool success = _queue_up_ops(worker, &ops);
 
-  // TODO BUG!
-  // Note: ops are now owned by queues if successful, but we still need
+  // ops are now owned by queues if successful, but we still need
   // to free the ops array itself
-  // worker_ops_free(&ops);
+  worker_ops_clear(&ops);
 
   return success;
 }

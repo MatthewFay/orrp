@@ -23,7 +23,6 @@ typedef enum {
 
 // Data for COUNT_TAG_INCREMENT operation
 typedef struct {
-  char *container_name;
   char *tag; // e.g., "purchase:prod123"
   uint32_t entity_id;
   uint32_t increment; // Usually 1
@@ -34,8 +33,6 @@ typedef struct op_s {
   op_type op_type;
   cond_put_type cond_type; // Only relevant if op_type is COND_PUT
 
-  // For simple key/value operations (PUT, COND_PUT, INT_ADD_VALUE,
-  // BM_ADD_VALUE)
   eng_container_db_key_t db_key;
 
   // Operation-specific data
@@ -47,14 +44,15 @@ typedef struct op_s {
   } data;
 } op_t;
 
-op_t *op_create_str_val(eng_container_db_key_t db_key, op_type op_type,
+op_t *op_create_str_val(eng_container_db_key_t *db_key, op_type op_type,
                         cond_put_type cond_type, const char *val);
 
-op_t *op_create_int32_val(eng_container_db_key_t db_key, op_type op_type,
+op_t *op_create_int32_val(eng_container_db_key_t *db_key, op_type op_type,
                           cond_put_type cond_type, uint32_t val);
 
-op_t *op_create_count_tag_increment(const char *container_name, const char *tag,
-                                    uint32_t entity_id, uint32_t increment);
+op_t *op_create_count_tag_increment(eng_container_db_key_t *db_key,
+                                    const char *tag, uint32_t entity_id,
+                                    uint32_t increment);
 
 void op_destroy(op_t *op);
 

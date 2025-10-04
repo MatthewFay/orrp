@@ -1,77 +1,80 @@
-#include "cache_ebr.h"
-#include "cache_entry.h"
-#include "cache_queue_consumer.h"
-#include "cache_queue_msg.h"
-#include "cache_shard.h"
+#include "consumer.h"
+#include "consumer_cache_ebr.h"
+#include "consumer_cache_entry.h"
 #include "core/bitmaps.h"
 #include "core/db.h"
-#include "engine/container.h"
-#include "engine/dc_cache.h"
+#include "engine/consumer/consumer_cache_internal.h"
+#include "engine/container/container.h"
+#include "engine/dc_cache/dc_cache.h"
 #include "engine/engine_writer/engine_writer.h"
+#include "engine/op/op.h"
+#include "engine/op_queue/op_queue_msg.h"
 #include "lmdb.h"
+#include "sched.h"
 #include "uthash.h"
 #include "uv.h"
-#include "uv/unix.h"
 #include <stdatomic.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
 
-#define MAX_BATCH_SIZE_PER_SHARD 128
-#define RECLAIM_BATCH_SIZE 100
+// spin count before sleeping
+#define WORKER_SPIN_LIMIT 100
+#define WORKER_MAX_SLEEP_MS 64
 
-typedef struct queue_msg_batch_entry_s {
-  bm_cache_queue_msg_t *msg;
-  struct queue_msg_batch_entry_s *next;
-} queue_msg_batch_entry_t;
+#define MAX_BATCH_SIZE_PER_OP_Queue 128
+#define MIN_RECLAIM_BATCH_SIZE 100
+#define MAX_WRITER_ENQUEUE_ATTEMPTS 3
 
-typedef struct queue_msg_batch_key_s {
+typedef struct op_queue_msg_batch_entry_s {
+  op_queue_msg_t *msg;
+  struct op_queue_msg_batch_entry_s *next;
+} op_queue_msg_batch_entry_t;
+
+typedef struct {
   UT_hash_handle hh;
-  const char *cache_key; // hash key
-  queue_msg_batch_entry_t *head;
-  queue_msg_batch_entry_t *tail;
+  const char *ser_db_key; // hash key
+  op_queue_msg_batch_entry_t *head;
+  op_queue_msg_batch_entry_t *tail;
+} op_queue_msg_batch_key_t;
 
-  // Can have same container on multiple shards
-  bm_cache_shard_t *shard;
-} queue_msg_batch_key_t;
-
-typedef struct queue_msg_batch_s {
+typedef struct {
   UT_hash_handle hh;
-  const char *container_name;  // outer hash key
-  queue_msg_batch_key_t *keys; // inner hash table
-} queue_msg_batch_t;
+  const char *container_name;     // outer hash key
+  op_queue_msg_batch_key_t *keys; // inner hash table
+} op_queue_msg_batch_t;
 
-static bm_cache_entry_t *_get_or_Create_cache_entry(eng_container_t *dc,
-                                                    queue_msg_batch_key_t *key,
-                                                    bm_cache_queue_msg_t *msg,
-                                                    MDB_dbi db, MDB_txn *txn,
-                                                    bool *was_cached_out) {
+static consumer_cache_entry_t *
+_get_or_Create_cache_entry(consumer_cache_t *cache,
+                           op_queue_msg_batch_key_t *key, op_queue_msg_t *msg,
+                           MDB_dbi db, MDB_txn *txn, bool *was_cached_out) {
   *was_cached_out = false;
 
   db_get_result_t r;
-  bm_cache_entry_t *cached_entry = NULL;
-  if (!shard_get_entry(key->shard, key->cache_key, &cached_entry)) {
+  consumer_cache_entry_t *cached_entry = NULL;
+  if (!consumer_cache_get_entry(cache, key->ser_db_key, &cached_entry)) {
     return false;
   }
   if (cached_entry) {
     *was_cached_out = true;
     return cached_entry;
   }
-  if (!db_get(db, txn, &msg->db_key, &r)) {
+  if (!db_get(db, txn, &msg->op->db_key.db_key, &r)) {
     return NULL;
   }
-  bm_cache_entry_t *new_cache_entry =
-      bm_cache_create_entry(msg->db_type, msg->db_key, dc, key->cache_key);
+  consumer_cache_entry_t *new_cache_entry =
+      consumer_cache_create_entry(&msg->op->db_key, key->ser_db_key);
   if (!new_cache_entry) {
     return NULL;
   }
   if (r.status == DB_GET_OK) {
-    atomic_store(&new_cache_entry->bitmap, r.value);
+    bitmap_t *db_bm = bitmap_deserialize(r.value, r.value_len);
+    atomic_store(&new_cache_entry->bitmap, db_bm);
     return new_cache_entry;
   }
   bitmap_t *new_BITMAP = bitmap_create();
   if (!new_BITMAP) {
-    // free bm_cache_entry_t
+    consumer_cache_free_entry(new_cache_entry);
     return NULL;
   }
   atomic_store(&new_cache_entry->bitmap, new_BITMAP);
@@ -79,20 +82,22 @@ static bm_cache_entry_t *_get_or_Create_cache_entry(eng_container_t *dc,
 }
 
 // Process all messages for a container
-static bool _process_cache_msgs(eng_container_t *dc,
-                                queue_msg_batch_key_t *keys, MDB_txn *txn) {
-  queue_msg_batch_key_t *key, *tmp;
-  bm_cache_queue_msg_t *msg;
+static bool _process_cache_msgs(consumer_t *consumer, eng_container_t *dc,
+                                op_queue_msg_batch_key_t *keys, MDB_txn *txn) {
+  op_queue_msg_batch_key_t *key, *tmp;
+  op_queue_msg_t *msg;
 
   HASH_ITER(hh, keys, key, tmp) {
     bool was_cached;
-    queue_msg_batch_entry_t *b_entry = key->head;
+    op_queue_msg_batch_entry_t *b_entry = key->head;
     MDB_dbi db;
-    if (!eng_container_get_user_db(dc, b_entry->msg->db_type, &db)) {
+    // what about sys containers?
+    if (!eng_container_get_db_handle(dc, b_entry->msg->op->db_key.user_db_type,
+                                     &db)) {
       return false;
     }
-    bm_cache_entry_t *cache_entry =
-        _get_or_Create_cache_entry(dc, key, b_entry->msg, db, txn, &was_cached);
+    consumer_cache_entry_t *cache_entry = _get_or_Create_cache_entry(
+        &consumer->cache, key, b_entry->msg, db, txn, &was_cached);
     bitmap_t *old_bm;
     bitmap_t *bm = atomic_load(&cache_entry->bitmap);
     if (was_cached) {
@@ -104,12 +109,12 @@ static bool _process_cache_msgs(eng_container_t *dc,
     while (b_entry) {
       msg = b_entry->msg;
 
-      switch (msg->op_type) {
-      case BM_CACHE_BITMAP:
+      switch (msg->op->op_type) {
+      case BM_CACHE:
         // Will be cached, no work to do
         break;
-      case BM_CACHE_ADD_VALUE:
-        bitmap_add(bm, msg->value);
+      case BM_ADD_VALUE:
+        bitmap_add(bm, msg->op->data.int32_value);
         dirty = true;
         break;
       default:
@@ -122,17 +127,17 @@ static bool _process_cache_msgs(eng_container_t *dc,
       // store the copied bitmap in cache entry
       atomic_store(&cache_entry->bitmap, bm);
       if (was_cached) {
-        bm_cache_ebr_retire(&old_bm->epoch_entry);
+        consumer_cache_ebr_retire(&consumer->consumer_cache_thread_epoch_record,
+                                  &old_bm->epoch_entry);
       }
     } else {
       // destroy the copy, not needed
       bitmap_free(bm);
     }
 
-    if (was_cached) {
-      shard_lru_move_to_front(key->shard, cache_entry, dirty);
-    } else if (!shard_add_entry(key->shard, key->cache_key, cache_entry,
-                                dirty)) {
+    if (!was_cached &&
+        !consumer_cache_add_entry(&consumer->cache, key->ser_db_key,
+                                  cache_entry, dirty)) {
       // TODO: handle error
     }
   }
@@ -142,11 +147,11 @@ static bool _process_cache_msgs(eng_container_t *dc,
 
 // returns number of msgs processed, or -1 on error
 // TODO: return detail results (processed vs unprocessd etc)
-static int _process_batch(queue_msg_batch_t *batch) {
+static int _process_batch(op_queue_msg_batch_t *batch) {
   if (!batch || !batch->container_name || !batch->keys)
     return -1;
   int n = 0;
-  queue_msg_batch_key_t *keys = batch->keys;
+  op_queue_msg_batch_key_t *keys = batch->keys;
 
   eng_container_t *dc = eng_dc_cache_get(batch->container_name);
   if (!dc) {
@@ -171,13 +176,13 @@ static int _process_batch(queue_msg_batch_t *batch) {
   return n;
 }
 
-static void _process_batches(queue_msg_batch_t *batch_hash) {
-  queue_msg_batch_t *batch, *tmp;
+static void _process_batches(op_queue_msg_batch_t *batch_hash) {
+  op_queue_msg_batch_t *batch, *tmp;
   HASH_ITER(hh, batch_hash, batch, tmp) { _process_batch(batch); }
 }
 
-static queue_msg_batch_t *_create_batch(const char *container_name) {
-  queue_msg_batch_t *batch = calloc(1, sizeof(queue_msg_batch_t));
+static op_queue_msg_batch_t *_create_batch(const char *container_name) {
+  op_queue_msg_batch_t *batch = calloc(1, sizeof(op_queue_msg_batch_t));
   if (!batch) {
     return NULL;
   }
@@ -186,8 +191,8 @@ static queue_msg_batch_t *_create_batch(const char *container_name) {
   return batch;
 }
 
-static queue_msg_batch_entry_t *_create_batch_entry(bm_cache_queue_msg_t *msg) {
-  queue_msg_batch_entry_t *m = calloc(1, sizeof(queue_msg_batch_entry_t));
+static op_queue_msg_batch_entry_t *_create_batch_entry(op_queue_msg_t *msg) {
+  op_queue_msg_batch_entry_t *m = calloc(1, sizeof(op_queue_msg_batch_entry_t));
   if (!m) {
     return NULL;
   }
@@ -196,26 +201,25 @@ static queue_msg_batch_entry_t *_create_batch_entry(bm_cache_queue_msg_t *msg) {
   return m;
 }
 
-static bool _add_msg_to_batch(queue_msg_batch_t *batch,
-                              bm_cache_queue_msg_t *msg,
-                              bm_cache_shard_t *shard) {
+static bool _add_msg_to_batch(op_queue_msg_batch_t *batch, op_queue_msg_t *msg,
+                              shard_t *shard) {
   bool new_key = false;
-  queue_msg_batch_key_t *key = NULL;
+  op_queue_msg_batch_key_t *key = NULL;
   HASH_FIND_STR(batch->keys, msg->key, key);
   if (!key) {
     new_key = true;
-    key = calloc(1, sizeof(queue_msg_batch_key_t));
+    key = calloc(1, sizeof(op_queue_msg_batch_key_t));
     if (!key) {
       return false;
     }
     key->shard = shard;
-    key->cache_key = msg->key;
+    key->ser_db_key = msg->key;
     key->head = NULL;
     key->tail = NULL;
     HASH_ADD_KEYPTR(hh, batch->keys, msg->key, strlen(msg->key), key);
   }
 
-  queue_msg_batch_entry_t *m = _create_batch_entry(msg);
+  op_queue_msg_batch_entry_t *m = _create_batch_entry(msg);
   if (!m) {
     if (new_key)
       free(key);
@@ -233,14 +237,14 @@ static bool _add_msg_to_batch(queue_msg_batch_t *batch,
   return true;
 }
 
-static void _free_batch_hash(queue_msg_batch_t *batch_hash) {
+static void _free_batch_hash(op_queue_msg_batch_t *batch_hash) {
   if (!batch_hash)
     return;
-  queue_msg_batch_t *b, *tmp;
-  queue_msg_batch_key_t *k, *tmp_k;
-  queue_msg_batch_entry_t *b_entry, *b_entry_tmp;
+  op_queue_msg_batch_t *b, *tmp;
+  op_queue_msg_batch_key_t *k, *tmp_k;
+  op_queue_msg_batch_entry_t *b_entry, *b_entry_tmp;
   HASH_ITER(hh, batch_hash, b, tmp) {
-    queue_msg_batch_key_t *keys = b->keys;
+    op_queue_msg_batch_key_t *keys = b->keys;
     HASH_ITER(hh, keys, k, tmp_k) {
       b_entry = k->head;
       while (b_entry) {
@@ -257,17 +261,17 @@ static void _free_batch_hash(queue_msg_batch_t *batch_hash) {
 }
 
 // TODO: return list of msgs unable to process
-static bool _batch_by_container(const bm_cache_consumer_config_t *config,
-                                queue_msg_batch_t **batch_hash_out,
+static bool _batch_by_container(const consumer_config_t *config,
+                                op_queue_msg_batch_t **batch_hash_out,
                                 bool *batched_any_out) {
-  bm_cache_queue_msg_t *msg;
-  queue_msg_batch_t *batch = NULL;
+  op_queue_msg_t *msg;
+  op_queue_msg_batch_t *batch = NULL;
 
   for (uint32_t i = 0; i < config->shard_count; i++) {
     uint32_t shard_idx = config->shard_start + i;
-    bm_cache_shard_t *shard = &config->shards[shard_idx];
+    shard_t *shard = &config->shards[shard_idx];
 
-    for (int j = 0; j < MAX_BATCH_SIZE_PER_SHARD; j++) {
+    for (int j = 0; j < MAX_BATCH_SIZE_PER_OP_Queue; j++) {
       if (!shard_dequeue_msg(shard, &msg)) {
         break; // No more messages in this shard
       }
@@ -294,11 +298,17 @@ static bool _batch_by_container(const bm_cache_consumer_config_t *config,
   return true;
 }
 
-static void _check_flush(const bm_cache_consumer_config_t *config) {
+// void consumer_flush(consumer_t *c) {
+//   eng_writer_dirty_entry_t entries[100];
+//   // populate from cache...
+//   eng_writer_submit(writer, entries, count);
+// }
+
+static void _check_flush(const consumer_config_t *config) {
   for (uint32_t i = 0; i < config->shard_count; i++) {
     uint32_t shard_idx = config->shard_start + i;
-    bm_cache_shard_t *shard = &config->shards[shard_idx];
-    bm_cache_dirty_snapshot_t *snap = shard_get_dirty_snapshot(shard);
+    shard_t *shard = &config->shards[shard_idx];
+    dirty_snapshot_t *snap = shard_get_dirty_snapshot(shard);
     if (!snap)
       continue;
     if (!eng_writer_queue_up_bm_dirty_snapshot(config->writer, snap)) {
@@ -310,16 +320,34 @@ static void _check_flush(const bm_cache_consumer_config_t *config) {
 
 // TODO: store queue msgs unable to process (DLQ)
 static void _consumer_thread_func(void *arg) {
-  bm_cache_ebr_reg();
+  consumer_t *consumer = (consumer_t *)arg;
+  const consumer_config_t *config = &consumer->config;
 
-  bm_cache_consumer_t *consumer = (bm_cache_consumer_t *)arg;
-  const bm_cache_consumer_config_t *config = &consumer->config;
-  queue_msg_batch_t *batch_hash = NULL;
+  consumer_cache_init(&consumer->cache, &consumer->config);
+  ebr_reg();
+
+  op_queue_msg_batch_t *batch_hash = NULL;
   bool batched_any = false;
   uint32_t cycle = 0;
+  int backoff = 1;
+  int spin_count = 0;
 
-  // TODO: weigh sleep approach vs. libuv notify approach (w/ focus on
-  // performance)
+  while (!consumer->should_stop) {
+    if (_do_work(worker) > 0) {
+      backoff = 1;
+      spin_count = 0;
+    } else {
+      if (spin_count < WORKER_SPIN_LIMIT) {
+        sched_yield();
+        spin_count++;
+      } else {
+        uv_sleep(backoff);
+        backoff =
+            backoff < WORKER_MAX_SLEEP_MS ? backoff * 2 : WORKER_MAX_SLEEP_MS;
+      }
+    }
+  }
+
   while (!consumer->should_stop) {
     batched_any = false;
     cycle++;
@@ -341,14 +369,13 @@ static void _consumer_thread_func(void *arg) {
       cycle = 0;
       _check_flush(config);
       if (bitmap_cache_thread_epoch_record.n_pending >= RECLAIM_BATCH_SIZE) {
-        bm_cache_reclamation();
+        reclamation();
       }
     }
   }
 }
 
-bool bm_cache_consumer_start(bm_cache_consumer_t *consumer,
-                             const bm_cache_consumer_config_t *config) {
+bool consumer_start(consumer_t *consumer, const consumer_config_t *config) {
   consumer->config = *config;
   consumer->should_stop = false;
   consumer->messages_processed = 0;
@@ -360,7 +387,7 @@ bool bm_cache_consumer_start(bm_cache_consumer_t *consumer,
   return true;
 }
 
-bool bm_cache_consumer_stop(bm_cache_consumer_t *consumer) {
+bool consumer_stop(consumer_t *consumer) {
   consumer->should_stop = true;
   if (uv_thread_join(&consumer->thread) != 0) {
     return false;

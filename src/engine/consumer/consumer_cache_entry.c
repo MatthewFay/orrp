@@ -1,25 +1,25 @@
-#include "cache_entry.h"
+#include "consumer_cache_entry.h"
 #include "core/db.h"
-#include "engine/container.h"
+#include "engine/container/container.h"
 #include <stdatomic.h>
 #include <stddef.h>
 #include <string.h>
 
-void bm_cache_free_entry(bm_cache_entry_t *entry) {
+void consumer_cache_free_entry(consumer_cache_entry_t *entry) {
   if (!entry)
     return;
   if (entry->db_key.type == DB_KEY_STRING) {
     free((char *)entry->db_key.key.s);
   }
-  free(entry->cache_key);
+  free(entry->ser_db_key);
   free(entry);
 }
 
-bm_cache_entry_t *bm_cache_create_entry(eng_user_dc_db_type_t db_type,
-                                        db_key_t db_key, eng_container_t *dc,
-                                        const char *cache_key) {
-  bm_cache_entry_t *entry =
-      calloc(1, sizeof(bm_cache_entry_t) + strlen(dc->name) + 1);
+consumer_cache_entry_t *
+consumer_cache_create_entry(eng_container_db_key_t *db_key,
+                            const char *ser_db_key) {
+  consumer_cache_entry_t *entry =
+      calloc(1, sizeof(consumer_cache_entry_t) + strlen(dc->name) + 1);
   if (!entry)
     return NULL;
   atomic_init(&entry->bitmap, NULL);
@@ -30,7 +30,7 @@ bm_cache_entry_t *bm_cache_create_entry(eng_user_dc_db_type_t db_type,
   if (db_key.type == DB_KEY_STRING) {
     entry->db_key.key.s = strdup(db_key.key.s);
   }
-  entry->cache_key = strdup(cache_key);
+  entry->ser_db_key = strdup(ser_db_key);
 
   strcpy(entry->container_name, dc->name);
 

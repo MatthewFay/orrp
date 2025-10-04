@@ -1,5 +1,4 @@
 #include "engine.h"
-#include "bm_cache/bm_cache.h"
 #include "cmd_context/cmd_context.h"
 #include "container/container.h"
 #include "context/context.h"
@@ -8,6 +7,7 @@
 #include "dc_cache/dc_cache.h"
 #include "engine/api.h"
 #include "engine/cmd_queue/cmd_queue.h"
+#include "engine/consumer/consumer.h"
 #include "engine/op_queue/op_queue.h"
 #include "engine/worker/worker.h"
 #include "engine_writer/engine_writer.h"
@@ -38,10 +38,14 @@ const char *ENG_TXN_COMMIT_ERR = "Transaction Commit error";
 
 #define NUM_OP_QUEUES 16
 
+#define NUM_CONSUMERS 4
+#define OP_QUEUES_PER_CONSUMER 4
+
 cmd_queue_t g_cmd_queues[NUM_CMD_QUEUEs];
 worker_t g_workers[NUM_WORKERS];
 op_queue_t g_op_queues[NUM_OP_QUEUES];
 eng_writer_t g_eng_writer;
+consumer_t g_consumers[NUM_CONSUMERS];
 
 // Make sure data directory (where we store data containers) exists
 static bool _ensure_data_dir_exists() {
@@ -158,8 +162,6 @@ eng_context_t *eng_init(void) {
   eng_writer_config_t writer_config = {.flush_interval_ms = 100};
   eng_writer_start(&g_eng_writer, &writer_config);
 
-  bitmap_cache_init(&g_eng_writer);
-
   for (int i = 0; i < NUM_CMD_QUEUEs; i++) {
     if (!cmd_queue_init(&g_cmd_queues[i])) {
       return false;
@@ -170,6 +172,19 @@ eng_context_t *eng_init(void) {
     if (!op_queue_init(&g_op_queues[i])) {
       return false;
     }
+  }
+
+  for (int i = 0; i < NUM_CONSUMERS; i++) {
+    consumer_config_t consumer_config = {
+        .eng_context = ctx,
+        .writer = &g_eng_writer,
+        .flush_every_n = 100,
+        .op_queues = g_op_queues,
+        .op_queue_consume_start = i * OP_QUEUES_PER_CONSUMER,
+        .op_queue_consume_count = OP_QUEUES_PER_CONSUMER,
+        .op_queue_total_count = NUM_OP_QUEUES,
+        .consumer_id = i};
+    consumer_start(&g_consumers[i], &consumer_config);
   }
 
   for (int i = 0; i < NUM_WORKERS; i++) {
@@ -190,7 +205,6 @@ eng_context_t *eng_init(void) {
 void eng_shutdown(eng_context_t *ctx) {
   eng_close_ctx(ctx);
   eng_dc_cache_destroy();
-  bitmap_cache_shutdown();
   for (int i = 0; i < NUM_CMD_QUEUEs; i++) {
     cmd_queue_destroy(&g_cmd_queues[i]);
   }
@@ -259,17 +273,6 @@ typedef struct incr_result_s {
 //   snprintf(out_buf, size, "%" PRIu32 ":%s:%s", r->count, ns ? ns : "",
 //            key ? key : "");
 // }
-
-// Turn custom tag AST node into a string representation
-static bool _custom_tag_into(char *out_buf, size_t size,
-                             ast_node_t *custom_tag) {
-  int r = snprintf(out_buf, size, "%s:%s", custom_tag->tag.custom_key,
-                   custom_tag->tag.value->literal.string_value);
-  if (r < 0 || (size_t)r >= size) {
-    return false;
-  }
-  return true;
-}
 
 // static bool _write_to_event_index(eng_container_t *dc, cmd_ctx_t *cmd_ctx,
 //                                   u_int32_t event_id) {
@@ -411,6 +414,22 @@ static bool _custom_tag_into(char *out_buf, size_t size,
 //   if (usr_c_txn) {
 //     db_abort_txn(usr_c_txn);
 //   }
+// }
+
+// TODO: Add enqueue retry logic
+// static bool _enqueue_msg(const char *ser_db_key, bm_cache_queue_msg_t *msg) {
+//   int s_idx = _get_shard_index(ser_db_key);
+//   bool enqueued = false;
+//   for (int i = 0; i < MAX_ENQUEUE_ATTEMPTS; i++) {
+//     if (shard_enqueue_msg(&g_bm_cache.shards[s_idx], msg)) {
+//       enqueued = true;
+//       break;
+//     }
+//     // Ring buffer is full
+//     ck_pr_stall();
+//     // might add a short sleep here
+//   }
+//   return enqueued;
 // }
 
 static bool _eng_enqueue_cmd(cmd_ctx_t *command) {

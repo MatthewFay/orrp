@@ -15,6 +15,7 @@ bool worker_create_ops(cmd_queue_msg_t *msg, char *container_name,
                        bool is_new_entity, uint32_t event_id,
                        worker_ops_t *ops_out);
 
-void worker_ops_free(worker_ops_t *ops);
+// Free ops array
+void worker_ops_clear(worker_ops_t *ops);
 
 #endif

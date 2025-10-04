@@ -6,11 +6,19 @@
  * Flushes dirty data to disk
  */
 #include "ck_ring.h"
-#include "engine/bitmap_cache/cache_shard.h"
+#include "core/bitmaps.h"
+#include "engine/container/container.h"
 #include "uv.h"
 #include <stdint.h>
 
 #define FLUSH_QUEUE_CAPACITY 32768
+
+// Copy of data to write
+typedef struct {
+  bitmap_t *bitmap; // TODO: support diff data types
+  _Atomic(uint64_t) *flush_version_ptr;
+  eng_container_db_key_t *db_key;
+} eng_writer_data_t;
 
 typedef struct eng_writer_config_s {
   // Engine writer config
