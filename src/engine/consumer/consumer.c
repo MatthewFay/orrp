@@ -1,6 +1,6 @@
 #include "consumer.h"
-#include "consumer_cache_ebr.h"
 #include "consumer_cache_entry.h"
+#include "consumer_ebr.h"
 #include "core/bitmaps.h"
 #include "core/db.h"
 #include "engine/consumer/consumer_cache_internal.h"
@@ -130,8 +130,8 @@ static bool _process_cache_msgs(consumer_t *consumer, eng_container_t *dc,
       // store the copied bitmap in cache entry
       atomic_store(&cache_entry->bitmap, bm);
       if (was_cached) {
-        consumer_cache_ebr_retire(&consumer->consumer_cache_thread_epoch_record,
-                                  &old_bm->epoch_entry);
+        consumer_ebr_retire(&consumer->consumer_cache_thread_epoch_record,
+                            &old_bm->epoch_entry);
       }
     } else {
       // destroy the copy, not needed
@@ -149,8 +149,8 @@ static bool _process_cache_msgs(consumer_t *consumer, eng_container_t *dc,
       consumer_cache_entry_t *victim =
           consumer_cache_evict_lru(&consumer->cache);
       if (victim) {
-        consumer_cache_ebr_retire(&consumer->consumer_cache_thread_epoch_record,
-                                  &victim->bitmap->epoch_entry);
+        consumer_ebr_retire(&consumer->consumer_cache_thread_epoch_record,
+                            &victim->bitmap->epoch_entry);
         consumer_cache_free_entry(victim);
       }
 
@@ -354,7 +354,7 @@ static void _flush(consumer_t *c) {
 static void _reclamation(consumer_t *consumer) {
   if (consumer->consumer_cache_thread_epoch_record.n_pending >=
       MIN_RECLAIM_BATCH_SIZE) {
-    consumer_cache_reclamation(&consumer->consumer_cache_thread_epoch_record);
+    consumer_ebr_reclaim(&consumer->consumer_cache_thread_epoch_record);
   }
 }
 
@@ -365,8 +365,8 @@ static void _consumer_thread_func(void *arg) {
   consumer_cache_config_t cache_config = {.capacity = CONSUMER_CACHE_CAPACITY};
 
   consumer_cache_init(&consumer->cache, &cache_config);
-  consumer_cache_ebr_reg(&consumer->cache,
-                         &consumer->consumer_cache_thread_epoch_record);
+  consumer_ebr_register(&consumer->epoch,
+                        &consumer->consumer_cache_thread_epoch_record);
 
   op_queue_msg_batch_t *batch_hash = NULL;
   bool batched_any = false;

@@ -14,11 +14,6 @@ typedef struct {
   ck_epoch_section_t epoch_section;
 } consumer_cache_handle_t;
 
-// Register thread for EBR - call this once at thread start up,
-// before using cache
-void consumer_cache_reg(consumer_cache_t *consumer_cache,
-                        ck_epoch_record_t *thread_record);
-
 /**
  * @brief Begins a query session.
  *
@@ -36,7 +31,6 @@ void consumer_cache_query_begin(ck_epoch_record_t *thread_record,
  * @return A CONST pointer to the bitmap, or NULL if not found.
  */
 const bitmap_t *consumer_cache_get_bm(consumer_cache_t *consumer_cache,
-                                      consumer_cache_handle_t *handle,
                                       const char *ser_db_key);
 
 /**

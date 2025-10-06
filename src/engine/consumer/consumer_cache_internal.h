@@ -30,7 +30,6 @@ typedef struct consumer_cache_s {
   consumer_cache_entry_t *dirty_tail;
   uint32_t num_dirty_entries;
 
-  ck_epoch_t epoch;
 } consumer_cache_t;
 
 bool consumer_cache_init(consumer_cache_t *consumer_cache,
