@@ -3,6 +3,7 @@
 
 #include "core/bitmaps.h"
 #include "engine/container/container.h"
+#include <stdatomic.h>
 #include <stdint.h>
 
 typedef struct eng_writer_entry_s {
