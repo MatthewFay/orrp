@@ -13,6 +13,7 @@ Consumer cache internal Api -
 just for use by Consumer thread */
 
 typedef struct consumer_cache_Config_s {
+  uint32_t capacity;
 } consumer_cache_config_t;
 
 typedef struct consumer_cache_s {
@@ -32,15 +33,8 @@ typedef struct consumer_cache_s {
   ck_epoch_t epoch;
 } consumer_cache_t;
 
-// Consumer ??
-// Dirty list snapshot for flushing - copied data for safety purposes
-typedef struct consumer_cache_dirty_snapshot_s {
-  consumer_cache_t *consumer_cache;
-  // consumer_cache_dirty_copy_t *dirty_copies;
-  uint32_t entry_count;
-} consumer_cache_dirty_snapshot_t;
-
-bool consumer_cache_init(consumer_cache_t *consumer_cache);
+bool consumer_cache_init(consumer_cache_t *consumer_cache,
+                         consumer_cache_config_t *cache_config);
 bool consumer_cache_shutdown(consumer_cache_t *consumer_cache);
 
 bool consumer_cache_get_entry(consumer_cache_t *consumer_cache,
@@ -49,13 +43,14 @@ bool consumer_cache_get_entry(consumer_cache_t *consumer_cache,
 
 bool consumer_cache_add_entry(consumer_cache_t *consumer_cache,
                               const char *ser_db_key,
-                              consumer_cache_entry_t *entry, bool dirty);
+                              consumer_cache_entry_t *entry);
 
-consumer_cache_dirty_snapshot_t *
-shard_get_dirty_snapshot(consumer_cache_t *consumer_cache);
+// Returns evicted item, if any
+consumer_cache_entry_t *consumer_cache_evict_lru(consumer_cache_t *cache);
 
-void shard_clear_dirty_list(consumer_cache_t *consumer_cache);
+void consumer_cache_add_entry_to_dirty_list(consumer_cache_t *cache,
+                                            consumer_cache_entry_t *entry);
 
-void shard_free_dirty_snapshot(consumer_cache_dirty_snapshot_t *snapshot);
+void consumer_cache_clear_dirty_list(consumer_cache_t *consumer_cache);
 
 #endif

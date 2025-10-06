@@ -1,5 +1,5 @@
 #include "consumer_cache_ebr.h"
-#include "consumer_cache/consumer_cache.h"
+#include "consumer_cache_internal.h"
 #include "core/bitmaps.h"
 
 CK_EPOCH_CONTAINER(bitmap_t, epoch_entry, get_bitmap_from_epoch)

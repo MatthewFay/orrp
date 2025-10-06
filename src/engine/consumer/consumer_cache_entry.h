@@ -12,7 +12,7 @@ typedef struct consumer_cache_entry_s {
 
   struct consumer_cache_entry_s *dirty_next;
 
-  // TODO: diff data types
+  // TODO: support diff data types
   _Atomic(bitmap_t *) bitmap; // atomic Pointer to the actual bitmap
 
   _Atomic(uint64_t) flush_version;

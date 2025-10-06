@@ -4,6 +4,7 @@
 /**
 Consumer cache public Api */
 
+#include "ck_epoch.h"
 #include "consumer_cache_internal.h"
 #include "core/bitmaps.h"
 #include <stdbool.h>
@@ -13,12 +14,17 @@ typedef struct {
   ck_epoch_section_t epoch_section;
 } consumer_cache_handle_t;
 
+// Register thread for EBR - call this once at thread start up,
+// before using cache
+void consumer_cache_reg(consumer_cache_t *consumer_cache,
+                        ck_epoch_record_t *thread_record);
+
 /**
  * @brief Begins a query session.
  *
  * This function marks the start of a safe, read-only critical section.
  */
-void consumer_cache_query_begin(consumer_cache_t *consumer_cache,
+void consumer_cache_query_begin(ck_epoch_record_t *thread_record,
                                 consumer_cache_handle_t *handle);
 
 /**
@@ -42,7 +48,7 @@ const bitmap_t *consumer_cache_get_bm(consumer_cache_t *consumer_cache,
  *
  * @param handle The handle to end.
  */
-void consumer_cache_query_end(consumer_cache_t *consumer_cache,
+void consumer_cache_query_end(ck_epoch_record_t *thread_record,
                               consumer_cache_handle_t *handle);
 
 #endif // consumer_CACHE_H

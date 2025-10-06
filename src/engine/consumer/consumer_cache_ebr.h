@@ -4,7 +4,7 @@
 #include "ck_epoch.h"
 #include "consumer_cache_internal.h"
 
-// Register thread for EBR - put in public api?
+// Register thread for EBR
 void consumer_cache_ebr_reg(consumer_cache_t *consumer_cache,
                             ck_epoch_record_t *record);
 

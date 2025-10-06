@@ -178,7 +178,7 @@ eng_context_t *eng_init(void) {
     consumer_config_t consumer_config = {
         .eng_context = ctx,
         .writer = &g_eng_writer,
-        .flush_every_n = 100,
+        .flush_every_n = 128,
         .op_queues = g_op_queues,
         .op_queue_consume_start = i * OP_QUEUES_PER_CONSUMER,
         .op_queue_consume_count = OP_QUEUES_PER_CONSUMER,
