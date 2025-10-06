@@ -9,8 +9,6 @@
 #include "uv.h"
 #include <stdint.h>
 
-#define FLUSH_QUEUE_CAPACITY 32768
-
 typedef struct eng_writer_config_s {
   // Engine writer config
   uint32_t flush_interval_ms;

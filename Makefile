@@ -31,34 +31,41 @@ LIBS = -luv -lm -lpthread
 # --- SOURCE FILES ---
 
 # Main application sources
-APP_SRCS = src/main.c \
-			 src/engine/bitmap_cache/bitmap_cache.c \
-			 src/engine/bitmap_cache/cache_ebr.c \
-			 src/engine/bitmap_cache/cache_entry.c \
-			 src/engine/bitmap_cache/cache_queue_consumer.c \
-			 src/engine/bitmap_cache/cache_queue_msg.c \
-			 src/engine/bitmap_cache/cache_shard.c \
-		   src/engine/api.c \
-			 src/engine/cmd_context.c \
-			 src/engine/container.c \
-			 src/engine/context.c \
-			 src/engine/dc_cache.c \
-			 src/engine/engine_writer/engine_writer.c \
-			 src/engine/engine_writer/flush_msg.c \
-		   src/engine/engine.c \
-			 src/engine/entity_resolver.c \
-			 src/engine/id_manager.c \
+APP_SRCS = \
 		   src/core/bitmaps.c \
 			 src/core/conversions.c \
 		   src/core/db.c \
 			 src/core/hash.c \
 			 src/core/lock_striped_ht.c \
+			 src/core/queue.c \
 		   src/core/stack.c \
-		   src/core/queue.c \
+			 src/engine/cmd_context/cmd_context.c \
+			 src/engine/cmd_queue/cmd_queue_msg.c \
+			 src/engine/cmd_queue/cmd_queue.c \
+			 src/engine/consumer/consumer_cache_entry.c \
+			 src/engine/consumer/consumer_cache_internal.c \
+			 src/engine/consumer/consumer_cache.c \
+			 src/engine/consumer/consumer_ebr.c \
+			 src/engine/consumer/consumer.c \
+			 src/engine/container/container.c \
+			 src/engine/context/context.c \
+			 src/engine/dc_cache/dc_cache.c \
+			 src/engine/eng_key_format/eng_key_format.c \
+			 src/engine/engine_writer/engine_writer_queue_msg.c \
+			 src/engine/engine_writer/engine_writer_queue.c \
+			 src/engine/engine_writer/engine_writer.c \
+			 src/engine/op/op.c \
+			 src/engine/op_queue/op_queue_msg.c \
+			 src/engine/op_queue/op_queue.c \
+			 src/engine/worker/worker_ops.c \
+			 src/engine/worker/worker.c \
+			 src/engine/api.c \
+			 src/engine/engine.c \
 		   src/networking/server.c \
 		   src/query/ast.c \
+			 src/query/parser.c \
 		   src/query/tokenizer.c \
-		   src/query/parser.c
+			 src/main.c
 
 # excluding main.c for tests
 TEST_APP_SRCS = $(filter-out src/main.c, $(APP_SRCS))

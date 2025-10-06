@@ -20,11 +20,12 @@
 #include <stdlib.h>
 
 // spin count before sleeping
-#define WORKER_SPIN_LIMIT 100
-#define WORKER_MAX_SLEEP_MS 64
+#define CONSUMER_SPIN_LIMIT 100
+#define CONSUMER_MAX_SLEEP_MS 64
 
 #define MAX_BATCH_SIZE_PER_OP_Queue 128
 #define MIN_RECLAIM_BATCH_SIZE 100
+// TODO: writer enqueue re-tries
 #define MAX_WRITER_ENQUEUE_ATTEMPTS 3
 
 #define CONSUMER_CACHE_CAPACITY 65536
@@ -388,13 +389,13 @@ static void _consumer_thread_func(void *arg) {
       _free_batch_hash(batch_hash);
       batch_hash = NULL;
     } else {
-      if (spin_count < WORKER_SPIN_LIMIT) {
+      if (spin_count < CONSUMER_SPIN_LIMIT) {
         sched_yield();
         spin_count++;
       } else {
         uv_sleep(backoff);
-        backoff =
-            backoff < WORKER_MAX_SLEEP_MS ? backoff * 2 : WORKER_MAX_SLEEP_MS;
+        backoff = backoff < CONSUMER_MAX_SLEEP_MS ? backoff * 2
+                                                  : CONSUMER_MAX_SLEEP_MS;
       }
     }
 

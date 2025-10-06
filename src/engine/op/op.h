@@ -18,7 +18,9 @@ typedef enum {
 } op_type;
 
 typedef enum {
-  IF_EXISTING_LESS_THAN // Only put if existing value is less than new value
+  COND_PUT_NONE = 0,             // sentinel, default
+  COND_PUT_IF_EXISTING_LESS_THAN // Only put if existing value is less than new
+                                 // value
 } cond_put_type;
 
 // Data for COUNT_TAG_INCREMENT operation

@@ -67,8 +67,8 @@ void eng_container_close(eng_container_t *c) {
   }
 }
 
-bool eng_container_get_user_db(eng_container_t *c, eng_user_dc_db_type_t type,
-                               MDB_dbi *db_out) {
+bool eng_container_get_db_handle(eng_container_t *c, eng_dc_user_db_type_t type,
+                                 MDB_dbi *db_out) {
   if (!c || c->type != CONTAINER_TYPE_USER)
     return false;
   switch (type) {
