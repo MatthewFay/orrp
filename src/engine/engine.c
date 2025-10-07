@@ -187,6 +187,8 @@ eng_context_t *eng_init(void) {
     consumer_start(&g_consumers[i], &consumer_config);
   }
 
+  worker_init_global(ctx);
+
   for (int i = 0; i < NUM_WORKERS; i++) {
     worker_config_t worker_config = {
         .eng_ctx = ctx,

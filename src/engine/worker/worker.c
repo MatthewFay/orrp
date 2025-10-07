@@ -94,6 +94,9 @@ static bool _get_entity_mapping_by_str(worker_t *worker, MDB_txn *sys_txn,
   if (created_txn)
     db_abort_txn(sys_txn);
 
+  HASH_ADD_KEYPTR(hh, worker->entity_mappings, em->ent_str_id,
+                  strlen(em->ent_str_id), em);
+
   *mapping_out = em;
   return true;
 }
@@ -240,7 +243,7 @@ static bool _queue_up_ops(worker_t *worker, worker_ops_t *ops) {
 }
 
 static bool _process_msg(worker_t *worker, cmd_queue_msg_t *msg,
-                         MDB_txn *sys_txn) {
+                         MDB_txn **sys_txn_ptr) {
   if (!msg || !msg->command) {
     return false;
   }
@@ -256,7 +259,14 @@ static bool _process_msg(worker_t *worker, cmd_queue_msg_t *msg,
   char *entity_id_str = msg->command->entity_tag_value->literal.string_value;
   worker_entity_mapping_t *em = NULL;
 
-  if (!_get_entity_mapping_by_str(worker, sys_txn, entity_id_str, &em,
+  if (!*sys_txn_ptr) {
+    *sys_txn_ptr = db_create_txn(worker->config.eng_ctx->sys_c->env, true);
+    if (!*sys_txn_ptr) {
+      return false;
+    }
+  }
+
+  if (!_get_entity_mapping_by_str(worker, *sys_txn_ptr, entity_id_str, &em,
                                   &is_new_ent)) {
     return false;
   }
@@ -292,7 +302,7 @@ static int _do_work(worker_t *worker) {
 
       if (cmd_queue_dequeue(queue, &msg)) {
         num_msgs++;
-        _process_msg(worker, msg, sys_txn);
+        _process_msg(worker, msg, &sys_txn);
         // Can we replace these with 1 function?
         cmd_queue_free_msg_contents(msg);
         cmd_queue_free_msg(msg);
