@@ -88,3 +88,12 @@ bool eng_container_get_db_handle(eng_container_t *c, eng_dc_user_db_type_t type,
 
   return true;
 }
+
+void eng_Container_free_contents_db_key(eng_container_db_key_t *db_key) {
+  if (!db_key)
+    return;
+  free(db_key->container_name);
+  if (db_key->db_key.type == DB_KEY_STRING) {
+    free((char *)db_key->db_key.key.s);
+  }
+}

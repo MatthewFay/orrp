@@ -119,4 +119,6 @@ bool eng_container_get_db_handle(eng_container_t *c,
                                  eng_dc_user_db_type_t db_type,
                                  MDB_dbi *db_out);
 
+void eng_Container_free_contents_db_key(eng_container_db_key_t *db_key);
+
 #endif // CONTAINER_H

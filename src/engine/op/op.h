@@ -24,11 +24,17 @@ typedef enum {
 } cond_put_type;
 
 // Data for COUNT_TAG_INCREMENT operation
-typedef struct {
+typedef struct op_count_tag_data_s {
   char *tag; // e.g., "purchase:prod123"
   uint32_t entity_id;
   uint32_t increment; // Usually 1
 } op_count_tag_data_t;
+
+typedef enum {
+  OP_STR_DATA,
+  OP_INT32_DATA,
+  OP_COUNT_TAG_DATA
+} op_data_type;
 
 // An operation
 typedef struct op_s {
@@ -36,6 +42,8 @@ typedef struct op_s {
   cond_put_type cond_type; // Only relevant if op_type is COND_PUT
 
   eng_container_db_key_t db_key;
+
+  op_data_type data_type;
 
   // Operation-specific data
   union {

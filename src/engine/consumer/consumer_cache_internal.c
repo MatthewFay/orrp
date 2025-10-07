@@ -32,7 +32,7 @@ void consumer_cache_add_entry_to_dirty_list(consumer_cache_t *cache,
   cache->num_dirty_entries++;
 }
 
-void cache_clear_dirty_list(consumer_cache_t *cache) {
+void consumer_cache_clear_dirty_list(consumer_cache_t *cache) {
   cache->dirty_head = cache->dirty_tail = NULL;
   cache->num_dirty_entries = 0;
 }

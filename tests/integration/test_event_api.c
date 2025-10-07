@@ -33,7 +33,7 @@ static api_response_t *run_command(const char *command_string) {
   }
 
   // 3. Execute
-  api_response_t *api_res = api_exec(parse_res->ast, test_ctx);
+  api_response_t *api_res = api_exec(parse_res->ast);
   parse_free_result(parse_res); // Clean up parse result and AST
   return api_res;
 }

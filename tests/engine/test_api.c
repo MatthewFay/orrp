@@ -8,29 +8,28 @@
 
 // --- Mocking and Test Infrastructure ---
 
-// Mock eng_context_t and eng_event
-
+// Mock engine functions
 typedef struct {
   int called;
-  api_response_t *last_resp;
-  eng_context_t *last_ctx;
   ast_node_t *last_ast;
 } mock_eng_event_state_t;
 
 static mock_eng_event_state_t mock_state;
 
-void eng_event(api_response_t *resp, eng_context_t *ctx, ast_node_t *ast) {
+void eng_event(api_response_t *resp, ast_node_t *ast) {
   mock_state.called++;
-  mock_state.last_resp = resp;
-  mock_state.last_ctx = ctx;
   mock_state.last_ast = ast;
   // Simulate a successful event
   resp->is_ok = true;
   resp->data = strdup("event-ok");
   resp->err_msg = NULL;
+  resp->op_type = API_EVENT;
 }
 
-eng_context_t *eng_init(void) { return NULL; }
+eng_context_t *eng_init(void) {
+  return (eng_context_t *)0x1234; // Return dummy context
+}
+
 void eng_shutdown(eng_context_t *ctx) { (void)ctx; }
 
 // Helper to create a minimal valid EVENT AST
@@ -45,24 +44,22 @@ static ast_node_t *make_event_ast(const char *container, const char *entity) {
   return cmd;
 }
 
-// Helper to create a minimal valid context (opaque)
-static eng_context_t *make_ctx(void) { return (eng_context_t *)0x1234; }
-
 void setUp(void) { memset(&mock_state, 0, sizeof(mock_state)); }
-void tearDown(void) {}
+
+void tearDown(void) {
+  // Clean up any resources if needed
+}
 
 // --- Tests ---
 
 void test_api_event_success(void) {
   ast_node_t *ast = make_event_ast("metrics", "user-1");
-  eng_context_t *ctx = make_ctx();
-  api_response_t *resp = api_exec(ast, ctx);
+  api_response_t *resp = api_exec(ast);
   TEST_ASSERT_NOT_NULL(resp);
   TEST_ASSERT_TRUE(resp->is_ok);
   TEST_ASSERT_EQUAL_STRING("event-ok", (char *)resp->data);
   TEST_ASSERT_EQUAL(API_EVENT, resp->op_type);
   TEST_ASSERT_EQUAL(1, mock_state.called);
-  TEST_ASSERT_EQUAL_PTR(ctx, mock_state.last_ctx);
   TEST_ASSERT_NOT_NULL(mock_state.last_ast);
   free_api_response(resp);
 }
@@ -73,8 +70,7 @@ void test_api_event_invalid_ast_missing_in(void) {
   ast_node_t *entity_tag = ast_create_tag_node(
       KEY_ENTITY, ast_create_string_literal_node("user-1"), false);
   ast_append_node(&cmd->command.tags, entity_tag);
-  eng_context_t *ctx = make_ctx();
-  api_response_t *resp = api_exec(cmd, ctx);
+  api_response_t *resp = api_exec(cmd);
   TEST_ASSERT_NOT_NULL(resp);
   TEST_ASSERT_FALSE(resp->is_ok);
   TEST_ASSERT_EQUAL_STRING("Invalid AST", resp->err_msg);
@@ -88,8 +84,7 @@ void test_api_event_invalid_ast_missing_entity(void) {
   ast_node_t *in_tag = ast_create_tag_node(
       KEY_IN, ast_create_string_literal_node("metrics"), false);
   ast_append_node(&cmd->command.tags, in_tag);
-  eng_context_t *ctx = make_ctx();
-  api_response_t *resp = api_exec(cmd, ctx);
+  api_response_t *resp = api_exec(cmd);
   TEST_ASSERT_NOT_NULL(resp);
   TEST_ASSERT_FALSE(resp->is_ok);
   TEST_ASSERT_EQUAL_STRING("Invalid AST", resp->err_msg);
@@ -112,8 +107,7 @@ void test_api_event_invalid_ast_duplicate_custom_tag(void) {
   ast_append_node(&cmd->command.tags, entity_tag);
   ast_append_node(&cmd->command.tags, custom1);
   ast_append_node(&cmd->command.tags, custom2);
-  eng_context_t *ctx = make_ctx();
-  api_response_t *resp = api_exec(cmd, ctx);
+  api_response_t *resp = api_exec(cmd);
   TEST_ASSERT_NOT_NULL(resp);
   TEST_ASSERT_FALSE(resp->is_ok);
   TEST_ASSERT_EQUAL_STRING("Invalid AST", resp->err_msg);
@@ -130,8 +124,7 @@ void test_api_event_invalid_ast_invalid_container_name(void) {
       KEY_ENTITY, ast_create_string_literal_node("user-1"), false);
   ast_append_node(&cmd->command.tags, in_tag);
   ast_append_node(&cmd->command.tags, entity_tag);
-  eng_context_t *ctx = make_ctx();
-  api_response_t *resp = api_exec(cmd, ctx);
+  api_response_t *resp = api_exec(cmd);
   TEST_ASSERT_NOT_NULL(resp);
   TEST_ASSERT_FALSE(resp->is_ok);
   TEST_ASSERT_EQUAL_STRING("Invalid AST", resp->err_msg);
@@ -151,8 +144,7 @@ void test_api_event_invalid_ast_duplicate_reserved_tag(void) {
   ast_append_node(&cmd->command.tags, in_tag1);
   ast_append_node(&cmd->command.tags, in_tag2);
   ast_append_node(&cmd->command.tags, entity_tag);
-  eng_context_t *ctx = make_ctx();
-  api_response_t *resp = api_exec(cmd, ctx);
+  api_response_t *resp = api_exec(cmd);
   TEST_ASSERT_NOT_NULL(resp);
   TEST_ASSERT_FALSE(resp->is_ok);
   TEST_ASSERT_EQUAL_STRING("Invalid AST", resp->err_msg);
@@ -175,8 +167,7 @@ void test_api_event_invalid_ast_counter_twice(void) {
   ast_append_node(&cmd->command.tags, entity_tag);
   ast_append_node(&cmd->command.tags, c1);
   ast_append_node(&cmd->command.tags, c2);
-  eng_context_t *ctx = make_ctx();
-  api_response_t *resp = api_exec(cmd, ctx);
+  api_response_t *resp = api_exec(cmd);
   TEST_ASSERT_NOT_NULL(resp);
   TEST_ASSERT_FALSE(resp->is_ok);
   TEST_ASSERT_EQUAL_STRING("Invalid AST", resp->err_msg);
@@ -196,8 +187,7 @@ void test_api_event_invalid_ast_exp_tag(void) {
   ast_append_node(&cmd->command.tags, in_tag);
   ast_append_node(&cmd->command.tags, entity_tag);
   ast_append_node(&cmd->command.tags, exp_tag);
-  eng_context_t *ctx = make_ctx();
-  api_response_t *resp = api_exec(cmd, ctx);
+  api_response_t *resp = api_exec(cmd);
   TEST_ASSERT_NOT_NULL(resp);
   TEST_ASSERT_FALSE(resp->is_ok);
   TEST_ASSERT_EQUAL_STRING("Invalid AST", resp->err_msg);
@@ -207,8 +197,7 @@ void test_api_event_invalid_ast_exp_tag(void) {
 
 void test_api_event_invalid_ast_null(void) {
   // Null AST
-  eng_context_t *ctx = make_ctx();
-  api_response_t *resp = api_exec(NULL, ctx);
+  api_response_t *resp = api_exec(NULL);
   TEST_ASSERT_NOT_NULL(resp);
   TEST_ASSERT_FALSE(resp->is_ok);
   TEST_ASSERT_EQUAL_STRING("Invalid AST", resp->err_msg);

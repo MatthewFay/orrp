@@ -1,4 +1,5 @@
 #include "cmd_context.h"
+#include "query/ast.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -58,4 +59,16 @@ cmd_ctx_t *build_cmd_context(ast_command_node_t *cmd) {
   }
 
   return ctx;
+}
+
+void cmd_context_free(cmd_ctx_t *command) {
+  if (!command)
+    return;
+  ast_free(command->cursor_tag_value);
+  ast_free(command->entity_tag_value);
+  ast_free(command->exp_tag_value);
+  ast_free(command->in_tag_value);
+  ast_free(command->take_tag_value);
+  ast_free(command->custom_tags_head);
+  free(command);
 }
