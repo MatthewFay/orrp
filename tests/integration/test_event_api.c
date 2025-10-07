@@ -5,7 +5,6 @@
 #include <unistd.h>
 
 #include "engine/api.h"
-#include "engine/engine.h"
 #include "query/parser.h"
 #include "query/tokenizer.h"
 
@@ -58,11 +57,11 @@ static void _safe_remove_db_file(const char *container_name) {
   remove(file_path2);
 }
 
-// --- Test Suite Setup & Teardown ---
+// --- Suite-Level Setup & Teardown ---
+// These run ONCE for the entire test suite, not per-test
 
-void setUp(void) {
-  // This runs before each test to ensure a clean slate by removing
-  // any files that might have been left over from a previous run.
+void suiteSetUp(void) {
+  // Clean up any leftover files from a previous crashed run
   _safe_remove_db_file("system");
   _safe_remove_db_file("analytics");
   _safe_remove_db_file("logs");
@@ -70,20 +69,45 @@ void setUp(void) {
   _safe_remove_db_file("git");
   _safe_remove_db_file("high_volume_test");
 
-  test_ctx = eng_init();
-  TEST_ASSERT_NOT_NULL(test_ctx);
+  // Start the engine ONCE for all tests
+  test_ctx = api_start_eng();
+  if (!test_ctx) {
+    fprintf(stderr, "FATAL: Failed to start engine in suiteSetUp\n");
+    exit(1);
+  }
+}
+
+int suiteTearDown(int num_failures) {
+  // Stop the engine ONCE after all tests
+  // This joins all worker threads
+  api_stop_eng(test_ctx);
+  test_ctx = NULL;
+
+  // Now it's safe to clean up all the database files
+  _safe_remove_db_file("system");
+  _safe_remove_db_file("analytics");
+  _safe_remove_db_file("logs");
+  _safe_remove_db_file("products");
+  _safe_remove_db_file("git");
+  _safe_remove_db_file("high_volume_test");
+
+  if (num_failures > 0) {
+    return 1;
+  }
+  return 0;
+}
+
+// --- Per-Test Setup & Teardown ---
+// These are now empty since we're reusing the same engine
+
+void setUp(void) {
+  // Nothing needed per-test
+  // The engine is already running from suiteSetUp
 }
 
 void tearDown(void) {
-  // This runs after each test to clean up the files created.
-  eng_close_ctx(test_ctx);
-
-  _safe_remove_db_file("system");
-  _safe_remove_db_file("analytics");
-  _safe_remove_db_file("logs");
-  _safe_remove_db_file("products");
-  _safe_remove_db_file("git");
-  _safe_remove_db_file("high_volume_test");
+  // Nothing needed per-test
+  // We don't want to stop/restart the engine between tests
 }
 
 // --- Test Cases for EVENT Command ---
@@ -184,20 +208,13 @@ void test_EVENT_InvalidContainerName_ShouldFail(void) {
                      "in:"
                      "a23456789012345678901234567890123456789012345678901234567"
                      "8901234567890 entity:u1"; // Too long
-  // const char *cmd2 = "EVENT in: entity:u1"; // Invalid char ($)
 
   api_response_t *r1 = run_command(cmd1);
   TEST_ASSERT_NOT_NULL(r1);
   TEST_ASSERT_FALSE(r1->is_ok);
   TEST_ASSERT_EQUAL_STRING("Invalid AST", r1->err_msg);
 
-  // api_response_t *r2 = run_command(cmd2);
-  // TEST_ASSERT_NOT_NULL(r2);
-  // TEST_ASSERT_FALSE(r2->is_ok);
-  // TEST_ASSERT_EQUAL_STRING("Invalid AST", r2->err_msg);
-
   free_api_response(r1);
-  // free_api_response(r2);
 }
 
 void test_EVENT_SyntaxError_MalformedTag_ShouldFail(void) {
@@ -261,6 +278,9 @@ void test_EVENT_HighVolumeWrites_ShouldSucceed(void) {
 // --- Main function to run tests ---
 
 int main(void) {
+  // Suite setup - runs ONCE before all tests
+  suiteSetUp();
+
   UNITY_BEGIN();
 
   // Happy Path Tests
@@ -282,5 +302,10 @@ int main(void) {
   RUN_TEST(test_EVENT_EmptyCommand_ShouldFail);
   RUN_TEST(test_EVENT_CommandOnly_ShouldFail);
 
-  return UNITY_END();
+  int result = UNITY_END();
+
+  // Suite teardown - runs ONCE after all tests
+  suiteTearDown(result);
+
+  return result;
 }

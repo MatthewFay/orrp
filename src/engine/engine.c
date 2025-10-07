@@ -205,6 +205,14 @@ eng_context_t *eng_init(void) {
 
 // Shut down the engine
 void eng_shutdown(eng_context_t *ctx) {
+  for (int i = 0; i < NUM_WORKERS; i++) {
+    worker_stop(&g_workers[i]);
+  }
+  for (int i = 0; i < NUM_CONSUMERS; i++) {
+    consumer_stop(&g_consumers[i]);
+  }
+  eng_writer_stop(&g_eng_writer);
+
   eng_close_ctx(ctx);
   eng_dc_cache_destroy();
   for (int i = 0; i < NUM_CMD_QUEUEs; i++) {
@@ -213,7 +221,6 @@ void eng_shutdown(eng_context_t *ctx) {
   for (int i = 0; i < NUM_OP_QUEUES; i++) {
     op_queue_destroy(&g_op_queues[i]);
   }
-  eng_writer_stop(&g_eng_writer);
 }
 
 typedef struct incr_result_s {

@@ -340,8 +340,6 @@ parse_result_t *parse(Queue *tokens) {
 void parse_free_result(parse_result_t *r) {
   if (!r)
     return;
-  if (r->error_message)
-    free((char *)r->error_message);
   free(r);
 }
 
