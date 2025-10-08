@@ -20,9 +20,12 @@ typedef struct {
   uint32_t num_custom_tags;
   uint32_t num_counter_tags;
 
+  // Root AST
+  ast_node_t *ast;
 } cmd_ctx_t;
 
-cmd_ctx_t *build_cmd_context(ast_command_node_t *cmd);
+// Takes ownership of AST - used by Engine
+cmd_ctx_t *build_cmd_context(ast_node_t *ast);
 
 void cmd_context_free(cmd_ctx_t *command);
 

@@ -3,11 +3,13 @@
 #include <stdlib.h>
 #include <string.h>
 
-cmd_ctx_t *build_cmd_context(ast_command_node_t *cmd) {
+cmd_ctx_t *build_cmd_context(ast_node_t *ast) {
   cmd_ctx_t *ctx = calloc(1, sizeof(cmd_ctx_t));
   if (!ctx)
     return NULL;
 
+  ctx->ast = ast;
+  ast_command_node_t *cmd = &ast->command;
   ast_node_t *custom_tags_tail = NULL;
 
   for (ast_node_t *tag_node = cmd->tags; tag_node != NULL;
@@ -64,11 +66,12 @@ cmd_ctx_t *build_cmd_context(ast_command_node_t *cmd) {
 void cmd_context_free(cmd_ctx_t *command) {
   if (!command)
     return;
-  ast_free(command->cursor_tag_value);
-  ast_free(command->entity_tag_value);
-  ast_free(command->exp_tag_value);
-  ast_free(command->in_tag_value);
-  ast_free(command->take_tag_value);
-  ast_free(command->custom_tags_head);
+
+  // Free the entire AST, which this context now owns.
+  ast_free(command->ast);
+
+  // The other pointers (in_tag_value, etc.) are inside the AST,
+  // so they are freed by the call above. We only need to free the context
+  // struct itself.
   free(command);
 }

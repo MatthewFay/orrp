@@ -303,8 +303,6 @@ static int _do_work(worker_t *worker) {
       if (cmd_queue_dequeue(queue, &msg)) {
         num_msgs++;
         _process_msg(worker, msg, &sys_txn);
-        // Can we replace these with 1 function?
-        cmd_queue_free_msg_contents(msg);
         cmd_queue_free_msg(msg);
         msg = NULL;
       }

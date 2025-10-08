@@ -267,7 +267,7 @@ static bool _eng_enqueue_cmd(cmd_ctx_t *command) {
 }
 
 void eng_event(api_response_t *r, ast_node_t *ast) {
-  cmd_ctx_t *cmd_ctx = build_cmd_context(&ast->command);
+  cmd_ctx_t *cmd_ctx = build_cmd_context(ast);
   if (!cmd_ctx) {
     r->err_msg = "Error generating command context";
     return;

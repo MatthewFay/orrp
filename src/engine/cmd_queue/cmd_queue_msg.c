@@ -11,9 +11,9 @@ cmd_queue_msg_t *cmd_queue_create_msg(cmd_ctx_t *command) {
   return msg;
 }
 
-void cmd_queue_free_msg_contents(cmd_queue_msg_t *msg) {
+void cmd_queue_free_msg(cmd_queue_msg_t *msg) {
   if (!msg)
     return;
   cmd_context_free(msg->command);
+  free(msg);
 }
-void cmd_queue_free_msg(cmd_queue_msg_t *msg) { free(msg); }

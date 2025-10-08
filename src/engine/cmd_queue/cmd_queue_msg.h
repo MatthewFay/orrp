@@ -10,7 +10,6 @@ typedef struct cmd_queue_msg_s {
 
 cmd_queue_msg_t *cmd_queue_create_msg(cmd_ctx_t *command);
 
-void cmd_queue_free_msg_contents(cmd_queue_msg_t *msg);
 void cmd_queue_free_msg(cmd_queue_msg_t *msg);
 
 #endif

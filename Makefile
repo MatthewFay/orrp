@@ -167,6 +167,7 @@ test: bin/test_bitmaps \
 			bin/test_queue \
 			bin/test_stack \
 			bin/test_api \
+			bin/test_cmd_context \
 			bin/test_tokenizer \
  		  bin/test_ast \
 			bin/test_parser \
@@ -188,6 +189,8 @@ test: bin/test_bitmaps \
 
 	@echo "--- Running api test ---"
 	./bin/test_api
+	@echo "--- Running cmd_context test ---"
+	./bin/test_cmd_context
 
 	@echo "--- Running ast test ---"
 	./bin/test_ast
@@ -209,6 +212,7 @@ test_build: bin/test_bitmaps \
 						bin/test_queue \
 						bin/test_stack \
 						bin/test_api \
+						bin/test_cmd_context \
 					  bin/test_ast \
 					  bin/test_parser \
 						bin/test_tokenizer \
@@ -264,6 +268,13 @@ bin/test_stack: tests/core/test_stack.c \
 # Rule to build the api test executable
 bin/test_api: tests/engine/test_api.c \
 							src/engine/api.c \
+							src/query/ast.c \
+							${UNITY_SRC} | $(BIN_DIR)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
+
+# Rule to build the cmd_context test executable
+bin/test_cmd_context: tests/engine/test_cmd_context.c \
+							src/engine/cmd_context/cmd_context.c \
 							src/query/ast.c \
 							${UNITY_SRC} | $(BIN_DIR)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
