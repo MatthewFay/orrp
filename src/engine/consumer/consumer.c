@@ -57,7 +57,7 @@ _get_or_Create_cache_entry(consumer_cache_t *cache,
   db_get_result_t r;
   consumer_cache_entry_t *cached_entry = NULL;
   if (!consumer_cache_get_entry(cache, key->ser_db_key, &cached_entry)) {
-    return false;
+    return NULL;
   }
   if (cached_entry) {
     *was_cached_out = true;
@@ -102,6 +102,9 @@ static bool _process_cache_msgs(consumer_t *consumer, eng_container_t *dc,
     }
     consumer_cache_entry_t *cache_entry = _get_or_Create_cache_entry(
         &consumer->cache, key, b_entry->msg, db, txn, &was_cached);
+    if (!cache_entry) {
+      return false;
+    }
     bitmap_t *old_bm;
     bitmap_t *bm = atomic_load(&cache_entry->bitmap);
     if (was_cached) {
@@ -154,11 +157,11 @@ static bool _process_cache_msgs(consumer_t *consumer, eng_container_t *dc,
                             &victim->bitmap->epoch_entry);
         consumer_cache_free_entry(victim);
       }
+    }
 
-      if (!consumer_cache_add_entry(&consumer->cache, key->ser_db_key,
-                                    cache_entry)) {
-        // TODO: handle error
-      }
+    if (!consumer_cache_add_entry(&consumer->cache, key->ser_db_key,
+                                  cache_entry)) {
+      // TODO: handle error
     }
   }
 
@@ -258,6 +261,7 @@ static bool _add_msg_to_batch(op_queue_msg_batch_t *batch,
   return true;
 }
 
+// Also free's consumed `op` msgs
 static void _free_batch_hash(op_queue_msg_batch_t *batch_hash) {
   if (!batch_hash)
     return;
@@ -270,6 +274,7 @@ static void _free_batch_hash(op_queue_msg_batch_t *batch_hash) {
       b_entry = k->head;
       while (b_entry) {
         b_entry_tmp = b_entry->next;
+        op_queue_msg_free(b_entry->msg);
         free(b_entry);
         b_entry = b_entry_tmp;
       }
@@ -336,19 +341,39 @@ static void _flush(consumer_t *c) {
   for (consumer_cache_entry_t *cache_entry = c->cache.dirty_head; cache_entry;
        cache_entry = cache_entry->dirty_next) {
     bitmap_t *bm = atomic_load(&cache_entry->bitmap);
+    if (!bm) {
+      continue;
+    }
     eng_writer_entry_t *entry = &msg->entries[msg->count];
     entry->bitmap_copy = bitmap_copy(bm);
-    // TODO: handle error if copy fails
+    if (!entry->bitmap_copy) {
+      continue;
+    }
     entry->flush_version_ptr = &cache_entry->flush_version;
     entry->db_key = cache_entry->db_key;
     entry->db_key.container_name = strdup(cache_entry->db_key.container_name);
+    if (!entry->db_key.container_name) {
+      bitmap_free(entry->bitmap_copy);
+      continue;
+    }
     if (cache_entry->db_key.db_key.type == DB_KEY_STRING) {
       entry->db_key.db_key.key.s = strdup(cache_entry->db_key.db_key.key.s);
+      if (!entry->db_key.db_key.key.s) {
+        free((void *)entry->db_key.container_name);
+        bitmap_free(entry->bitmap_copy);
+        continue;
+      }
     }
     msg->count++;
   }
 
-  eng_writer_queue_enqueue(&c->config.writer->queue, msg);
+  if (msg->count > 0) {
+    eng_writer_queue_enqueue(&c->config.writer->queue, msg);
+  } else {
+    free(msg->entries);
+    free(msg);
+  }
+
   consumer_cache_clear_dirty_list(&c->cache);
 }
 
@@ -424,5 +449,14 @@ bool consumer_stop(consumer_t *consumer) {
   if (uv_thread_join(&consumer->thread) != 0) {
     return false;
   }
+  consumer_ebr_unregister(&consumer->consumer_cache_thread_epoch_record);
+  consumer_cache_destroy(&consumer->cache);
   return true;
+}
+
+void consumer_get_stats(consumer_t *consumer, uint64_t *processed_out) {
+  if (!consumer || !processed_out) {
+    return;
+  }
+  *processed_out = consumer->messages_processed;
 }

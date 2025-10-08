@@ -15,6 +15,10 @@ void consumer_ebr_register(ck_epoch_t *epoch, ck_epoch_record_t *record) {
   ck_epoch_register(epoch, record, NULL);
 }
 
+void consumer_ebr_unregister(ck_epoch_record_t *record) {
+  ck_epoch_unregister(record);
+}
+
 void consumer_ebr_retire(ck_epoch_record_t *record, ck_epoch_entry_t *entry) {
   ck_epoch_call(record, entry, _dispose_bitmap);
 }

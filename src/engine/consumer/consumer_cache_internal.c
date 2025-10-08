@@ -116,6 +116,12 @@ bool consumer_cache_init(consumer_cache_t *cache,
   return true;
 }
 
+bool consumer_cache_destroy(consumer_cache_t *consumer_cache) {
+  // TODO
+  (void)consumer_cache;
+  return true;
+}
+
 bool consumer_cache_get_entry(consumer_cache_t *consumer_cache,
                               const char *ser_db_key,
                               consumer_cache_entry_t **entry_out) {

@@ -34,7 +34,7 @@ typedef struct consumer_cache_s {
 
 bool consumer_cache_init(consumer_cache_t *consumer_cache,
                          consumer_cache_config_t *cache_config);
-bool consumer_cache_shutdown(consumer_cache_t *consumer_cache);
+bool consumer_cache_destroy(consumer_cache_t *consumer_cache);
 
 bool consumer_cache_get_entry(consumer_cache_t *consumer_cache,
                               const char *ser_db_key,
