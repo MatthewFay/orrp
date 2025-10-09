@@ -24,7 +24,7 @@ op_t *op_create_str_val(eng_container_db_key_t *db_key, op_type op_type,
 
 op_t *op_create_int32_val(eng_container_db_key_t *db_key, op_type op_type,
                           cond_put_type cond_type, uint32_t val) {
-  if (!db_key || !val)
+  if (!db_key)
     return NULL;
   op_t *op = calloc(1, sizeof(op_t));
   if (!op)
@@ -50,7 +50,7 @@ op_t *op_create_count_tag_increment(eng_container_db_key_t *db_key,
   if (!op)
     return NULL;
   op_count_tag_data_t *data = calloc(1, sizeof(op_count_tag_data_t));
-  if (data) {
+  if (!data) {
     free(op);
     return NULL;
   }
@@ -65,6 +65,7 @@ op_t *op_create_count_tag_increment(eng_container_db_key_t *db_key,
   data->tag = strdup(tag);
   data->entity_id = entity_id;
   data->increment = increment;
+  op->data.count_tag_data = data;
   return op;
 }
 
@@ -77,7 +78,8 @@ void op_destroy(op_t *op) {
     free(op->data.str_value);
     break;
   case OP_COUNT_TAG_DATA:
-    free(op->data.count_tag_data.tag);
+    free(op->data.count_tag_data->tag);
+    free(op->data.count_tag_data);
     break;
   default:
     break;

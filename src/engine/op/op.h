@@ -30,11 +30,7 @@ typedef struct op_count_tag_data_s {
   uint32_t increment; // Usually 1
 } op_count_tag_data_t;
 
-typedef enum {
-  OP_STR_DATA,
-  OP_INT32_DATA,
-  OP_COUNT_TAG_DATA
-} op_data_type;
+typedef enum { OP_STR_DATA, OP_INT32_DATA, OP_COUNT_TAG_DATA } op_data_type;
 
 // An operation
 typedef struct op_s {
@@ -50,7 +46,7 @@ typedef struct op_s {
     char *str_value;
     uint32_t int32_value;
     // For COUNT_TAG_INCREMENT
-    op_count_tag_data_t count_tag_data;
+    op_count_tag_data_t *count_tag_data;
   } data;
 } op_t;
 

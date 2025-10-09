@@ -41,6 +41,7 @@ static bool _create_incr_entity_id_op(uint32_t entity_id, worker_ops_t *ops,
   db_key.sys_db_type = SYS_DB_METADATA;
   db_key.db_key.type = DB_KEY_STRING;
   db_key.db_key.key.s = SYS_NEXT_ENT_ID_KEY;
+  db_key.container_name = SYS_CONTAINER_NAME;
   if (!db_key_into(key_buffer, sizeof(key_buffer), &db_key)) {
     return false;
   }
@@ -57,12 +58,13 @@ static bool _create_incr_entity_id_op(uint32_t entity_id, worker_ops_t *ops,
   return true;
 }
 
-static bool _create_incr_event_id_op(uint32_t event_id, worker_ops_t *ops,
-                                     int *i) {
+static bool _create_incr_event_id_op(char *container_name, uint32_t event_id,
+                                     worker_ops_t *ops, int *i) {
   char key_buffer[512];
 
   eng_container_db_key_t db_key;
   db_key.dc_type = CONTAINER_TYPE_USER;
+  db_key.container_name = container_name;
   db_key.user_db_type = USER_DB_METADATA;
   db_key.db_key.type = DB_KEY_STRING;
   db_key.db_key.key.s = USR_NEXT_EVENT_ID_KEY;
@@ -118,12 +120,14 @@ static bool _create_ent_mapping_ops(char *ent_str_id, uint32_t ent_int_id,
   return true;
 }
 
-static bool _create_event_to_entity_op(uint32_t event_id, uint32_t ent_int_id,
-                                       worker_ops_t *ops, int *i) {
-  char key_buffer[512];
+static bool _create_event_to_entity_op(char *container_name, uint32_t event_id,
+                                       uint32_t ent_int_id, worker_ops_t *ops,
+                                       int *i) {
+  char key_buffer[512] = {0};
 
   eng_container_db_key_t db_key;
   db_key.dc_type = CONTAINER_TYPE_USER;
+  db_key.container_name = container_name;
   db_key.user_db_type = USER_DB_EVENT_TO_ENTITY;
   db_key.db_key.type = DB_KEY_INTEGER;
   db_key.db_key.key.i = event_id;
@@ -246,10 +250,11 @@ static bool _create_ops(cmd_queue_msg_t *msg, char *container_name,
     }
   }
 
-  if (!_create_incr_event_id_op(event_id, ops_out, &ops_created))
+  if (!_create_incr_event_id_op(container_name, event_id, ops_out,
+                                &ops_created))
     goto cleanup;
-  if (!_create_event_to_entity_op(event_id, entity_id_int32, ops_out,
-                                  &ops_created))
+  if (!_create_event_to_entity_op(container_name, event_id, entity_id_int32,
+                                  ops_out, &ops_created))
     goto cleanup;
   if (!_create_write_to_event_index_ops(container_name, event_id, msg, ops_out,
                                         &ops_created)) {

@@ -18,10 +18,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define CONTAINER_FOLDER "data"
 #define MAX_PATH_LENGTH 128
+
+#define CONTAINER_FOLDER "data"
+#define DC_CACHE_CAPACITY 128
 const size_t CONTAINER_SIZE = 1048576;
-#define DC_CACHE_CAPACITY 64
 
 const char *ENG_TXN_ERR = "Transaction error";
 const char *ENG_ID_TRANSL_ERR = "Id translation error";

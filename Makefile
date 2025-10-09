@@ -168,6 +168,11 @@ test: bin/test_bitmaps \
 			bin/test_stack \
 			bin/test_api \
 			bin/test_cmd_context \
+			bin/test_consumer_cache \
+			bin/test_container \
+			bin/test_dc_cache \
+			bin/test_eng_key_format \
+			bin/test_op \
 			bin/test_tokenizer \
  		  bin/test_ast \
 			bin/test_parser \
@@ -191,6 +196,16 @@ test: bin/test_bitmaps \
 	./bin/test_api
 	@echo "--- Running cmd_context test ---"
 	./bin/test_cmd_context
+	@echo "--- Running consumer_cache test ---"
+	./bin/test_consumer_cache
+	@echo "--- Running container test ---"
+	./bin/test_container
+	@echo "--- Running dc_cache test ---"
+	./bin/test_dc_cache
+	@echo "--- Running eng_key_format test ---"
+	./bin/test_eng_key_format
+	@echo "--- Running op test ---"
+	./bin/test_op
 
 	@echo "--- Running ast test ---"
 	./bin/test_ast
@@ -213,6 +228,11 @@ test_build: bin/test_bitmaps \
 						bin/test_stack \
 						bin/test_api \
 						bin/test_cmd_context \
+						bin/test_consumer_cache \
+						bin/test_container \
+						bin/test_dc_cache \
+						bin/test_eng_key_format \
+						bin/test_op \
 					  bin/test_ast \
 					  bin/test_parser \
 						bin/test_tokenizer \
@@ -276,6 +296,47 @@ bin/test_api: tests/engine/test_api.c \
 bin/test_cmd_context: tests/engine/test_cmd_context.c \
 							src/engine/cmd_context/cmd_context.c \
 							src/query/ast.c \
+							${UNITY_SRC} | $(BIN_DIR)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
+
+# Rule to build the consumer_cache test executable
+bin/test_consumer_cache: tests/engine/test_consumer_cache.c \
+							src/engine/consumer/consumer_cache_internal.c \
+							src/engine/consumer/consumer_cache_entry.c \
+							src/core/bitmaps.c \
+							src/query/ast.c \
+							lib/roaring/roaring.c \
+							${UNITY_SRC} | $(BIN_DIR)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS) $(LIBCK_A)
+
+# Rule to build the container test executable
+bin/test_container: tests/engine/test_container.c \
+							src/engine/container/container.c \
+							src/core/db.c \
+							lib/lmdb/mdb.c \
+							lib/lmdb/midl.c \
+							${UNITY_SRC} | $(BIN_DIR)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
+
+# Rule to build the dc_cache test executable
+bin/test_dc_cache: tests/engine/test_dc_cache.c \
+							src/engine/dc_cache/dc_cache.c \
+							src/core/db.c \
+							lib/lmdb/mdb.c \
+							lib/lmdb/midl.c \
+							${UNITY_SRC} | $(BIN_DIR)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
+
+# Rule to build the eng_key_format test executable
+bin/test_eng_key_format: tests/engine/test_eng_key_format.c \
+							src/engine/eng_key_format/eng_key_format.c \
+							src/query/ast.c \
+							${UNITY_SRC} | $(BIN_DIR)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
+
+# Rule to build the op test executable
+bin/test_op: tests/engine/test_op.c \
+							src/engine/op/op.c \
 							${UNITY_SRC} | $(BIN_DIR)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
 

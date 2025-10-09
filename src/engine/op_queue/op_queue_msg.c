@@ -19,7 +19,6 @@ void op_queue_msg_free(op_queue_msg_t *msg) {
 
   op_destroy(msg->op);
 
-  free(msg->op);
   free(msg->ser_db_key);
   free(msg);
 }

@@ -1,0 +1,466 @@
+#include "core/bitmaps.h"
+#include "engine/consumer/consumer_cache_entry.h"
+#include "engine/consumer/consumer_cache_internal.h"
+#include "unity.h"
+#include <string.h>
+
+// Test fixture
+static consumer_cache_t cache;
+
+// Test helper: create a mock cache entry
+static consumer_cache_entry_t *create_test_entry(const char *key,
+                                                 uint64_t version) {
+  consumer_cache_entry_t *entry = calloc(1, sizeof(consumer_cache_entry_t));
+  entry->ser_db_key = strdup(key);
+
+  bitmap_t *bm = bitmap_create();
+  atomic_init(&entry->bitmap, bm);
+  atomic_init(&entry->flush_version, 0);
+  bm->version = version;
+
+  entry->lru_next = NULL;
+  entry->lru_prev = NULL;
+  entry->dirty_next = NULL;
+
+  return entry;
+}
+
+static void free_test_entry(consumer_cache_entry_t *entry) {
+  if (!entry)
+    return;
+  bitmap_t *bm = atomic_load(&entry->bitmap);
+  if (bm)
+    bitmap_free(bm);
+  free(entry->ser_db_key);
+  free(entry);
+}
+
+void setUp(void) {
+  consumer_cache_config_t config = {.capacity = 100};
+  consumer_cache_init(&cache, &config);
+}
+
+void tearDown(void) { consumer_cache_destroy(&cache); }
+
+// =============================================================================
+// Initialization Tests
+// =============================================================================
+
+void test_cache_init_sets_correct_defaults(void) {
+  TEST_ASSERT_EQUAL_UINT32(0, cache.n_entries);
+  TEST_ASSERT_NULL(cache.lru_head);
+  TEST_ASSERT_NULL(cache.lru_tail);
+  TEST_ASSERT_NULL(cache.dirty_head);
+  TEST_ASSERT_NULL(cache.dirty_tail);
+  TEST_ASSERT_EQUAL_UINT32(0, cache.num_dirty_entries);
+}
+
+// =============================================================================
+// Add/Get Entry Tests
+// =============================================================================
+
+void test_add_single_entry_succeeds(void) {
+  consumer_cache_entry_t *entry = create_test_entry("key1", 0);
+
+  TEST_ASSERT_TRUE(consumer_cache_add_entry(&cache, "key1", entry));
+  TEST_ASSERT_EQUAL_UINT32(1, cache.n_entries);
+  TEST_ASSERT_EQUAL_PTR(entry, cache.lru_head);
+  TEST_ASSERT_EQUAL_PTR(entry, cache.lru_tail);
+
+  free_test_entry(entry);
+}
+
+void test_get_existing_entry_returns_true(void) {
+  consumer_cache_entry_t *entry = create_test_entry("key1", 0);
+  consumer_cache_add_entry(&cache, "key1", entry);
+
+  consumer_cache_entry_t *retrieved = NULL;
+  TEST_ASSERT_TRUE(consumer_cache_get_entry(&cache, "key1", &retrieved));
+  TEST_ASSERT_EQUAL_PTR(entry, retrieved);
+
+  free_test_entry(entry);
+}
+
+void test_get_nonexistent_entry_returns_false(void) {
+  consumer_cache_entry_t *retrieved = NULL;
+  TEST_ASSERT_FALSE(
+      consumer_cache_get_entry(&cache, "nonexistent", &retrieved));
+  TEST_ASSERT_NULL(retrieved);
+}
+
+void test_add_multiple_entries_increments_count(void) {
+  consumer_cache_entry_t *e1 = create_test_entry("key1", 0);
+  consumer_cache_entry_t *e2 = create_test_entry("key2", 0);
+  consumer_cache_entry_t *e3 = create_test_entry("key3", 0);
+
+  consumer_cache_add_entry(&cache, "key1", e1);
+  consumer_cache_add_entry(&cache, "key2", e2);
+  consumer_cache_add_entry(&cache, "key3", e3);
+
+  TEST_ASSERT_EQUAL_UINT32(3, cache.n_entries);
+
+  consumer_cache_entry_t *retrieved = NULL;
+  TEST_ASSERT_TRUE(consumer_cache_get_entry(&cache, "key2", &retrieved));
+  TEST_ASSERT_EQUAL_PTR(e2, retrieved);
+
+  free_test_entry(e1);
+  free_test_entry(e2);
+  free_test_entry(e3);
+}
+
+void test_add_null_entry_returns_false(void) {
+  TEST_ASSERT_FALSE(consumer_cache_add_entry(&cache, "key1", NULL));
+  TEST_ASSERT_EQUAL_UINT32(0, cache.n_entries);
+}
+
+void test_add_null_key_returns_false(void) {
+  consumer_cache_entry_t *entry = create_test_entry("key1", 0);
+  TEST_ASSERT_FALSE(consumer_cache_add_entry(&cache, NULL, entry));
+  free_test_entry(entry);
+}
+
+// =============================================================================
+// LRU Tests
+// =============================================================================
+
+void test_lru_head_is_most_recently_added(void) {
+  consumer_cache_entry_t *e1 = create_test_entry("key1", 0);
+  consumer_cache_entry_t *e2 = create_test_entry("key2", 0);
+  consumer_cache_entry_t *e3 = create_test_entry("key3", 0);
+
+  consumer_cache_add_entry(&cache, "key1", e1);
+  consumer_cache_add_entry(&cache, "key2", e2);
+  consumer_cache_add_entry(&cache, "key3", e3);
+
+  TEST_ASSERT_EQUAL_PTR(e3, cache.lru_head);
+  TEST_ASSERT_EQUAL_PTR(e1, cache.lru_tail);
+
+  free_test_entry(e1);
+  free_test_entry(e2);
+  free_test_entry(e3);
+}
+
+void test_get_moves_entry_to_lru_head(void) {
+  consumer_cache_entry_t *e1 = create_test_entry("key1", 0);
+  consumer_cache_entry_t *e2 = create_test_entry("key2", 0);
+  consumer_cache_entry_t *e3 = create_test_entry("key3", 0);
+
+  consumer_cache_add_entry(&cache, "key1", e1);
+  consumer_cache_add_entry(&cache, "key2", e2);
+  consumer_cache_add_entry(&cache, "key3", e3);
+
+  // e3 is head, e1 is tail
+  TEST_ASSERT_EQUAL_PTR(e3, cache.lru_head);
+  TEST_ASSERT_EQUAL_PTR(e1, cache.lru_tail);
+
+  // Access e1 (tail)
+  consumer_cache_entry_t *retrieved = NULL;
+  consumer_cache_get_entry(&cache, "key1", &retrieved);
+
+  // e1 should now be head
+  TEST_ASSERT_EQUAL_PTR(e1, cache.lru_head);
+  TEST_ASSERT_EQUAL_PTR(e2, cache.lru_tail);
+
+  free_test_entry(e1);
+  free_test_entry(e2);
+  free_test_entry(e3);
+}
+
+void test_get_already_head_entry_stays_head(void) {
+  consumer_cache_entry_t *e1 = create_test_entry("key1", 0);
+  consumer_cache_entry_t *e2 = create_test_entry("key2", 0);
+
+  consumer_cache_add_entry(&cache, "key1", e1);
+  consumer_cache_add_entry(&cache, "key2", e2);
+
+  TEST_ASSERT_EQUAL_PTR(e2, cache.lru_head);
+
+  consumer_cache_entry_t *retrieved = NULL;
+  consumer_cache_get_entry(&cache, "key2", &retrieved);
+
+  TEST_ASSERT_EQUAL_PTR(e2, cache.lru_head);
+
+  free_test_entry(e1);
+  free_test_entry(e2);
+}
+
+void test_lru_list_linkage_after_multiple_ops(void) {
+  consumer_cache_entry_t *e1 = create_test_entry("key1", 0);
+  consumer_cache_entry_t *e2 = create_test_entry("key2", 0);
+  consumer_cache_entry_t *e3 = create_test_entry("key3", 0);
+
+  consumer_cache_add_entry(&cache, "key1", e1);
+  consumer_cache_add_entry(&cache, "key2", e2);
+  consumer_cache_add_entry(&cache, "key3", e3);
+
+  // Access middle entry
+  consumer_cache_entry_t *retrieved = NULL;
+  consumer_cache_get_entry(&cache, "key2", &retrieved);
+
+  // Verify linkage: e2 -> e3 -> e1
+  TEST_ASSERT_EQUAL_PTR(e2, cache.lru_head);
+  TEST_ASSERT_EQUAL_PTR(e3, e2->lru_next);
+  TEST_ASSERT_EQUAL_PTR(e1, e3->lru_next);
+  TEST_ASSERT_NULL(e1->lru_next);
+
+  free_test_entry(e1);
+  free_test_entry(e2);
+  free_test_entry(e3);
+}
+
+// =============================================================================
+// Eviction Tests
+// =============================================================================
+
+void test_evict_lru_removes_tail(void) {
+  consumer_cache_entry_t *e1 = create_test_entry("key1", 0);
+  consumer_cache_entry_t *e2 = create_test_entry("key2", 0);
+
+  consumer_cache_add_entry(&cache, "key1", e1);
+  consumer_cache_add_entry(&cache, "key2", e2);
+
+  TEST_ASSERT_EQUAL_PTR(e1, cache.lru_tail);
+
+  consumer_cache_entry_t *evicted = consumer_cache_evict_lru(&cache);
+
+  TEST_ASSERT_EQUAL_PTR(e1, evicted);
+  TEST_ASSERT_EQUAL_UINT32(1, cache.n_entries);
+  TEST_ASSERT_EQUAL_PTR(e2, cache.lru_tail);
+  TEST_ASSERT_EQUAL_PTR(e2, cache.lru_head);
+
+  free_test_entry(e1);
+  free_test_entry(e2);
+}
+
+void test_evict_lru_on_empty_cache_returns_null(void) {
+  consumer_cache_entry_t *evicted = consumer_cache_evict_lru(&cache);
+  TEST_ASSERT_NULL(evicted);
+}
+
+void test_evict_lru_refuses_dirty_entry(void) {
+  consumer_cache_entry_t *entry = create_test_entry("key1", 1);
+  consumer_cache_add_entry(&cache, "key1", entry);
+
+  // flush_version is 0, bitmap version is 1 -> dirty
+  bitmap_t *bm = atomic_load(&entry->bitmap);
+  TEST_ASSERT_EQUAL_UINT64(1, bm->version);
+  TEST_ASSERT_EQUAL_UINT64(0, atomic_load(&entry->flush_version));
+
+  consumer_cache_entry_t *evicted = consumer_cache_evict_lru(&cache);
+
+  TEST_ASSERT_NULL(evicted);
+  TEST_ASSERT_EQUAL_UINT32(1, cache.n_entries);
+
+  free_test_entry(entry);
+}
+
+void test_evict_lru_allows_clean_entry(void) {
+  consumer_cache_entry_t *entry = create_test_entry("key1", 5);
+  consumer_cache_add_entry(&cache, "key1", entry);
+
+  // Mark as flushed
+  atomic_store(&entry->flush_version, 5);
+
+  bitmap_t *bm = atomic_load(&entry->bitmap);
+  TEST_ASSERT_EQUAL_UINT64(5, bm->version);
+  TEST_ASSERT_EQUAL_UINT64(5, atomic_load(&entry->flush_version));
+
+  consumer_cache_entry_t *evicted = consumer_cache_evict_lru(&cache);
+
+  TEST_ASSERT_EQUAL_PTR(entry, evicted);
+  TEST_ASSERT_EQUAL_UINT32(0, cache.n_entries);
+
+  free_test_entry(entry);
+}
+
+void test_evict_lru_updates_lru_pointers(void) {
+  consumer_cache_entry_t *e1 = create_test_entry("key1", 0);
+  consumer_cache_entry_t *e2 = create_test_entry("key2", 0);
+  consumer_cache_entry_t *e3 = create_test_entry("key3", 0);
+
+  consumer_cache_add_entry(&cache, "key1", e1);
+  consumer_cache_add_entry(&cache, "key2", e2);
+  consumer_cache_add_entry(&cache, "key3", e3);
+
+  consumer_cache_entry_t *evicted = consumer_cache_evict_lru(&cache);
+  TEST_ASSERT_EQUAL_PTR(e1, evicted);
+
+  // e2 should now be tail
+  TEST_ASSERT_EQUAL_PTR(e2, cache.lru_tail);
+  TEST_ASSERT_NULL(e2->lru_next);
+
+  free_test_entry(e1);
+  free_test_entry(e2);
+  free_test_entry(e3);
+}
+
+// =============================================================================
+// Dirty List Tests
+// =============================================================================
+
+void test_add_entry_to_dirty_list_succeeds(void) {
+  consumer_cache_entry_t *entry = create_test_entry("key1", 0);
+
+  consumer_cache_add_entry_to_dirty_list(&cache, entry);
+
+  TEST_ASSERT_EQUAL_PTR(entry, cache.dirty_head);
+  TEST_ASSERT_EQUAL_PTR(entry, cache.dirty_tail);
+  TEST_ASSERT_EQUAL_UINT32(1, cache.num_dirty_entries);
+  TEST_ASSERT_NULL(entry->dirty_next);
+
+  free_test_entry(entry);
+}
+
+void test_add_multiple_entries_to_dirty_list(void) {
+  consumer_cache_entry_t *e1 = create_test_entry("key1", 0);
+  consumer_cache_entry_t *e2 = create_test_entry("key2", 0);
+  consumer_cache_entry_t *e3 = create_test_entry("key3", 0);
+
+  consumer_cache_add_entry_to_dirty_list(&cache, e1);
+  consumer_cache_add_entry_to_dirty_list(&cache, e2);
+  consumer_cache_add_entry_to_dirty_list(&cache, e3);
+
+  TEST_ASSERT_EQUAL_PTR(e1, cache.dirty_head);
+  TEST_ASSERT_EQUAL_PTR(e3, cache.dirty_tail);
+  TEST_ASSERT_EQUAL_UINT32(3, cache.num_dirty_entries);
+
+  // Check linkage
+  TEST_ASSERT_EQUAL_PTR(e2, e1->dirty_next);
+  TEST_ASSERT_EQUAL_PTR(e3, e2->dirty_next);
+  TEST_ASSERT_NULL(e3->dirty_next);
+
+  free_test_entry(e1);
+  free_test_entry(e2);
+  free_test_entry(e3);
+}
+
+void test_add_already_dirty_entry_is_idempotent(void) {
+  consumer_cache_entry_t *entry = create_test_entry("key1", 0);
+
+  consumer_cache_add_entry_to_dirty_list(&cache, entry);
+  consumer_cache_add_entry_to_dirty_list(&cache, entry);
+  consumer_cache_add_entry_to_dirty_list(&cache, entry);
+
+  TEST_ASSERT_EQUAL_UINT32(1, cache.num_dirty_entries);
+  TEST_ASSERT_EQUAL_PTR(entry, cache.dirty_head);
+  TEST_ASSERT_EQUAL_PTR(entry, cache.dirty_tail);
+
+  free_test_entry(entry);
+}
+
+void test_clear_dirty_list_resets_state(void) {
+  consumer_cache_entry_t *e1 = create_test_entry("key1", 0);
+  consumer_cache_entry_t *e2 = create_test_entry("key2", 0);
+
+  consumer_cache_add_entry_to_dirty_list(&cache, e1);
+  consumer_cache_add_entry_to_dirty_list(&cache, e2);
+
+  TEST_ASSERT_EQUAL_UINT32(2, cache.num_dirty_entries);
+
+  consumer_cache_clear_dirty_list(&cache);
+
+  TEST_ASSERT_NULL(cache.dirty_head);
+  TEST_ASSERT_NULL(cache.dirty_tail);
+  TEST_ASSERT_EQUAL_UINT32(0, cache.num_dirty_entries);
+
+  free_test_entry(e1);
+  free_test_entry(e2);
+}
+
+void test_add_to_dirty_list_with_null_entry_is_safe(void) {
+  consumer_cache_add_entry_to_dirty_list(&cache, NULL);
+  TEST_ASSERT_EQUAL_UINT32(0, cache.num_dirty_entries);
+}
+
+// =============================================================================
+// Integration Tests
+// =============================================================================
+
+void test_add_get_evict_workflow(void) {
+  consumer_cache_entry_t *e1 = create_test_entry("key1", 0);
+  consumer_cache_entry_t *e2 = create_test_entry("key2", 0);
+
+  // Add entries
+  consumer_cache_add_entry(&cache, "key1", e1);
+  consumer_cache_add_entry(&cache, "key2", e2);
+
+  // Get e1 to make it MRU
+  consumer_cache_entry_t *retrieved = NULL;
+  consumer_cache_get_entry(&cache, "key1", &retrieved);
+
+  // e2 is now LRU, should be evicted
+  consumer_cache_entry_t *evicted = consumer_cache_evict_lru(&cache);
+  TEST_ASSERT_EQUAL_PTR(e2, evicted);
+
+  // e1 should still be retrievable
+  TEST_ASSERT_TRUE(consumer_cache_get_entry(&cache, "key1", &retrieved));
+
+  free_test_entry(e1);
+  free_test_entry(e2);
+}
+
+void test_dirty_and_lru_list_independence(void) {
+  consumer_cache_entry_t *e1 = create_test_entry("key1", 0);
+  consumer_cache_entry_t *e2 = create_test_entry("key2", 0);
+
+  consumer_cache_add_entry(&cache, "key1", e1);
+  consumer_cache_add_entry(&cache, "key2", e2);
+
+  consumer_cache_add_entry_to_dirty_list(&cache, e1);
+
+  // e2 is LRU head, e1 is tail
+  TEST_ASSERT_EQUAL_PTR(e2, cache.lru_head);
+  TEST_ASSERT_EQUAL_PTR(e1, cache.lru_tail);
+
+  // e1 is dirty head and tail
+  TEST_ASSERT_EQUAL_PTR(e1, cache.dirty_head);
+  TEST_ASSERT_EQUAL_PTR(e1, cache.dirty_tail);
+
+  free_test_entry(e1);
+  free_test_entry(e2);
+}
+
+// =============================================================================
+// Main Test Runner
+// =============================================================================
+
+int main(void) {
+  UNITY_BEGIN();
+
+  // Initialization
+  RUN_TEST(test_cache_init_sets_correct_defaults);
+
+  // Add/Get
+  RUN_TEST(test_add_single_entry_succeeds);
+  RUN_TEST(test_get_existing_entry_returns_true);
+  RUN_TEST(test_get_nonexistent_entry_returns_false);
+  RUN_TEST(test_add_multiple_entries_increments_count);
+  RUN_TEST(test_add_null_entry_returns_false);
+  RUN_TEST(test_add_null_key_returns_false);
+
+  // LRU
+  RUN_TEST(test_lru_head_is_most_recently_added);
+  RUN_TEST(test_get_moves_entry_to_lru_head);
+  RUN_TEST(test_get_already_head_entry_stays_head);
+  RUN_TEST(test_lru_list_linkage_after_multiple_ops);
+
+  // Eviction
+  RUN_TEST(test_evict_lru_removes_tail);
+  RUN_TEST(test_evict_lru_on_empty_cache_returns_null);
+  RUN_TEST(test_evict_lru_refuses_dirty_entry);
+  RUN_TEST(test_evict_lru_allows_clean_entry);
+  RUN_TEST(test_evict_lru_updates_lru_pointers);
+
+  // Dirty List
+  RUN_TEST(test_add_entry_to_dirty_list_succeeds);
+  RUN_TEST(test_add_multiple_entries_to_dirty_list);
+  RUN_TEST(test_add_already_dirty_entry_is_idempotent);
+  RUN_TEST(test_clear_dirty_list_resets_state);
+  RUN_TEST(test_add_to_dirty_list_with_null_entry_is_safe);
+
+  // Integration
+  RUN_TEST(test_add_get_evict_workflow);
+  RUN_TEST(test_dirty_and_lru_list_independence);
+
+  return UNITY_END();
+}
