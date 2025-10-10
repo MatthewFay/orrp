@@ -13,6 +13,32 @@
 #define LOG_LEVEL LOG_LEVEL_INFO
 #endif
 
+// =============================================================================
+// == GLOBAL INITIALIZATION & SHUTDOWN                                      ==
+// =============================================================================
+
+/**
+ * Initializes the global zlog system from a configuration file.
+ * This MUST be called once at the beginning of main().
+ *
+ * @param conf_path Path to the zlog.conf file.
+ * @return 0 on success, -1 on failure.
+ */
+static inline int log_global_init(const char *conf_path) {
+  int rc = zlog_init(conf_path);
+  if (rc != 0) {
+    fprintf(stderr, "FATAL: zlog_init() failed from config: %s\n", conf_path);
+    return -1;
+  }
+  return 0;
+}
+
+/**
+ * Shuts down the global zlog system, flushing any buffered logs.
+ * This should be called once at the very end of main() before exiting.
+ */
+static inline void log_global_shutdown(void) { zlog_fini(); }
+
 // Each module will call LOG_INIT("module_name") once
 // This is Thread-safe
 #define LOG_INIT(category)                                                     \

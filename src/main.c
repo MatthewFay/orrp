@@ -1,15 +1,17 @@
 #include "engine/engine.h"
+#include "log/log.h"
 #include "networking/server.h"
 #include "uv.h"
 
+#define ZLOG_CONF_PATH "config/zlog.conf"
+
 // main.c
 // Entry point to start the server.
-
 int main() {
-  // --- Initialize Logging ---
-  // TODO: Log to file
-  // log_set_level(LOG_DEBUG);
-  // log_set_quiet(0); // Ensure logs are not quiet
+  int rc = log_global_init(ZLOG_CONF_PATH);
+  if (rc == -1) {
+    return -1;
+  }
 
   uv_loop_t *loop = uv_default_loop();
   if (!loop) {
@@ -34,6 +36,8 @@ int main() {
   start_server(host, port, loop);
 
   eng_close_ctx(ctx);
+
+  log_global_shutdown();
 
   return 0;
 }

@@ -114,8 +114,8 @@ static void close_client_connection(client_t *client) {
  */
 void on_timeout(uv_timer_t *timer) {
   client_t *client = timer->data;
-  // log_warn("Client %lld timed out due to inactivity. Closing connection.",
-  //          client->client_id);
+  LOG_WARN("Client %lld timed out due to inactivity. Closing connection.",
+           client->client_id);
   close_client_connection(client);
 }
 
@@ -174,8 +174,8 @@ void on_close(uv_handle_t *handle) {
   // Centralized cleanup logic. Check if this is the last
   // reference.
   if (client->open_handles == 0 && client->work_refs == 0) {
-    // log_info("Client %lld connection fully closed and resources freed.",
-    //          client->client_id);
+    LOG_INFO("Client %lld connection fully closed and resources freed.",
+             client->client_id);
     active_connections--;
     free(client);
   }
@@ -200,8 +200,8 @@ void send_response(client_t *client, const char *response) {
   // Use flexible array member (FAM) for a single allocation.
   write_req_t *wr = malloc(sizeof(write_req_t) + len);
   if (!wr) {
-    // log_error("Failed to allocate write request for client %lld",
-    //           client->client_id);
+    LOG_ERROR("Failed to allocate write request for client %lld",
+              client->client_id);
     return;
   }
 
@@ -211,8 +211,8 @@ void send_response(client_t *client, const char *response) {
   int r =
       uv_write(&wr->req, (uv_stream_t *)&client->handle, &wr->buf, 1, on_write);
   if (r) {
-    // log_error("uv_write failed to client %lld: %s", client->client_id,
-    //           uv_strerror(r));
+    LOG_ERROR("uv_write failed to client %lld: %s", client->client_id,
+              uv_strerror(r));
     free(wr); // Free on failure.
   }
 }
@@ -227,7 +227,7 @@ void send_response(client_t *client, const char *response) {
  */
 void on_write(uv_write_t *req, int status) {
   if (status < 0) {
-    // log_error("Write error: %s", uv_strerror(status));
+    LOG_ERROR("Write error: %s", uv_strerror(status));
   }
   // Free the write request struct itself, which also frees the buffer (FAM).
   free(req);
@@ -348,11 +348,10 @@ static void writer_thread_main(void *arg) {
       // Catastrophic failure. We can't notify the client.
       // We must still free the result from the DB engine to prevent a leak
       // here.
-      // log_fatal("writer_thread_main: OOM! Failed to allocate completion_item.
-      // "
-      //           "Dropping task for client %lld. This will leak the work "
-      //           "context and the client may hang.",
-      //           task->ctx->client->client_id);
+      LOG_FATAL("writer_thread_main: OOM! Failed to allocate completion_item."
+                "Dropping task for client %lld. This will leak the work "
+                "context and the client may hang.",
+                task->ctx->client->client_id);
       free_api_response(r); // Free the result we got from the DB engine.
       free(task);           // Free the task container.
       continue;             // The original work_ctx will be leaked.
@@ -380,8 +379,8 @@ static void writer_thread_main(void *arg) {
 static void decrement_work_and_cleanup(client_t *client) {
   client->work_refs--;
   if (client->open_handles == 0 && client->work_refs == 0) {
-    // log_info("Client %lld all work done and handles closed; freeing client.",
-    //          client->client_id);
+    LOG_INFO("Client %lld all work done and handles closed; freeing client.",
+             client->client_id);
     active_connections--;
     free(client);
   }
@@ -399,13 +398,13 @@ static void work_cb(uv_work_t *req) {
 
   tokens = tok_tokenize(ctx->command);
   if (!tokens) {
-    // log_debug("Lexical error for client %lld", ctx->client->client_id);
+    LOG_DEBUG("Lexical error for client %lld", ctx->client->client_id);
     goto cleanup;
   }
 
   parsed = parse(tokens);
   if (parsed->type == OP_TYPE_ERROR) {
-    // log_debug("Parse error for client %lld", ctx->client->client_id);
+    LOG_DEBUG("Parse error for client %lld", ctx->client->client_id);
     goto cleanup;
   }
 
@@ -413,9 +412,8 @@ static void work_cb(uv_work_t *req) {
   if (parsed->type == OP_TYPE_WRITE) {
     w = malloc(sizeof(writer_task_t));
     if (!w) {
-      // log_error("work_cb: OOM failed to allocate writer_task for client
-      // %lld",
-      //           ctx->client->client_id);
+      LOG_ERROR("work_cb: OOM failed to allocate writer_task for client %lld",
+                ctx->client->client_id);
       goto cleanup;
     }
     w->parsed = parsed;
@@ -555,7 +553,7 @@ void process_one_command(client_t *client, char *command) {
 
   int rc = uv_queue_work(loop, &ctx->req, work_cb, after_work_cb);
   if (rc != 0) {
-    // log_error("uv_queue_work failed: %s", uv_strerror(rc));
+    LOG_ERROR("uv_queue_work failed: %s", uv_strerror(rc));
     // Rollback
     client->work_refs--;
     free(ctx->command);
@@ -593,9 +591,9 @@ void process_data_buffer(client_t *client) {
 
     // Security: Check command length *before* processing.
     if (newline_pos - buffer_start > MAX_COMMAND_LENGTH) {
-      // log_error(
-      //     "Client %lld sent command exceeding MAX_COMMAND_LENGTH. Closing.",
-      //     client->client_id);
+      LOG_ERROR(
+          "Client %lld sent command exceeding MAX_COMMAND_LENGTH. Closing.",
+          client->client_id);
       send_response(client, "ERROR: Command too long\n");
       close_client_connection(client);
       return;
@@ -621,8 +619,8 @@ void process_data_buffer(client_t *client) {
 
   // Security: If the buffer is full with no newline, close the connection.
   if (client->buffer_len == READ_BUFFER_SIZE) {
-    // log_error("Client %lld buffer full without a newline. Closing.",
-    //           client->client_id);
+    LOG_ERROR("Client %lld buffer full without a newline. Closing.",
+              client->client_id);
     send_response(client, "ERROR: Command buffer overflow\n");
     close_client_connection(client);
   }
@@ -646,14 +644,14 @@ void on_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
   if (nread > 0) {
     // Data received, update buffer length and reset idle timer
     client->buffer_len += nread;
-    // log_trace("Read %zd bytes from client %lld", nread, client->client_id);
+    LOG_DEBUG("Read %zd bytes from client %lld", nread, client->client_id);
     uv_timer_again(&client->timeout_timer); // Reset idle timer.
     // Process any complete commands in the buffer
     process_data_buffer(client);
   } else if (nread < 0) {
     if (nread != UV_EOF) {
-      // log_error("Read error on client %lld: %s. Closing connection.",
-      //           client->client_id, uv_strerror(nread));
+      LOG_ERROR("Read error on client %lld: %s. Closing connection.",
+                client->client_id, uv_strerror(nread));
     }
     close_client_connection(client);
   }
@@ -672,15 +670,15 @@ void on_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
  */
 void on_new_connection(uv_stream_t *server, int status) {
   if (status < 0) {
-    // log_error("New connection error: %s", uv_strerror(status));
+    LOG_ERROR("New connection error: %s", uv_strerror(status));
     return;
   }
 
   uv_loop_t *loop = server->loop;
 
   if (active_connections >= MAX_CONCURRENT_CONNECTIONS) {
-    // log_warn("Max connections reached (%d). Rejecting new connection.",
-    //          MAX_CONCURRENT_CONNECTIONS);
+    LOG_WARN("Max connections reached (%d). Rejecting new connection.",
+             MAX_CONCURRENT_CONNECTIONS);
     // To reject, we must still accept, then immediately close.
     uv_tcp_t *temp_client = malloc(sizeof(uv_tcp_t));
     if (temp_client && uv_tcp_init(loop, temp_client) == 0) {
@@ -697,7 +695,7 @@ void on_new_connection(uv_stream_t *server, int status) {
   // Use calloc for zero-initialized memory.
   client_t *client = calloc(1, sizeof(client_t));
   if (!client) {
-    // log_fatal("Failed to allocate memory for new client");
+    LOG_FATAL("Failed to allocate memory for new client");
     return; // Cannot recover.
   }
 
@@ -711,9 +709,8 @@ void on_new_connection(uv_stream_t *server, int status) {
   // Accept the connection
   if (uv_accept(server, (uv_stream_t *)&client->handle) == 0) {
     active_connections++;
-    // log_info("Client %lld connected. Total connections: %d",
-    // client->client_id,
-    //          active_connections);
+    LOG_INFO("Client %lld connected. Total connections: %d", client->client_id,
+             active_connections);
 
     // --- Initialize the timer handle and increment the handle counter ---
     uv_timer_init(loop, &client->timeout_timer);
@@ -725,7 +722,7 @@ void on_new_connection(uv_stream_t *server, int status) {
     // Start reading data from the client
     uv_read_start((uv_stream_t *)&client->handle, alloc_buffer, on_read);
   } else {
-    // log_error("Failed to accept client connection.");
+    LOG_ERROR("Failed to accept client connection.");
     uv_close((uv_handle_t *)&client->handle, on_close);
   }
 }
@@ -743,8 +740,8 @@ static void close_walk_cb(uv_handle_t *handle, void *arg) {
       handle != (uv_handle_t *)&signal_handle &&
       handle != (uv_handle_t *)&completion_async) {
     if (!uv_is_closing(handle)) {
-      // log_debug("Shutdown: closing handle of type %s",
-      //           uv_handle_type_name(handle->type));
+      LOG_DEBUG("Shutdown: closing handle of type %s",
+                uv_handle_type_name(handle->type));
       uv_close(handle, on_close);
     }
   }
@@ -758,7 +755,7 @@ static void initiate_shutdown(void) {
     return;
   shutting_down = true;
 
-  // log_warn("Shutdown initiated...");
+  LOG_WARN("Shutdown initiated...");
 
   uv_loop_t *loop = server_handle.loop;
 
@@ -786,7 +783,7 @@ static void initiate_shutdown(void) {
  */
 static void on_signal(uv_signal_t *handle, int signum) {
   (void)signum;
-  // log_warn("SIGINT received, initiating graceful shutdown...");
+  LOG_WARN("SIGINT received, initiating graceful shutdown...");
 
   // Stop the signal handler to prevent multiple shutdown signals
   uv_signal_stop(handle);
@@ -830,24 +827,24 @@ void start_server(const char *host, int port, uv_loop_t *loop) {
   int r = uv_listen((uv_stream_t *)&server_handle, SERVER_BACKLOG,
                     on_new_connection);
   if (r) {
-    // log_fatal("Listen error: %s", uv_strerror(r));
+    LOG_FATAL("Listen error: %s", uv_strerror(r));
     return;
   }
 
-  // log_info("🚀 Database server started on %s:%d", host, port);
-  // log_info("Configuration: max_conn=%d, timeout=%dms, max_cmd_len=%d",
-  //          MAX_CONCURRENT_CONNECTIONS, CONNECTION_IDLE_TIMEOUT,
-  //          MAX_COMMAND_LENGTH);
+  LOG_INFO("🚀 Database server started on %s:%d", host, port);
+  LOG_INFO("Configuration: max_conn=%d, timeout=%dms, max_cmd_len=%d",
+           MAX_CONCURRENT_CONNECTIONS, CONNECTION_IDLE_TIMEOUT,
+           MAX_COMMAND_LENGTH);
 
   // This call blocks until all handles are closed
   uv_run(loop, UV_RUN_DEFAULT);
 
   // --- Shutdown Sequence ---
-  // log_info("Event loop stopped. Finalizing shutdown...");
+  LOG_INFO("Event loop stopped. Finalizing shutdown...");
 
   // Wait for writer thread to finish its work and exit.
   uv_thread_join(&writer_thread);
-  // log_info("Writer thread joined.");
+  LOG_INFO("Writer thread joined.");
 
   // Ensure all close callbacks are processed.
   uv_run(loop, UV_RUN_NOWAIT);
@@ -860,14 +857,14 @@ void start_server(const char *host, int port, uv_loop_t *loop) {
   // Close the loop itself.
   int close_status = uv_loop_close(loop);
   if (close_status != 0) {
-    // log_warn("uv_loop_close failed with status %d: %s. Some handles were "
-    //          "likely not closed.",
-    //          close_status, uv_strerror(close_status));
+    LOG_WARN("uv_loop_close failed with status %d: %s. Some handles were "
+             "likely not closed.",
+             close_status, uv_strerror(close_status));
     // Forcibly clean up remaining handles if any exist.
     uv_walk(loop, (uv_walk_cb)uv_close, NULL);
     uv_run(loop, UV_RUN_ONCE); // allow close callbacks to run
     uv_loop_close(loop);       // try again
   }
 
-  // log_info("Server shut down cleanly.");
+  LOG_INFO("Server shut down cleanly.");
 }

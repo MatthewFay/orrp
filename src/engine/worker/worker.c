@@ -10,6 +10,7 @@
 #include "engine/op_queue/op_queue_msg.h"
 #include "engine/worker/worker_ops.h"
 #include "lmdb.h"
+#include "log/log.h"
 #include "uthash.h"
 #include "uv.h"
 #include <sched.h>
@@ -17,6 +18,8 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+
+LOG_INIT(worker);
 
 // spin count before sleeping
 #define WORKER_SPIN_LIMIT 100
@@ -319,6 +322,15 @@ static int _do_work(worker_t *worker) {
 
 static void _worker_thread_func(void *arg) {
   worker_t *worker = (worker_t *)arg;
+
+  log_init_worker();
+  if (!LOG_CATEGORY) {
+    fprintf(stderr, "FATAL: Failed to initialize logging for worker thread\n");
+    return;
+  }
+
+  LOG_INFO("Worker thread started");
+
   int backoff = 1;
   int spin_count = 0;
 
