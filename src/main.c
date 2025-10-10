@@ -5,6 +5,8 @@
 
 #define ZLOG_CONF_PATH "config/zlog.conf"
 
+LOG_INIT(main);
+
 // main.c
 // Entry point to start the server.
 int main() {
@@ -13,15 +15,20 @@ int main() {
     return -1;
   }
 
+  log_init_main();
+  if (!LOG_CATEGORY) {
+    return -1;
+  }
+
   uv_loop_t *loop = uv_default_loop();
   if (!loop) {
-    // log_fatal("Unable to initialize event loop");
+    LOG_FATAL("Unable to initialize event loop");
     return -1;
   }
 
   eng_context_t *ctx = eng_init();
   if (!ctx) {
-    // log_fatal("Unable to initialize database");
+    LOG_FATAL("Unable to initialize database engine");
     return -1;
   }
 
