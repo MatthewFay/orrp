@@ -35,13 +35,12 @@ CFLAGS = -Iinclude \
 LDFLAGS = -Llib/libuv/.libs $(BUILD_LDFLAGS)
 
 # LIBS: Libraries to link against
-# -luv: The libuv library
 # -lm: Math library
 # -lpthread: POSIX threads library (required by libuv and ck)
 # Note: LMDB and ck require the -lrt library for real-time extensions (e.g., mmap) on some systems.
 # On some systems (like macOS), this functionality is part of the standard C library
 # and -lrt is not needed and can cause "library not found" errors.
-LIBS = -luv -lm -lpthread
+LIBS = -lm -lpthread
 
 # --- SOURCE FILES ---
 
@@ -143,9 +142,9 @@ $(BIN_DIR) $(OBJ_DIR):
 	@mkdir -p $@
 
 # Build the main application
-$(TARGET): $(BIN_DIR) $(OBJS) $(LIBUV_A) $(LIBCK_A) $(ZLOG_INSTALL)
+$(TARGET): $(BIN_DIR) $(OBJS) $(LIBUV_A) $(LIBCK_A) zlog
 	@echo "==> Linking final executable: $(TARGET)"
-	$(CC) $(LDFLAGS) -o $@ $(OBJS) $(LIBCK_A) $(LIBS)
+	$(CC) $(LDFLAGS) -o $@ $(OBJS) $(LIBUV_A) $(LIBCK_A) $(LIBS)
 	@echo "==> ✅ Build complete! Run with: ./$(TARGET)"
 
 # Rule to build the bundled libuv library
@@ -174,8 +173,8 @@ $(LIBCK_A):
 	$(MAKE) -C lib/ck
 	@echo "==> Finished building Concurrency Kit"
 
-# Rule to build zlog
-$(ZLOG_INSTALL):
+# Rule to build zlog, triggered only if the static library is missing.
+$(ZLOG_STATIC):
 	@echo "==> Building bundled dependency: zlog"
 	@if [ ! -d "$(ZLOG_SRC_DIR)" ]; then \
 		echo "Error: zlog source not found at $(ZLOG_SRC_DIR)"; \
@@ -184,6 +183,8 @@ $(ZLOG_INSTALL):
 	$(MAKE) -C $(ZLOG_SRC_DIR)
 	$(MAKE) -C $(ZLOG_SRC_DIR) PREFIX="$(ZLOG_INSTALL)" install
 	@echo "==> Finished building zlog"
+
+zlog: $(ZLOG_STATIC)
 
 # --- TESTING ---
 
@@ -310,11 +311,11 @@ bin/test_hash: 	tests/core/test_hash.c \
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 # Rule to build the lock_striped_ht test executable
-bin/test_lock_striped_ht: 	tests/core/test_lock_striped_ht.c \
-										src/core/lock_striped_ht.c \
-										src/core/hash.c \
-										${UNITY_SRC} | $(BIN_DIR)
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS) $(LIBCK_A)
+bin/test_lock_striped_ht:   tests/core/test_lock_striped_ht.c \
+                    src/core/lock_striped_ht.c \
+                    src/core/hash.c \
+                    ${UNITY_SRC} | $(BIN_DIR) $(LIBCK_A)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBCK_A) $(LIBS)
 
 # Rule to build the queue test executable
 bin/test_queue: tests/core/test_queue.c \
@@ -349,8 +350,8 @@ bin/test_consumer_cache: tests/engine/test_consumer_cache.c \
 							src/core/bitmaps.c \
 							src/query/ast.c \
 							lib/roaring/roaring.c \
-							${UNITY_SRC} | $(BIN_DIR)
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS) $(LIBCK_A)
+							${UNITY_SRC} | $(BIN_DIR) $(LIBCK_A)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBCK_A) $(LIBS)
 
 # Rule to build the container test executable
 bin/test_container: tests/engine/test_container.c \
@@ -363,12 +364,12 @@ bin/test_container: tests/engine/test_container.c \
 
 # Rule to build the dc_cache test executable
 bin/test_dc_cache: tests/engine/test_dc_cache.c \
-							src/engine/dc_cache/dc_cache.c \
-							src/core/db.c \
-							lib/lmdb/mdb.c \
-							lib/lmdb/midl.c \
-							${UNITY_SRC} | $(BIN_DIR)
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
+              src/engine/dc_cache/dc_cache.c \
+              src/core/db.c \
+              lib/lmdb/mdb.c \
+              lib/lmdb/midl.c \
+              ${UNITY_SRC} | $(BIN_DIR) $(LIBUV_A)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBUV_A) $(LIBS)
 
 # Rule to build the eng_key_format test executable
 bin/test_eng_key_format: tests/engine/test_eng_key_format.c \
@@ -411,8 +412,8 @@ bin/test_tokenizer: tests/query/test_tokenizer.c \
 
 # Rule to build the event api test executable
 bin/test_event_api: tests/integration/test_event_api.c \
-  $(TEST_APP_SRCS) ${UNITY_SRC} $(LIB_SRCS) | $(BIN_DIR)
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS) $(LIBCK_A)
+  $(TEST_APP_SRCS) ${UNITY_SRC} $(LIB_SRCS) | $(BIN_DIR) $(LIBCK_A) $(LIBUV_A)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBCK_A) $(LIBUV_A) $(LIBS)
 
 # --- OBJECT FILE COMPILATION ---
 
@@ -439,12 +440,11 @@ clean:
 	@if [ -f lib/zlog/Makefile ]; then \
 		$(MAKE) -C lib/zlog clean; \
 	fi
-	rm -rf $(ZLOG_INSTALL)
 
 bear:
 	bear -- make
 	bear --append -- make test_build
 
 # Phony targets
-.PHONY: all test clean
+.PHONY: all test clean zlog
 

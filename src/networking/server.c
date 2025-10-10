@@ -14,6 +14,7 @@
 #include "networking/server.h"
 #include "core/queue.h"
 #include "engine/api.h"
+#include "log/log.h"
 #include "query/parser.h"
 #include "query/tokenizer.h"
 #include "uv.h"
@@ -21,6 +22,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+LOG_INIT(server);
 
 // TODO: Implement Correlation IDs for Pipelining.
 // The current implementation processes read commands in parallel using a thread
@@ -33,12 +36,6 @@
 // ID. The server must parse this ID and echo it back in the corresponding
 // response. This allows the client to correctly match asynchronous responses
 // to their original requests.
-
-/*
-  IMPORTANT operational note:
-  - We may want to increase the libuv threadpool size
-    (example): `export UV_THREADPOOL_SIZE=16` before starting the server.
-*/
 
 // --- Server Configuration ---
 // TODO: Load from a config file
@@ -808,6 +805,12 @@ static void on_signal(uv_signal_t *handle, int signum) {
  * @param loop Main event loop. `loop->data` is set to initialized database.
  */
 void start_server(const char *host, int port, uv_loop_t *loop) {
+  log_init_server();
+
+  if (!LOG_CATEGORY) {
+    return;
+  }
+
   uv_mutex_init(&writer_queue_mutex);
   uv_cond_init(&writer_queue_cond);
   uv_mutex_init(&completion_mutex);
