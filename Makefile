@@ -2,22 +2,37 @@
 
 # --- Compiler and Flags ---
 CC = gcc
-# Compiler flags
-# TODO: Seperate release (with optimizations) and dev builds
+
+# Build mode: dev (default) or release
+#   dev:  no optimizations, debug symbols, LOG_LEVEL_DEBUG
+#   release: optimizations, strip debug, LOG_LEVEL_WARN
+BUILD ?= dev
+
+ifeq ($(BUILD),release)
+  BUILD_CFLAGS := -O3 -DNDEBUG -march=native -flto
+  BUILD_LDFLAGS := -Wl,-O1
+  LOG_LEVEL := LOG_LEVEL_WARN
+else
+  BUILD_CFLAGS := -O0 -g
+  BUILD_LDFLAGS :=
+  LOG_LEVEL := LOG_LEVEL_DEBUG
+endif
+
+# Compiler flags (base)
 CFLAGS = -Iinclude \
 	 -Isrc \
 	 -Itests/unity \
 	 -Ilib/roaring \
 	 -Ilib/lmdb \
-	 -Ilib/log.c \
 	 -Ilib/libuv/include \
 	 -Ilib/uthash \
 	 -Ilib/ck/include \
-	 -Wall -Wextra -g -std=c11 \
-	 -O0 # No optimizations currently for development purposes
+	 -Wall -Wextra -std=c11 \
+	 $(BUILD_CFLAGS) \
+	 -DLOG_LEVEL=$(LOG_LEVEL)
 
-# LDFLAGS: Linker flags
-LDFLAGS = -Llib/libuv/.libs
+# Linker flags base
+LDFLAGS = -Llib/libuv/.libs $(BUILD_LDFLAGS)
 
 # LIBS: Libraries to link against
 # -luv: The libuv library
@@ -73,8 +88,7 @@ TEST_APP_SRCS = $(filter-out src/main.c, $(APP_SRCS))
 # Library sources
 LIB_SRCS = \
   $(wildcard lib/roaring/*.c) \
-  $(wildcard lib/lmdb/*.c) \
-  $(wildcard lib/log.c/*.c)
+  $(wildcard lib/lmdb/*.c)
 
 # Unity testing framework source
 UNITY_SRC = tests/unity/unity.c
@@ -101,6 +115,24 @@ LIBUV_A = lib/libuv/.libs/libuv.a
 # Path to the bundled Concurrency Kit static library
 LIBCK_A = lib/ck/src/libck.a
 
+# zlog
+ZLOG_SRC_DIR := lib/zlog
+ZLOG_INSTALL := $(abspath $(ZLOG_SRC_DIR)/install)
+ZLOG_INC := $(ZLOG_INSTALL)/include
+ZLOG_LIBDIR := $(ZLOG_INSTALL)/lib
+ZLOG_STATIC := $(ZLOG_LIBDIR)/libzlog.a
+
+# prefer static if present, otherwise link against shared and embed rpath
+ifeq ($(wildcard $(ZLOG_STATIC)),)
+  ZLOG_LINK := -L$(ZLOG_LIBDIR) -lzlog -Wl,-rpath,$(ZLOG_LIBDIR)
+else
+  ZLOG_LINK := $(ZLOG_STATIC)
+endif
+
+# add zlog link flags to LIBS so test targets and main target will get it automatically
+LIBS += $(ZLOG_LINK)
+CFLAGS += -I$(ZLOG_INC)
+
 # --- BUILD RULES ---
 
 # Default target
@@ -111,7 +143,7 @@ $(BIN_DIR) $(OBJ_DIR):
 	@mkdir -p $@
 
 # Build the main application
-$(TARGET): $(BIN_DIR) $(OBJS) $(LIBUV_A) $(LIBCK_A)
+$(TARGET): $(BIN_DIR) $(OBJS) $(LIBUV_A) $(LIBCK_A) $(ZLOG_INSTALL)
 	@echo "==> Linking final executable: $(TARGET)"
 	$(CC) $(LDFLAGS) -o $@ $(OBJS) $(LIBCK_A) $(LIBS)
 	@echo "==> ✅ Build complete! Run with: ./$(TARGET)"
@@ -141,6 +173,17 @@ $(LIBCK_A):
 	fi
 	$(MAKE) -C lib/ck
 	@echo "==> Finished building Concurrency Kit"
+
+# Rule to build zlog
+$(ZLOG_INSTALL):
+	@echo "==> Building bundled dependency: zlog"
+	@if [ ! -d "$(ZLOG_SRC_DIR)" ]; then \
+		echo "Error: zlog source not found at $(ZLOG_SRC_DIR)"; \
+		exit 1; \
+	fi
+	$(MAKE) -C $(ZLOG_SRC_DIR)
+	$(MAKE) -C $(ZLOG_SRC_DIR) PREFIX="$(ZLOG_INSTALL)" install
+	@echo "==> Finished building zlog"
 
 # --- TESTING ---
 
@@ -393,7 +436,10 @@ clean:
 	@if [ -f lib/ck/Makefile ]; then \
     $(MAKE) -C lib/ck clean; \
   fi
-
+	@if [ -f lib/zlog/Makefile ]; then \
+		$(MAKE) -C lib/zlog clean; \
+	fi
+	rm -rf $(ZLOG_INSTALL)
 
 bear:
 	bear -- make

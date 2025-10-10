@@ -1,5 +1,4 @@
 #include "engine/engine.h"
-#include "log.h"
 #include "networking/server.h"
 #include "uv.h"
 
@@ -9,18 +8,18 @@
 int main() {
   // --- Initialize Logging ---
   // TODO: Log to file
-  log_set_level(LOG_DEBUG);
-  log_set_quiet(0); // Ensure logs are not quiet
+  // log_set_level(LOG_DEBUG);
+  // log_set_quiet(0); // Ensure logs are not quiet
 
   uv_loop_t *loop = uv_default_loop();
   if (!loop) {
-    log_fatal("Unable to initialize event loop");
+    // log_fatal("Unable to initialize event loop");
     return -1;
   }
 
   eng_context_t *ctx = eng_init();
   if (!ctx) {
-    log_fatal("Unable to initialize database");
+    // log_fatal("Unable to initialize database");
     return -1;
   }
 
