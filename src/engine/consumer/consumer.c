@@ -59,11 +59,7 @@ _get_or_Create_cache_entry(consumer_cache_t *cache,
 
   db_get_result_t r;
   consumer_cache_entry_t *cached_entry = NULL;
-  if (!consumer_cache_get_entry(cache, key->ser_db_key, &cached_entry)) {
-    LOG_ERROR("Failed to lookup cache entry for key: %s", key->ser_db_key);
-    return NULL;
-  }
-  if (cached_entry) {
+  if (consumer_cache_get_entry(cache, key->ser_db_key, &cached_entry)) {
     *was_cached_out = true;
     LOG_DEBUG("Cache hit for key: %s", key->ser_db_key);
     return cached_entry;

@@ -91,6 +91,7 @@ static bool _create_ent_mapping_ops(char *ent_str_id, uint32_t ent_int_id,
   db_key.sys_db_type = SYS_DB_ENT_ID_TO_INT;
   db_key.db_key.type = DB_KEY_STRING;
   db_key.db_key.key.s = ent_str_id;
+  db_key.container_name = SYS_CONTAINER_NAME;
   if (!db_key_into(key_buffer, sizeof(key_buffer), &db_key)) {
     return false;
   }
