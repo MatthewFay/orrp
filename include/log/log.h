@@ -39,7 +39,7 @@ static inline int log_global_init(const char *conf_path) {
  */
 static inline void log_global_shutdown(void) { zlog_fini(); }
 
-// Each module will call LOG_INIT("module_name") once
+// Each module will call `LOG_INIT(module_name);` once
 // This is Thread-safe
 #define LOG_INIT(category)                                                     \
   static zlog_category_t *LOG_CATEGORY = NULL;                                 \

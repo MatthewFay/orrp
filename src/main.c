@@ -1,3 +1,4 @@
+#include "engine/api.h"
 #include "engine/engine.h"
 #include "log/log.h"
 #include "networking/server.h"
@@ -26,11 +27,15 @@ int main() {
     return -1;
   }
 
+  LOG_INFO("Initializing engine");
+
   eng_context_t *ctx = eng_init();
   if (!ctx) {
     LOG_FATAL("Unable to initialize database engine");
     return -1;
   }
+
+  LOG_INFO("Engine has been initialized!");
 
   // Attach the engine context to the loop's data field (user data).
   loop->data = ctx;
@@ -38,11 +43,16 @@ int main() {
   const char *host = "0.0.0.0"; // Listen on all available network interfaces
   int port = 7878;              // The port for the database
 
+  LOG_INFO("Starting server..");
+
   // This function will block and run the server until the process is
   // terminated.
   start_server(host, port, loop);
 
-  eng_close_ctx(ctx);
+  LOG_INFO("Stopping engine..");
+
+  api_stop_eng(ctx);
+  LOG_INFO("Engine stopped.");
 
   log_global_shutdown();
 

@@ -31,12 +31,21 @@ typedef struct worker_s {
   uint64_t messages_processed; // Stats
 } worker_t;
 
+typedef struct {
+  bool success;
+  const char *msg;
+  uint32_t next_ent_id;
+} worker_init_result_t;
+
 // Call this before `worker_start` - sets up environment for worker threads
-bool worker_init_global(eng_context_t *eng_ctx);
+worker_init_result_t worker_init_global(eng_context_t *eng_ctx);
 
-void worker_cleanup(worker_t *worker);
+typedef struct {
+  bool success;
+  const char *msg;
+} worker_result_t;
 
-bool worker_start(worker_t *worker, const worker_config_t *config);
-bool worker_stop(worker_t *worker);
+worker_result_t worker_start(worker_t *worker, const worker_config_t *config);
+worker_result_t worker_stop(worker_t *worker);
 
 #endif

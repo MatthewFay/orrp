@@ -219,22 +219,18 @@ static bool _get_next_event_id_for_container(const char *container_name,
   return false;
 }
 
-bool worker_init_global(eng_context_t *eng_ctx) {
-  log_init_worker();
-  if (!LOG_CATEGORY) {
-    fprintf(stderr, "FATAL: Failed to initialize worker logging\n");
-    return false;
-  }
-
+worker_init_result_t worker_init_global(eng_context_t *eng_ctx) {
   if (!eng_ctx || !eng_ctx->sys_c) {
-    LOG_ERROR("Invalid engine context in worker_init_global");
-    return false;
+    return (worker_init_result_t){
+        .success = false,
+        .msg = "Invalid engine context in worker_init_global"};
   }
 
   MDB_txn *sys_txn = db_create_txn(eng_ctx->sys_c->env, true);
   if (!sys_txn) {
-    LOG_ERROR("Failed to create system transaction in worker_init_global");
-    return false;
+    return (worker_init_result_t){
+        .success = false,
+        .msg = "Failed to create system transaction in worker_init_global"};
   }
 
   db_get_result_t r = {0};
@@ -244,9 +240,9 @@ bool worker_init_global(eng_context_t *eng_ctx) {
 
   if (!db_get(eng_ctx->sys_c->data.sys->sys_dc_metadata_db, sys_txn, &db_key,
               &r)) {
-    LOG_ERROR("Failed to get next entity ID from system DB");
     db_abort_txn(sys_txn);
-    return false;
+    return (worker_init_result_t){
+        .success = false, .msg = "Failed to get next entity ID from system DB"};
   }
 
   uint32_t next_ent_id =
@@ -256,15 +252,13 @@ bool worker_init_global(eng_context_t *eng_ctx) {
   db_abort_txn(sys_txn);
 
   atomic_store(&g_next_entity_id, next_ent_id);
-  LOG_INFO("Initialized global entity ID counter at %u", next_ent_id);
 
   if (!lock_striped_ht_init_string(&g_next_event_id_by_container)) {
-    LOG_ERROR("Failed to initialize event ID hash table");
-    return false;
+    return (worker_init_result_t){
+        .success = false, .msg = "Failed to initialize event ID hash table"};
   }
 
-  LOG_INFO("Worker global initialization complete");
-  return true;
+  return (worker_init_result_t){.success = true, .next_ent_id = next_ent_id};
 }
 
 static bool _queue_up_ops(worker_t *worker, worker_ops_t *ops) {
@@ -376,6 +370,26 @@ static int _do_work(worker_t *worker) {
   return num_msgs;
 }
 
+static void _worker_cleanup(worker_t *worker) {
+  if (!worker) {
+    return;
+  }
+
+  // Free cached entity mappings
+  worker_entity_mapping_t *current, *tmp;
+  size_t freed_count = 0;
+
+  HASH_ITER(hh, worker->entity_mappings, current, tmp) {
+    HASH_DEL(worker->entity_mappings, current);
+    free(current->ent_str_id);
+    free(current);
+    freed_count++;
+  }
+  worker->entity_mappings = NULL;
+
+  LOG_INFO("Worker cleanup complete: freed %zu entity mappings", freed_count);
+}
+
 static void _worker_thread_func(void *arg) {
   worker_t *worker = (worker_t *)arg;
 
@@ -414,13 +428,15 @@ static void _worker_thread_func(void *arg) {
     }
   }
 
+  _worker_cleanup(worker);
+
   LOG_INFO("Worker thread exiting [total_processed=%zu]", total_processed);
 }
 
-bool worker_start(worker_t *worker, const worker_config_t *config) {
+worker_result_t worker_start(worker_t *worker, const worker_config_t *config) {
   if (!worker || !config) {
-    LOG_ERROR("Invalid arguments to worker_start");
-    return false;
+    return (worker_result_t){.success = false,
+                             .msg = "Invalid arguments to worker_start"};
   }
 
   worker->config = *config;
@@ -429,48 +445,25 @@ bool worker_start(worker_t *worker, const worker_config_t *config) {
   worker->entity_mappings = NULL;
 
   if (uv_thread_create(&worker->thread, _worker_thread_func, worker) != 0) {
-    LOG_ERROR("Failed to create worker thread");
-    return false;
+    return (worker_result_t){.success = false,
+                             .msg = "Failed to create worker thread"};
   }
 
-  LOG_INFO("Worker thread created successfully");
-  return true;
+  return (worker_result_t){.success = true};
 }
 
-bool worker_stop(worker_t *worker) {
+worker_result_t worker_stop(worker_t *worker) {
   if (!worker) {
-    LOG_ERROR("Invalid worker in worker_stop");
-    return false;
+    return (worker_result_t){.success = false,
+                             .msg = "Invalid worker in worker_stop"};
   }
 
-  LOG_INFO("Stopping worker thread...");
   worker->should_stop = true;
 
   if (uv_thread_join(&worker->thread) != 0) {
-    LOG_ERROR("Failed to join worker thread");
-    return false;
+    return (worker_result_t){.success = false,
+                             .msg = "Failed to join worker thread"};
   }
 
-  LOG_INFO("Worker thread stopped successfully");
-  return true;
-}
-
-void worker_cleanup(worker_t *worker) {
-  if (!worker) {
-    return;
-  }
-
-  // Free cached entity mappings
-  worker_entity_mapping_t *current, *tmp;
-  size_t freed_count = 0;
-
-  HASH_ITER(hh, worker->entity_mappings, current, tmp) {
-    HASH_DEL(worker->entity_mappings, current);
-    free(current->ent_str_id);
-    free(current);
-    freed_count++;
-  }
-  worker->entity_mappings = NULL;
-
-  LOG_INFO("Worker cleanup complete: freed %zu entity mappings", freed_count);
+  return (worker_result_t){.success = true};
 }

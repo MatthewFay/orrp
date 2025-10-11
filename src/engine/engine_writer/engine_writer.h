@@ -10,8 +10,6 @@
 #include <stdint.h>
 
 typedef struct eng_writer_config_s {
-  // Engine writer config
-  uint32_t flush_interval_ms;
 } eng_writer_config_t;
 
 typedef struct eng_writer_s {

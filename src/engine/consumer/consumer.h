@@ -35,9 +35,15 @@ typedef struct consumer_s {
   consumer_cache_t cache;
 } consumer_t;
 
+typedef struct {
+  const char *msg;
+  bool success;
+} consumer_result_t;
+
 // Public API
-bool consumer_start(consumer_t *consumer, const consumer_config_t *config);
-bool consumer_stop(consumer_t *consumer);
-void consumer_get_stats(consumer_t *consumer, uint64_t *processed_out);
+consumer_result_t consumer_start(consumer_t *consumer,
+                                 const consumer_config_t *config);
+consumer_result_t consumer_stop(consumer_t *consumer);
+bool consumer_get_stats(consumer_t *consumer, uint64_t *processed_out);
 
 #endif

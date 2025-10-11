@@ -30,7 +30,7 @@ typedef struct eng_dc_cache_s {
 } eng_dc_cache_t;
 
 // Initialize the data container cache
-void eng_dc_cache_init(int capacity, create_container_func_t create_fn);
+bool eng_dc_cache_init(int capacity, create_container_func_t create_fn);
 
 // Get a data container either from the cache or disk
 eng_container_t *eng_dc_cache_get(const char *name);

@@ -14,9 +14,12 @@ static void _reset_cache(int cap, create_container_func_t create_fn) {
   g_container_cache.create_fn = create_fn;
 }
 
-void eng_dc_cache_init(int capacity, create_container_func_t create_fn) {
+bool eng_dc_cache_init(int capacity, create_container_func_t create_fn) {
   _reset_cache(capacity, create_fn);
-  uv_rwlock_init(&g_container_cache.rwlock);
+  if (uv_rwlock_init(&g_container_cache.rwlock) != 0) {
+    return false;
+  }
+  return true;
 }
 
 // Move node to front of LRU list
