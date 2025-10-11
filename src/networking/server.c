@@ -9,8 +9,6 @@
  * =====================================================================================
  */
 
-// TODO: Split this file into multiple smaller modules
-
 #include "networking/server.h"
 #include "core/queue.h"
 #include "engine/api.h"
@@ -25,18 +23,6 @@
 
 LOG_INIT(server);
 
-// TODO: Implement Correlation IDs for Pipelining.
-// The current implementation processes read commands in parallel using a thread
-// pool. This can cause responses to be sent back to the client out of order if
-// multiple commands are pipelined on the same connection (e.g., a fast command
-// can finish before a slow one that was received earlier).
-//
-// To fix this and enable safe, high-performance client-side pipelining, the
-// protocol should be updated to include a client-provided request/correlation
-// ID. The server must parse this ID and echo it back in the corresponding
-// response. This allows the client to correctly match asynchronous responses
-// to their original requests.
-
 // --- Server Configuration ---
 // TODO: Load from a config file
 #define MAX_CONCURRENT_CONNECTIONS 1024 // Max number of clients
@@ -49,8 +35,7 @@ LOG_INIT(server);
 static uv_tcp_t server_handle;    // Main server handle
 static uv_signal_t signal_handle; // Signal handler for SIGINT
 static int active_connections = 0;
-static long long next_client_id =
-    0; // Use a rolling ID for better logging. TODO: Consider UUID
+static unsigned long long next_client_id = 0;
 
 /*
  * Client structure
@@ -90,6 +75,16 @@ typedef struct {
 } write_req_t;
 
 /**
+ * @brief Work context for processing commands in the thread pool
+ */
+typedef struct {
+  uv_work_t req;
+  client_t *client;
+  char *command;
+  api_response_t *result;
+} work_ctx_t;
+
+/**
  * @brief Helper function to close all handles associated with a client.
  * This ensures that both the TCP and timer handles are closed, which is
  * crucial for the reference counting in on_close to work correctly.
@@ -114,8 +109,7 @@ static void close_client_connection(client_t *client) {
  */
 void on_timeout(uv_timer_t *timer) {
   client_t *client = timer->data;
-  LOG_WARN("Client %lld timed out due to inactivity. Closing connection.",
-           client->client_id);
+  LOG_WARN("Client %lld timed out due to inactivity", client->client_id);
   close_client_connection(client);
 }
 
@@ -132,10 +126,7 @@ void on_timeout(uv_timer_t *timer) {
  */
 void alloc_buffer(uv_handle_t *handle, size_t suggested_size, uv_buf_t *buf) {
   (void)suggested_size;
-  // We use a fixed-size buffer on the client struct, so we just point to it.
-  // This is simpler than malloc/free for every read.
   client_t *client = handle->data;
-  // Point to the remaining space in our fixed-size buffer.
   buf->base = client->read_buffer + client->buffer_len;
   buf->len = READ_BUFFER_SIZE - client->buffer_len;
 }
@@ -171,11 +162,9 @@ void on_close(uv_handle_t *handle) {
     client->connected = 0;
   }
 
-  // Centralized cleanup logic. Check if this is the last
-  // reference.
+  // Centralized cleanup logic. Check if this is the last reference.
   if (client->open_handles == 0 && client->work_refs == 0) {
-    LOG_INFO("Client %lld connection fully closed and resources freed.",
-             client->client_id);
+    LOG_INFO("Client %lld fully closed and freed", client->client_id);
     active_connections--;
     free(client);
   }
@@ -233,285 +222,107 @@ void on_write(uv_write_t *req, int status) {
   free(req);
 }
 
-/* ------------------ Background work & writer thread infra ------------------
- */
-
-typedef enum {
-  WORK_STATUS_PENDING = 0,
-  WORK_STATUS_DONE_OK,
-  WORK_STATUS_DONE_ERR,
-  WORK_STATUS_PENDING_WRITE,
-} work_status_t;
-
-typedef struct {
-  uv_work_t req;
-  client_t *client;
-  char *command;
-  api_response_t *result;
-  work_status_t status;
-} work_ctx_t;
-
-typedef struct writer_task_s {
-  parse_result_t *parsed;
-  work_ctx_t *ctx;
-  struct writer_task_s *next;
-} writer_task_t;
-
-typedef struct completion_item_s {
-  api_response_t *result;
-  work_ctx_t *ctx;
-  struct completion_item_s *next;
-} completion_item_t;
-
-/* --- Queues and Threading Primitives --- */
-static uv_mutex_t writer_queue_mutex;
-static uv_cond_t writer_queue_cond;
-static writer_task_t *writer_queue_head = NULL;
-static writer_task_t *writer_queue_tail = NULL;
-static volatile int writer_stop = 0; // Use volatile for multi-threaded access.
-static uv_thread_t writer_thread;
-
-static uv_mutex_t completion_mutex;
-static completion_item_t *completion_head = NULL;
-static completion_item_t *completion_tail = NULL;
-static uv_async_t completion_async;
-
-/* --- Queue Helper Functions (Locked Operations) --- */
-static void writer_queue_push_locked(writer_task_t *task) {
-  task->next = NULL;
-  if (writer_queue_tail) {
-    writer_queue_tail->next = task;
-    writer_queue_tail = task;
-  } else {
-    writer_queue_head = writer_queue_tail = task;
-  }
-}
-
-static writer_task_t *writer_queue_pop_locked(void) {
-  writer_task_t *t = writer_queue_head;
-  if (t) {
-    writer_queue_head = t->next;
-    if (!writer_queue_head)
-      writer_queue_tail = NULL;
-    t->next = NULL;
-  }
-  return t;
-}
-
-static void completion_push_locked(completion_item_t *it) {
-  it->next = NULL;
-  if (completion_tail) {
-    completion_tail->next = it;
-    completion_tail = it;
-  } else {
-    completion_head = completion_tail = it;
-  }
-}
-
-static completion_item_t *completion_pop_locked(void) {
-  completion_item_t *t = completion_head;
-  if (t) {
-    completion_head = t->next;
-    if (!completion_head)
-      completion_tail = NULL;
-    t->next = NULL;
-  }
-  return t;
-}
-
-/* Writer thread main loop */
-static void writer_thread_main(void *arg) {
-  (void)arg;
-  while (1) {
-    uv_mutex_lock(&writer_queue_mutex);
-    while (!writer_stop && writer_queue_head == NULL) {
-      uv_cond_wait(&writer_queue_cond, &writer_queue_mutex);
-    }
-    if (writer_stop && writer_queue_head == NULL) {
-      uv_mutex_unlock(&writer_queue_mutex);
-      break;
-    }
-    writer_task_t *task = writer_queue_pop_locked();
-    uv_mutex_unlock(&writer_queue_mutex);
-
-    if (!task)
-      continue;
-
-    // Execute the write request
-    api_response_t *r = api_exec(task->parsed->ast);
-    parse_free_result(task->parsed);
-
-    // Create completion item and enqueue it.
-    completion_item_t *c = malloc(sizeof(completion_item_t));
-    if (!c) {
-      // Robust OOM handling.
-      // Catastrophic failure. We can't notify the client.
-      // We must still free the result from the DB engine to prevent a leak
-      // here.
-      LOG_FATAL("writer_thread_main: OOM! Failed to allocate completion_item."
-                "Dropping task for client %lld. This will leak the work "
-                "context and the client may hang.",
-                task->ctx->client->client_id);
-      free_api_response(r); // Free the result we got from the DB engine.
-      free(task);           // Free the task container.
-      continue;             // The original work_ctx will be leaked.
-    }
-
-    c->result = r; // May be NULL, indicating an error during execution.
-    c->ctx = task->ctx;
-    c->ctx->status = (c->ctx->result && c->ctx->result->is_ok)
-                         ? WORK_STATUS_DONE_OK
-                         : WORK_STATUS_DONE_ERR;
-
-    uv_mutex_lock(&completion_mutex);
-    completion_push_locked(c);
-    uv_mutex_unlock(&completion_mutex);
-
-    // Notify loop that a completion is available.
-    // uv_async_send is guaranteed not to fail.
-    uv_async_send(&completion_async);
-
-    free(task); // Free writer_task container.
-  }
-}
-
 /* Centralized cleanup logic for work contexts. */
 static void decrement_work_and_cleanup(client_t *client) {
   client->work_refs--;
   if (client->open_handles == 0 && client->work_refs == 0) {
-    LOG_INFO("Client %lld all work done and handles closed; freeing client.",
+    LOG_INFO("Client %lld all work done and handles closed; freeing client",
              client->client_id);
     active_connections--;
     free(client);
   }
 }
 
-/* Background worker: runs in libuv thread-pool */
+/**
+ * @brief Background worker: runs in libuv thread-pool
+ * Handles tokenization, parsing, and command execution for all command types
+ */
 static void work_cb(uv_work_t *req) {
   work_ctx_t *ctx = (work_ctx_t *)req;
-  ctx->status = WORK_STATUS_DONE_ERR; // Default to error
+
+  LOG_DEBUG("Processing command for client %lld", ctx->client->client_id);
 
   // All resources that need cleanup
   Queue *tokens = NULL;
   parse_result_t *parsed = NULL;
-  writer_task_t *w = NULL;
 
   tokens = tok_tokenize(ctx->command);
   if (!tokens) {
-    LOG_DEBUG("Lexical error for client %lld", ctx->client->client_id);
+    LOG_DEBUG("Tokenization failed for client %lld", ctx->client->client_id);
+    ctx->result = NULL;
     goto cleanup;
   }
 
   parsed = parse(tokens);
   if (parsed->type == OP_TYPE_ERROR) {
-    LOG_DEBUG("Parse error for client %lld", ctx->client->client_id);
+    LOG_DEBUG("Parse error for client %lld: %s", ctx->client->client_id,
+              parsed->error_message ? parsed->error_message : "unknown");
+    ctx->result = NULL;
     goto cleanup;
   }
 
-  // Dispatch
-  if (parsed->type == OP_TYPE_WRITE) {
-    w = malloc(sizeof(writer_task_t));
-    if (!w) {
-      LOG_ERROR("work_cb: OOM failed to allocate writer_task for client %lld",
-                ctx->client->client_id);
-      goto cleanup;
-    }
-    w->parsed = parsed;
-    w->ctx = ctx;
+  ctx->result = api_exec(parsed->ast);
 
-    // The writer now owns the parsed result, so we NULL it out
-    // to prevent it from being freed in our cleanup block.
-    parsed = NULL;
-
-    ctx->status = WORK_STATUS_PENDING_WRITE;
-
-    uv_mutex_lock(&writer_queue_mutex);
-    writer_queue_push_locked(w);
-    uv_cond_signal(&writer_queue_cond);
-    uv_mutex_unlock(&writer_queue_mutex);
-
-    // For the write path, we are done. Free command and return.
-    // The writer_task will be freed by the writer thread.
-    free(ctx->command);
-    ctx->command = NULL;
-    return;
-  } else { // Read path
-    // ctx->result = execute_read_request(parsed);
-    ctx->status = (ctx->result && ctx->result->is_ok) ? WORK_STATUS_DONE_OK
-                                                      : WORK_STATUS_DONE_ERR;
-    goto cleanup;
+  if (!ctx->result) {
+    LOG_ERROR("api_exec returned NULL for client %lld", ctx->client->client_id);
+  } else if (!ctx->result->is_ok) {
+    LOG_DEBUG("Command execution failed for client %lld: %s",
+              ctx->client->client_id,
+              ctx->result->err_msg ? ctx->result->err_msg : "unknown error");
   }
 
 cleanup:
-  // Centralized cleanup point for all error and read paths.
-  free(ctx->command);
-  ctx->command = NULL;
-
-  tok_clear_all(tokens);
-  q_destroy(tokens);
+  // Cleanup resources
+  if (tokens) {
+    tok_clear_all(tokens);
+    q_destroy(tokens);
+  }
 
   if (parsed) {
     parse_free_result(parsed);
   }
-  // Note: 'w' is not freed here because its ownership is transferred.
+
+  free(ctx->command);
+  ctx->command = NULL;
 }
 
-/* after_work_cb: runs on the loop thread after work_cb completes */
+/**
+ * @brief after_work_cb: runs on the loop thread after work_cb completes
+ * Sends the response back to the client
+ */
 static void after_work_cb(uv_work_t *req, int status) {
   work_ctx_t *ctx = (work_ctx_t *)req;
   client_t *client = ctx->client;
 
-  if (ctx->status == WORK_STATUS_PENDING_WRITE) {
-    // Do nothing. Completion will be handled via the async callback.
-    // The ctx is still "in-flight".
-    return;
-  }
-
-  // Handle reads or immediate errors from the worker thread.
-  if (status != 0) { // System-level error from libuv.
+  if (status != 0) {
+    // System-level error from libuv
+    LOG_ERROR("uv_queue_work system error for client %lld: %s",
+              client->client_id, uv_strerror(status));
     send_response(client, "ERROR: Internal server error\n");
-  } else if (ctx->status != WORK_STATUS_DONE_OK) {
+  } else if (!ctx->result) {
+    // Parse/tokenization error or api_exec returned NULL
     send_response(client, "ERROR: Invalid command or execution failed\n");
+  } else if (ctx->result->is_ok) {
+    // Success
+    send_response(client, "OK\n");
+    LOG_DEBUG("Command succeeded for client %lld", client->client_id);
   } else {
-    // send_response(client, ctx->result);
-    send_response(client, "OK read");
+    // Execution error
+    const char *err =
+        ctx->result->err_msg ? ctx->result->err_msg : "Execution failed";
+    char error_buf[256];
+    snprintf(error_buf, sizeof(error_buf), "ERROR: %s\n", err);
+    send_response(client, error_buf);
+    LOG_DEBUG("Command failed for client %lld: %s", client->client_id, err);
   }
 
-  free(ctx->result);
-  // Free work context and decrement client work reference.
+  // Cleanup
+  if (ctx->result) {
+    free_api_response(ctx->result);
+  }
+
   decrement_work_and_cleanup(client);
   free(ctx);
-}
-
-/* Completion async callback: runs on loop thread for completed writes. */
-static void completion_async_cb(uv_async_t *handle) {
-  (void)handle;
-  while (1) {
-    uv_mutex_lock(&completion_mutex);
-    completion_item_t *it = completion_pop_locked();
-    uv_mutex_unlock(&completion_mutex);
-
-    if (!it)
-      // This break statement ensures the loop terminates as soon as the
-      // completion queue is empty
-      break;
-
-    work_ctx_t *ctx = it->ctx;
-    client_t *client = ctx->client;
-
-    if (it->result && it->result->is_ok) {
-      // send_response(client, it->result);
-      send_response(client, "OK\n");
-    } else {
-      send_response(client, "ERROR: Write operation failed\n");
-    }
-
-    free(it->result); // Free result string from writer.
-    // Free work context and decrement client work reference.
-    decrement_work_and_cleanup(client);
-    free(ctx);
-    free(it); // Free the completion item container.
-  }
 }
 
 /**
@@ -533,14 +344,20 @@ void process_one_command(client_t *client, char *command) {
   if (cmd_len == 0)
     return; // Ignore empty commands.
 
+  LOG_DEBUG("Client %lld sent command (len=%zu)", client->client_id, cmd_len);
+
   work_ctx_t *ctx = calloc(1, sizeof(work_ctx_t));
   if (!ctx) {
+    LOG_ERROR("Failed to allocate work context for client %lld",
+              client->client_id);
     send_response(client, "ERROR: Internal server error (OOM)\n");
     return;
   }
 
   ctx->command = malloc(cmd_len + 1);
   if (!ctx->command) {
+    LOG_ERROR("Failed to allocate command buffer for client %lld",
+              client->client_id);
     free(ctx);
     send_response(client, "ERROR: Internal server error (OOM)\n");
     return;
@@ -553,7 +370,8 @@ void process_one_command(client_t *client, char *command) {
 
   int rc = uv_queue_work(loop, &ctx->req, work_cb, after_work_cb);
   if (rc != 0) {
-    LOG_ERROR("uv_queue_work failed: %s", uv_strerror(rc));
+    LOG_ERROR("uv_queue_work failed for client %lld: %s", client->client_id,
+              uv_strerror(rc));
     // Rollback
     client->work_refs--;
     free(ctx->command);
@@ -591,9 +409,8 @@ void process_data_buffer(client_t *client) {
 
     // Security: Check command length *before* processing.
     if (newline_pos - buffer_start > MAX_COMMAND_LENGTH) {
-      LOG_ERROR(
-          "Client %lld sent command exceeding MAX_COMMAND_LENGTH. Closing.",
-          client->client_id);
+      LOG_ERROR("Client %lld sent command exceeding MAX_COMMAND_LENGTH",
+                client->client_id);
       send_response(client, "ERROR: Command too long\n");
       close_client_connection(client);
       return;
@@ -619,8 +436,7 @@ void process_data_buffer(client_t *client) {
 
   // Security: If the buffer is full with no newline, close the connection.
   if (client->buffer_len == READ_BUFFER_SIZE) {
-    LOG_ERROR("Client %lld buffer full without a newline. Closing.",
-              client->client_id);
+    LOG_ERROR("Client %lld buffer full without newline", client->client_id);
     send_response(client, "ERROR: Command buffer overflow\n");
     close_client_connection(client);
   }
@@ -650,8 +466,10 @@ void on_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
     process_data_buffer(client);
   } else if (nread < 0) {
     if (nread != UV_EOF) {
-      LOG_ERROR("Read error on client %lld: %s. Closing connection.",
-                client->client_id, uv_strerror(nread));
+      LOG_ERROR("Read error on client %lld: %s", client->client_id,
+                uv_strerror(nread));
+    } else {
+      LOG_INFO("Client %lld disconnected (EOF)", client->client_id);
     }
     close_client_connection(client);
   }
@@ -677,7 +495,7 @@ void on_new_connection(uv_stream_t *server, int status) {
   uv_loop_t *loop = server->loop;
 
   if (active_connections >= MAX_CONCURRENT_CONNECTIONS) {
-    LOG_WARN("Max connections reached (%d). Rejecting new connection.",
+    LOG_WARN("Max connections reached (%d), rejecting new connection",
              MAX_CONCURRENT_CONNECTIONS);
     // To reject, we must still accept, then immediately close.
     uv_tcp_t *temp_client = malloc(sizeof(uv_tcp_t));
@@ -699,7 +517,6 @@ void on_new_connection(uv_stream_t *server, int status) {
     return; // Cannot recover.
   }
 
-  // TODO: consider using UUID for client id
   client->client_id = ++next_client_id;
   uv_tcp_init(loop, &client->handle);
   client->handle.data = client; // Link client state to the handle
@@ -709,7 +526,7 @@ void on_new_connection(uv_stream_t *server, int status) {
   // Accept the connection
   if (uv_accept(server, (uv_stream_t *)&client->handle) == 0) {
     active_connections++;
-    LOG_INFO("Client %lld connected. Total connections: %d", client->client_id,
+    LOG_INFO("Client %lld connected (total: %d)", client->client_id,
              active_connections);
 
     // --- Initialize the timer handle and increment the handle counter ---
@@ -722,7 +539,7 @@ void on_new_connection(uv_stream_t *server, int status) {
     // Start reading data from the client
     uv_read_start((uv_stream_t *)&client->handle, alloc_buffer, on_read);
   } else {
-    LOG_ERROR("Failed to accept client connection.");
+    LOG_ERROR("Failed to accept client connection");
     uv_close((uv_handle_t *)&client->handle, on_close);
   }
 }
@@ -737,10 +554,9 @@ void on_new_connection(uv_stream_t *server, int status) {
 static void close_walk_cb(uv_handle_t *handle, void *arg) {
   (void)arg;
   if (handle != (uv_handle_t *)&server_handle &&
-      handle != (uv_handle_t *)&signal_handle &&
-      handle != (uv_handle_t *)&completion_async) {
+      handle != (uv_handle_t *)&signal_handle) {
     if (!uv_is_closing(handle)) {
-      LOG_DEBUG("Shutdown: closing handle of type %s",
+      LOG_DEBUG("Shutdown: closing handle type %s",
                 uv_handle_type_name(handle->type));
       uv_close(handle, on_close);
     }
@@ -765,17 +581,8 @@ static void initiate_shutdown(void) {
   // Stop accepting new connections.
   uv_close((uv_handle_t *)&server_handle, NULL);
 
-  // Signal the writer thread to stop.
-  uv_mutex_lock(&writer_queue_mutex);
-  writer_stop = 1;
-  uv_cond_signal(&writer_queue_cond);
-  uv_mutex_unlock(&writer_queue_mutex);
-
   // Close all client-related handles.
   uv_walk(loop, close_walk_cb, NULL);
-
-  // Close the async handle to allow the loop to exit.
-  uv_close((uv_handle_t *)&completion_async, NULL);
 }
 
 /**
@@ -805,15 +612,9 @@ void start_server(const char *host, int port, uv_loop_t *loop) {
   log_init_server();
 
   if (!LOG_CATEGORY) {
+    fprintf(stderr, "FATAL: Failed to initialize server logging\n");
     return;
   }
-
-  uv_mutex_init(&writer_queue_mutex);
-  uv_cond_init(&writer_queue_cond);
-  uv_mutex_init(&completion_mutex);
-  uv_async_init(loop, &completion_async, completion_async_cb);
-
-  uv_thread_create(&writer_thread, writer_thread_main, NULL);
 
   uv_signal_init(loop, &signal_handle);
   uv_signal_start(&signal_handle, on_signal, SIGINT);
@@ -842,17 +643,8 @@ void start_server(const char *host, int port, uv_loop_t *loop) {
   // --- Shutdown Sequence ---
   LOG_INFO("Event loop stopped. Finalizing shutdown...");
 
-  // Wait for writer thread to finish its work and exit.
-  uv_thread_join(&writer_thread);
-  LOG_INFO("Writer thread joined.");
-
   // Ensure all close callbacks are processed.
   uv_run(loop, UV_RUN_NOWAIT);
-
-  // Destroy all synchronization primitives.
-  uv_mutex_destroy(&writer_queue_mutex);
-  uv_cond_destroy(&writer_queue_cond);
-  uv_mutex_destroy(&completion_mutex);
 
   // Close the loop itself.
   int close_status = uv_loop_close(loop);
