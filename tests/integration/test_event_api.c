@@ -1,3 +1,4 @@
+#include "log/log.h"
 #include "unity.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -66,6 +67,11 @@ void suiteSetUp(void) {
   _safe_remove_db_file("products");
   _safe_remove_db_file("git");
   _safe_remove_db_file("high_volume_test");
+
+  int rc = log_global_init("config/zlog.conf");
+  if (rc == -1) {
+    exit(1);
+  }
 
   // Start the engine ONCE for all tests
   bool r = api_start_eng();
