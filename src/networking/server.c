@@ -606,7 +606,7 @@ static void on_signal(uv_signal_t *handle, int signum) {
  *
  * @param host The IP address to bind to (e.g., "0.0.0.0").
  * @param port The port to listen on.
- * @param loop Main event loop. `loop->data` is set to initialized database.
+ * @param loop Main event loop.
  */
 void start_server(const char *host, int port, uv_loop_t *loop) {
   log_init_server();

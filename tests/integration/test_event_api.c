@@ -10,8 +10,6 @@
 
 // --- Globals & Test Helpers ---
 
-static eng_context_t *test_ctx = NULL;
-
 // This helper function simulates the entire server flow from string to response
 static api_response_t *run_command(const char *command_string) {
   // 1. Tokenize
@@ -70,8 +68,8 @@ void suiteSetUp(void) {
   _safe_remove_db_file("high_volume_test");
 
   // Start the engine ONCE for all tests
-  test_ctx = api_start_eng();
-  if (!test_ctx) {
+  bool r = api_start_eng();
+  if (!r) {
     fprintf(stderr, "FATAL: Failed to start engine in suiteSetUp\n");
     exit(1);
   }
@@ -80,8 +78,7 @@ void suiteSetUp(void) {
 int suiteTearDown(int num_failures) {
   // Stop the engine ONCE after all tests
   // This joins all worker threads
-  api_stop_eng(test_ctx);
-  test_ctx = NULL;
+  api_stop_eng();
 
   // Now it's safe to clean up all the database files
   _safe_remove_db_file("system");

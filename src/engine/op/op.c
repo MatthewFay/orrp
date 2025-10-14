@@ -1,5 +1,6 @@
 #include "op.h"
 #include "core/db.h"
+#include "engine/container/container.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -72,7 +73,7 @@ op_t *op_create_count_tag_increment(eng_container_db_key_t *db_key,
 void op_destroy(op_t *op) {
   if (!op)
     return;
-  eng_Container_free_contents_db_key(&op->db_key);
+  container_free_db_key_contents(&op->db_key);
   switch (op->data_type) {
   case OP_STR_DATA:
     free(op->data.str_value);

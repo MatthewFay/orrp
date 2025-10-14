@@ -5,7 +5,7 @@
  * Operation types for database modifications
  */
 
-#include "engine/container/container.h"
+#include "engine/container/container_types.h"
 #include <stdint.h>
 
 typedef enum {

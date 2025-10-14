@@ -29,16 +29,13 @@ int main() {
 
   LOG_INFO("Initializing engine");
 
-  eng_context_t *ctx = eng_init();
-  if (!ctx) {
+  bool r = eng_init();
+  if (!r) {
     LOG_FATAL("Unable to initialize database engine");
     return -1;
   }
 
   LOG_INFO("Engine has been initialized!");
-
-  // Attach the engine context to the loop's data field (user data).
-  loop->data = ctx;
 
   const char *host = "0.0.0.0"; // Listen on all available network interfaces
   int port = 7878;              // The port for the database
@@ -51,7 +48,7 @@ int main() {
 
   LOG_INFO("Stopping engine..");
 
-  api_stop_eng(ctx);
+  api_stop_eng();
   LOG_INFO("Engine stopped.");
 
   log_global_shutdown();

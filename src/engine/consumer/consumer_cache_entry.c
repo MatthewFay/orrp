@@ -1,6 +1,6 @@
 #include "consumer_cache_entry.h"
 #include "core/db.h"
-#include "engine/container/container.h"
+#include "engine/container/container_types.h"
 #include <stdatomic.h>
 #include <stddef.h>
 #include <string.h>

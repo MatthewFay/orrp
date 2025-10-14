@@ -61,9 +61,8 @@ APP_SRCS = \
 			 src/engine/consumer/consumer_cache.c \
 			 src/engine/consumer/consumer_ebr.c \
 			 src/engine/consumer/consumer.c \
+			 src/engine/container/container_cache.c \
 			 src/engine/container/container.c \
-			 src/engine/context/context.c \
-			 src/engine/dc_cache/dc_cache.c \
 			 src/engine/eng_key_format/eng_key_format.c \
 			 src/engine/engine_writer/engine_writer_queue_msg.c \
 			 src/engine/engine_writer/engine_writer_queue.c \
@@ -214,7 +213,6 @@ test: bin/test_bitmaps \
 			bin/test_cmd_context \
 			bin/test_consumer_cache \
 			bin/test_container \
-			bin/test_dc_cache \
 			bin/test_eng_key_format \
 			bin/test_op \
 			bin/test_tokenizer \
@@ -244,8 +242,6 @@ test: bin/test_bitmaps \
 	./bin/test_consumer_cache
 	@echo "--- Running container test ---"
 	./bin/test_container
-	@echo "--- Running dc_cache test ---"
-	./bin/test_dc_cache
 	@echo "--- Running eng_key_format test ---"
 	./bin/test_eng_key_format
 	@echo "--- Running op test ---"
@@ -274,7 +270,6 @@ test_build: bin/test_bitmaps \
 						bin/test_cmd_context \
 						bin/test_consumer_cache \
 						bin/test_container \
-						bin/test_dc_cache \
 						bin/test_eng_key_format \
 						bin/test_op \
 					  bin/test_ast \
@@ -356,19 +351,11 @@ bin/test_consumer_cache: tests/engine/test_consumer_cache.c \
 # Rule to build the container test executable
 bin/test_container: tests/engine/test_container.c \
 							src/engine/container/container.c \
+							src/engine/container/container_cache.c \
 							src/core/db.c \
 							lib/lmdb/mdb.c \
 							lib/lmdb/midl.c \
-							${UNITY_SRC} | $(BIN_DIR)
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
-
-# Rule to build the dc_cache test executable
-bin/test_dc_cache: tests/engine/test_dc_cache.c \
-              src/engine/dc_cache/dc_cache.c \
-              src/core/db.c \
-              lib/lmdb/mdb.c \
-              lib/lmdb/midl.c \
-              ${UNITY_SRC} | $(BIN_DIR) $(LIBUV_A)
+							${UNITY_SRC} | $(BIN_DIR) $(LIBUV_A)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBUV_A) $(LIBS)
 
 # Rule to build the eng_key_format test executable

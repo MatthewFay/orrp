@@ -5,7 +5,7 @@
 #include "core/db.h"
 #include "engine/consumer/consumer_cache_internal.h"
 #include "engine/container/container.h"
-#include "engine/dc_cache/dc_cache.h"
+#include "engine/container/container_types.h"
 #include "engine/engine_writer/engine_writer_queue.h"
 #include "engine/op/op.h"
 #include "engine/op_queue/op_queue.h"
@@ -115,8 +115,8 @@ static bool _process_cache_msgs(consumer_t *consumer, eng_container_t *dc,
     op_queue_msg_batch_entry_t *b_entry = key->head;
     MDB_dbi db;
 
-    if (!eng_container_get_db_handle(dc, b_entry->msg->op->db_key.user_db_type,
-                                     &db)) {
+    if (!container_get_user_db_handle(dc, b_entry->msg->op->db_key.user_db_type,
+                                      &db)) {
       LOG_ERROR("Failed to get DB handle for key: %s", key->ser_db_key);
       return false;
     }
@@ -224,17 +224,18 @@ static int _process_batch(consumer_t *consumer, op_queue_msg_batch_t *batch) {
   int n = 0;
   op_queue_msg_batch_key_t *keys = batch->keys;
 
-  eng_container_t *dc = eng_dc_cache_get(batch->container_name);
-  if (!dc) {
+  container_result_t cr = container_get_or_create_user(batch->container_name);
+  if (!cr.success) {
     LOG_ERROR("Failed to get container from cache: %s", batch->container_name);
     return -1;
   }
+  eng_container_t *dc = cr.container;
 
   MDB_txn *txn = db_create_txn(dc->env, true);
   if (!txn) {
     LOG_ERROR("Failed to create transaction for container: %s",
               batch->container_name);
-    eng_dc_cache_release_container(dc);
+    container_release(dc);
     return -1;
   }
 
@@ -242,12 +243,12 @@ static int _process_batch(consumer_t *consumer, op_queue_msg_batch_t *batch) {
     LOG_ERROR("Failed to process cache messages for container: %s",
               batch->container_name);
     db_abort_txn(txn);
-    eng_dc_cache_release_container(dc);
+    container_release(dc);
     return -1;
   }
 
   db_abort_txn(txn);
-  eng_dc_cache_release_container(dc);
+  container_release(dc);
 
   LOG_DEBUG("Processed batch for container: %s", batch->container_name);
   return n;

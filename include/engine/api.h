@@ -3,7 +3,6 @@
 
 // --- Public Engine API --- //
 
-#include "engine/context/context.h"
 #include "query/ast.h"
 #include <stdbool.h>
 
@@ -18,8 +17,8 @@ typedef struct api_response_s {
 
 void free_api_response(api_response_t *r);
 
-eng_context_t *api_start_eng(void);
-void api_stop_eng(eng_context_t *ctx);
+bool api_start_eng(void);
+void api_stop_eng(void);
 
 // The single entry point into the API/Engine layer for executing commands.
 // Takes ownership of ast - caller must not free

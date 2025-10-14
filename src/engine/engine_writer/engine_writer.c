@@ -2,7 +2,7 @@
 #include "core/bitmaps.h"
 #include "core/db.h"
 #include "engine/container/container.h"
-#include "engine/dc_cache/dc_cache.h"
+#include "engine/container/container_types.h"
 #include "engine/engine_writer/engine_writer_queue_msg.h"
 #include "lmdb.h"
 #include "log/log.h"
@@ -144,7 +144,8 @@ static bool _write_to_db(eng_container_t *c, MDB_txn *txn,
   size_t val_size;
   void *val;
 
-  if (!eng_container_get_db_handle(c, entry->db_key.user_db_type, &target_db)) {
+  if (!container_get_user_db_handle(c, entry->db_key.user_db_type,
+                                    &target_db)) {
     LOG_ERROR("Failed to get DB handle for container: %s", c->name);
     return false;
   }
@@ -192,18 +193,19 @@ static void _flush_dirty_snapshots_to_db(write_batch_t *hash) {
     total_batches++;
     total_entries += batch->count;
 
-    eng_container_t *c = eng_dc_cache_get(batch->container_name);
-    if (!c) {
+    container_result_t cr = container_get_or_create_user(batch->container_name);
+    if (!cr.success) {
       LOG_ERROR("Failed to get container from cache: %s",
                 batch->container_name);
       continue;
     }
+    eng_container_t *c = cr.container;
 
     MDB_txn *txn = db_create_txn(c->env, false);
     if (!txn) {
       LOG_ERROR("Failed to create write transaction for container: %s",
                 batch->container_name);
-      eng_dc_cache_release_container(c);
+      container_release(c);
       continue;
     }
 
@@ -236,7 +238,7 @@ static void _flush_dirty_snapshots_to_db(write_batch_t *hash) {
       db_abort_txn(txn);
     }
 
-    eng_dc_cache_release_container(c);
+    container_release(c);
   }
 
   if (successful_batches > 0) {

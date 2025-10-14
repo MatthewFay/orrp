@@ -5,7 +5,7 @@
 #include "engine/cmd_queue/cmd_queue.h"
 #include "engine/cmd_queue/cmd_queue_msg.h"
 #include "engine/container/container.h"
-#include "engine/dc_cache/dc_cache.h"
+#include "engine/container/container_types.h"
 #include "engine/op_queue/op_queue.h"
 #include "engine/op_queue/op_queue_msg.h"
 #include "engine/worker/worker_ops.h"
@@ -35,7 +35,8 @@ static uint32_t _get_next_entity_id() {
   return atomic_fetch_add(&g_next_entity_id, 1);
 }
 
-static bool _get_entity_mapping_by_str(worker_t *worker, MDB_txn *sys_txn,
+static bool _get_entity_mapping_by_str(worker_t *worker, eng_container_t *sys_c,
+                                       MDB_txn *sys_txn,
                                        const char *entity_id_str,
                                        worker_entity_mapping_t **mapping_out,
                                        bool *is_new_ent_out) {
@@ -55,7 +56,7 @@ static bool _get_entity_mapping_by_str(worker_t *worker, MDB_txn *sys_txn,
 
   bool created_txn = false;
   if (!sys_txn) {
-    sys_txn = db_create_txn(worker->config.eng_ctx->sys_c->env, true);
+    sys_txn = db_create_txn(sys_c->env, true);
     if (!sys_txn) {
       LOG_ERROR("Failed to create transaction for entity mapping lookup: %s",
                 entity_id_str);
@@ -69,8 +70,7 @@ static bool _get_entity_mapping_by_str(worker_t *worker, MDB_txn *sys_txn,
   db_key.type = DB_KEY_STRING;
   db_key.key.s = (char *)entity_id_str;
 
-  if (!db_get(worker->config.eng_ctx->sys_c->data.sys->sys_dc_metadata_db,
-              sys_txn, &db_key, &r)) {
+  if (!db_get(sys_c->data.sys->sys_dc_metadata_db, sys_txn, &db_key, &r)) {
     LOG_ERROR("Failed to get entity metadata from DB: %s", entity_id_str);
     if (created_txn)
       db_abort_txn(sys_txn);
@@ -120,7 +120,7 @@ static bool _get_entity_mapping_by_str(worker_t *worker, MDB_txn *sys_txn,
 static void _cleanup_container_lookup(eng_container_t *dc, MDB_txn *txn,
                                       db_get_result_t *get_r) {
   if (dc)
-    eng_dc_cache_release_container(dc);
+    container_release(dc);
   if (txn)
     db_abort_txn(txn);
   if (get_r)
@@ -143,21 +143,22 @@ static bool _get_next_event_id_for_container(const char *container_name,
   LOG_DEBUG("Event ID cache miss for container: %s", container_name);
 
   // Cache miss - need to load from DB
-  eng_container_t *dc = eng_dc_cache_get(container_name);
-  if (!dc) {
+  container_result_t cr = container_get_or_create_user(container_name);
+  if (!cr.success) {
     LOG_ERROR("Failed to get container from cache: %s", container_name);
     return false;
   }
+  eng_container_t *dc = cr.container;
 
   MDB_txn *txn = db_create_txn(dc->env, true);
   if (!txn) {
     LOG_ERROR("Failed to create transaction for container: %s", container_name);
-    eng_dc_cache_release_container(dc);
+    _cleanup_container_lookup(dc, txn, NULL);
     return false;
   }
 
   MDB_dbi db;
-  if (!eng_container_get_db_handle(dc, USER_DB_METADATA, &db)) {
+  if (!container_get_user_db_handle(dc, USER_DB_METADATA, &db)) {
     LOG_ERROR("Failed to get metadata DB handle for container: %s",
               container_name);
     _cleanup_container_lookup(dc, txn, NULL);
@@ -219,14 +220,14 @@ static bool _get_next_event_id_for_container(const char *container_name,
   return false;
 }
 
-worker_init_result_t worker_init_global(eng_context_t *eng_ctx) {
-  if (!eng_ctx || !eng_ctx->sys_c) {
-    return (worker_init_result_t){
-        .success = false,
-        .msg = "Invalid engine context in worker_init_global"};
+worker_init_result_t worker_init_global(void) {
+  container_result_t cr = container_get_system();
+  if (!cr.success) {
+    return (worker_init_result_t){.success = false,
+                                  .msg = "Failed to get system container"};
   }
-
-  MDB_txn *sys_txn = db_create_txn(eng_ctx->sys_c->env, true);
+  eng_container_t *sys_c = cr.container;
+  MDB_txn *sys_txn = db_create_txn(sys_c->env, true);
   if (!sys_txn) {
     return (worker_init_result_t){
         .success = false,
@@ -238,8 +239,7 @@ worker_init_result_t worker_init_global(eng_context_t *eng_ctx) {
   db_key.type = DB_KEY_STRING;
   db_key.key.s = SYS_NEXT_ENT_ID_KEY;
 
-  if (!db_get(eng_ctx->sys_c->data.sys->sys_dc_metadata_db, sys_txn, &db_key,
-              &r)) {
+  if (!db_get(sys_c->data.sys->sys_dc_metadata_db, sys_txn, &db_key, &r)) {
     db_abort_txn(sys_txn);
     return (worker_init_result_t){
         .success = false, .msg = "Failed to get next entity ID from system DB"};
@@ -285,10 +285,25 @@ static bool _queue_up_ops(worker_t *worker, worker_ops_t *ops) {
 }
 
 static bool _process_msg(worker_t *worker, cmd_queue_msg_t *msg,
-                         MDB_txn **sys_txn_ptr) {
+                         eng_container_t **sys_c_ptr, MDB_txn **sys_txn_ptr) {
   if (!msg || !msg->command) {
     LOG_WARN("Received invalid message: null command");
     return false;
+  }
+
+  if (!*sys_c_ptr) {
+    container_result_t cr = container_get_system();
+    if (!cr.success) {
+      LOG_ERROR("Cannot get system container");
+      return false;
+    }
+    MDB_txn *txn = db_create_txn(cr.container->env, true);
+    if (!txn) {
+      LOG_ERROR("Cannot create system transaction");
+      return false;
+    }
+    *sys_c_ptr = cr.container;
+    *sys_txn_ptr = txn;
   }
 
   bool is_new_ent = false;
@@ -303,16 +318,8 @@ static bool _process_msg(worker_t *worker, cmd_queue_msg_t *msg,
   char *entity_id_str = msg->command->entity_tag_value->literal.string_value;
   worker_entity_mapping_t *em = NULL;
 
-  if (!*sys_txn_ptr) {
-    *sys_txn_ptr = db_create_txn(worker->config.eng_ctx->sys_c->env, true);
-    if (!*sys_txn_ptr) {
-      LOG_ERROR("Failed to create system transaction for message processing");
-      return false;
-    }
-  }
-
-  if (!_get_entity_mapping_by_str(worker, *sys_txn_ptr, entity_id_str, &em,
-                                  &is_new_ent)) {
+  if (!_get_entity_mapping_by_str(worker, *sys_c_ptr, *sys_txn_ptr,
+                                  entity_id_str, &em, &is_new_ent)) {
     LOG_ERROR("Failed to get entity mapping for: %s", entity_id_str);
     return false;
   }
@@ -341,33 +348,36 @@ static bool _process_msg(worker_t *worker, cmd_queue_msg_t *msg,
 // Returns num messages processed
 static int _do_work(worker_t *worker) {
   size_t prev_num_msgs = 0;
-  size_t num_msgs = 0;
+  size_t num_msgs_processed = 0;
   cmd_queue_msg_t *msg = NULL;
+  eng_container_t *sys_c = NULL;
   MDB_txn *sys_txn = NULL;
 
   do {
-    prev_num_msgs = num_msgs;
+    prev_num_msgs = num_msgs_processed;
     for (uint32_t i = 0; i < worker->config.cmd_queue_consume_count; i++) {
       uint32_t cmd_queue_idx = worker->config.cmd_queue_consume_start + i;
       cmd_queue_t *queue = &worker->config.cmd_queues[cmd_queue_idx];
 
       if (cmd_queue_dequeue(queue, &msg)) {
-        num_msgs++;
-        if (!_process_msg(worker, msg, &sys_txn)) {
+        if (_process_msg(worker, msg, &sys_c, &sys_txn)) {
+          num_msgs_processed++;
+        } else {
           LOG_WARN("Failed to process message from queue %u", cmd_queue_idx);
         }
+
         cmd_queue_free_msg(msg);
         msg = NULL;
       }
     }
-  } while (prev_num_msgs != num_msgs);
+  } while (prev_num_msgs != num_msgs_processed);
 
-  // `sys_txn` created lazily
+  // `sys_txn` is created lazily
   if (sys_txn) {
     db_abort_txn(sys_txn);
   }
 
-  return num_msgs;
+  return num_msgs_processed;
 }
 
 static void _worker_cleanup(worker_t *worker) {

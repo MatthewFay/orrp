@@ -1,124 +1,72 @@
 #ifndef CONTAINER_H
 #define CONTAINER_H
 
-#include "core/db.h"
-#include "lmdb.h"
+#include "container_types.h"
 #include <stdbool.h>
+#include <stdint.h>
 
-#define SYS_CONTAINER_NAME "system"
-#define NUM_SYS_DBS 3
-#define SYS_DB_ENT_ID_TO_INT_NAME "ent_id_to_int_db"
-#define SYS_DB_INT_TO_ENT_ID_NAME "int_to_ent_id_db"
-#define SYS_DB_METADATA_NAME "sys_dc_metadata_db"
+/**
+ * Initialize the container subsystem
+ * Must be called once at startup before any other container operations
+ *
+ * @param cache_capacity Maximum number of containers to keep in cache
+ * @param data_dir Directory where container files are stored (e.g., "data")
+ * @param container_size_bytes Initial Size of each container
+ * @return true on success, false on failure
+ */
+bool container_init(size_t cache_capacity, const char *data_dir,
+                    size_t container_size_bytes);
 
-#define SYS_NEXT_ENT_ID_KEY "next_ent_id"
-#define SYS_NEXT_ENT_ID_INIT_VAL 1
+/**
+ * Shutdown the container subsystem. Closes all containers and frees resources
+ * Must be called once at shutdown
+ */
+void container_shutdown(void);
+/**
+ * Get or create a user container. Thread-safe
+ *
+ * @param name Container name
+ * @return Result object with container or error details
+ */
+container_result_t container_get_or_create_user(const char *name);
 
-#define NUM_USR_DBS 5
-#define USR_DB_INVERTED_EVENT_INDEX_NAME "inverted_event_index_db"
-#define USR_DB_EVENT_TO_ENT_NAME "event_to_entity_db"
-#define USR_DB_COUNTER_STORE_NAME "counter_store_db"
-#define USR_DB_COUNT_INDEX_NAME "count_index_db"
-#define USR_DB_METADATA_NAME "user_dc_metadata_db"
+/**
+ * Get the system container
+ */
+container_result_t container_get_system(void);
 
-#define USR_NEXT_EVENT_ID_KEY "next_event_id"
-#define USR_NEXT_EVENT_ID_INIT_VAL 1
+/**
+ * Release a User container. Thread-safe
+ */
+void container_release(eng_container_t *container);
 
-typedef enum { CONTAINER_TYPE_SYSTEM, CONTAINER_TYPE_USER } eng_dc_type_t;
+/**
+ * Get a database handle from a user container
+ *
+ * @param c Container (must be USER type)
+ * @param db_type Type of database to get
+ * @param db_out Output parameter for database handle
+ * @return true on success, false on failure
+ */
+bool container_get_user_db_handle(eng_container_t *c,
+                                  eng_dc_user_db_type_t db_type,
+                                  MDB_dbi *db_out);
 
-// System data container
-// (Global Directory)
-typedef struct eng_sys_dc_s {
-  // Forward mapping from string entity id to integer ID.
-  MDB_dbi ent_id_to_int_db;
+/**
+ * Get a database handle from the system container
+ *
+ * @param c Container (must be SYSTEM type)
+ * @param db_type Type of database to get
+ * @param db_out Output parameter for database handle
+ * @return true on success, false on failure
+ */
+bool container_get_system_db_handle(eng_container_t *c,
+                                    eng_dc_sys_db_type_t db_type,
+                                    MDB_dbi *db_out);
 
-  // Reverse mapping for resolving results.
-  MDB_dbi int_to_ent_id_db;
-
-  // Contains atomic counter for generating new entity integer IDs.
-  MDB_dbi sys_dc_metadata_db;
-} eng_sys_dc_t;
-
-// User data container
-// (Event Data)
-typedef struct eng_user_dc_s {
-  // The Event Index:
-  // This is for finding events with a specific combination of tags.
-  // Key: The tag (e.g., `loc:ca`).
-  // Value: A Roaring Bitmap of all local `event_id`s that have this tag.
-  MDB_dbi inverted_event_index_db;
-
-  // Event-to-Entity Map.
-  // Key: The local `event_id` (`uint32_t`).
-  // Value: The global `entity_id` (`uint32_t`) associated with the event.
-  MDB_dbi event_to_entity_db;
-
-  // Contains atomic counter for generating new event integer IDs.
-  MDB_dbi user_dc_metadata_db;
-
-  // Stores the raw counts for countable tags.
-  // Key: A composite of `(tag, entity_id)`.
-  // Value: The `uint32_t` count.
-  MDB_dbi counter_store_db;
-
-  // The Count Index: An inverted index for fast count-based threshold queries.
-  // This index uses a CUMULATIVE model for efficiency.
-  //
-  // Key: A composite of `(tag, count)`.
-  // Value: A Roaring Bitmap of `entity_id`s that have a count GREATER THAN OR
-  // EQUAL TO this key's count for this tag.
-  //
-  // Example: The bitmap for ("purchase:prod123", 3) contains all entities
-  // that have purchased the product 3 or more times.
-  MDB_dbi count_index_db;
-} eng_user_dc_t;
-
-typedef struct eng_container_s {
-  char *name;
-  MDB_env *env;
-  eng_dc_type_t type;
-
-  union {
-    eng_sys_dc_t *sys;
-    eng_user_dc_t *usr;
-  } data;
-
-} eng_container_t;
-
-typedef enum {
-  SYS_DB_ENT_ID_TO_INT = 0,
-  SYS_DB_INT_TO_ENT_ID,
-  SYS_DB_METADATA,
-} eng_dc_sys_db_type_t;
-
-typedef enum {
-  USER_DB_INVERTED_EVENT_INDEX = 0,
-  USER_DB_EVENT_TO_ENTITY,
-  USER_DB_METADATA,
-  USER_DB_COUNTER_STORE,
-  USER_DB_COUNT_INDEX,
-  USER_DB_COUNT
-} eng_dc_user_db_type_t;
-
-typedef struct eng_container_db_key_s {
-  eng_dc_type_t dc_type;
-  union {
-    eng_dc_sys_db_type_t sys_db_type;
-    eng_dc_user_db_type_t user_db_type;
-  };
-  char *container_name; // NULL for sys DBs
-  db_key_t db_key;
-} eng_container_db_key_t;
-
-eng_container_t *eng_container_create(eng_dc_type_t type);
-
-void eng_container_close(eng_container_t *c);
-
-// Map DB type to actual DB handle
-bool eng_container_get_db_handle(eng_container_t *c,
-                                 eng_dc_user_db_type_t db_type,
-                                 MDB_dbi *db_out);
-
-void eng_Container_free_contents_db_key(eng_container_db_key_t *db_key);
+/**
+ * Free the contents of a database key
+ */
+void container_free_db_key_contents(eng_container_db_key_t *db_key);
 
 #endif // CONTAINER_H

@@ -26,11 +26,11 @@ void eng_event(api_response_t *resp, ast_node_t *ast) {
   resp->op_type = API_EVENT;
 }
 
-eng_context_t *eng_init(void) {
-  return (eng_context_t *)0x1234; // Return dummy context
+bool eng_init(void) {
+  return true; 
 }
 
-void eng_shutdown(eng_context_t *ctx) { (void)ctx; }
+void eng_shutdown(void) {}
 
 // Helper to create a minimal valid EVENT AST
 static ast_node_t *make_event_ast(const char *container, const char *entity) {

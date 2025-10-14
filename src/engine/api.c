@@ -193,6 +193,6 @@ api_response_t *api_exec(ast_node_t *ast) {
   return r;
 }
 
-eng_context_t *api_start_eng(void) { return eng_init(); }
+bool api_start_eng(void) { return eng_init(); }
 
-void api_stop_eng(eng_context_t *ctx) { eng_shutdown(ctx); }
+void api_stop_eng(void) { eng_shutdown(); }

@@ -1,0 +1,246 @@
+#include "container_db.h"
+#include "core/db.h"
+#include <stddef.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+static int _build_container_path(char *buffer, size_t buffer_size,
+                                 const char *data_dir,
+                                 const char *container_name) {
+  int written =
+      snprintf(buffer, buffer_size, "%s/%s.mdb", data_dir, container_name);
+  if (written < 0 || (size_t)written >= buffer_size) {
+    return -1;
+  }
+  return written;
+}
+
+void container_close(eng_container_t *c) {
+  if (!c) {
+    return;
+  }
+
+  if (c->env) {
+    if (c->type == CONTAINER_TYPE_USER) {
+      db_close(c->env, c->data.usr->inverted_event_index_db);
+      db_close(c->env, c->data.usr->event_to_entity_db);
+      db_close(c->env, c->data.usr->user_dc_metadata_db);
+      db_close(c->env, c->data.usr->counter_store_db);
+      db_close(c->env, c->data.usr->count_index_db);
+      free(c->data.usr);
+    } else {
+      db_close(c->env, c->data.sys->sys_dc_metadata_db);
+      db_close(c->env, c->data.sys->int_to_ent_id_db);
+      db_close(c->env, c->data.sys->ent_id_to_int_db);
+      free(c->data.sys);
+    }
+    db_env_close(c->env);
+  }
+
+  free(c->name);
+  free(c);
+}
+
+eng_container_t *create_container_struct(eng_dc_type_t type) {
+  eng_container_t *c = calloc(1, sizeof(eng_container_t));
+  if (!c) {
+    return NULL;
+  }
+
+  c->env = NULL;
+  c->name = NULL;
+  c->type = type;
+
+  if (type == CONTAINER_TYPE_USER) {
+    c->data.usr = calloc(1, sizeof(eng_user_dc_t));
+    if (!c->data.usr) {
+      free(c);
+      return NULL;
+    }
+  } else {
+    c->data.sys = calloc(1, sizeof(eng_sys_dc_t));
+    if (!c->data.sys) {
+      free(c);
+      return NULL;
+    }
+  }
+
+  return c;
+}
+
+container_result_t create_user_container(const char *name, const char *data_dir,
+                                         size_t initial_container_size) {
+  container_result_t result = {0};
+
+  char c_path[MAX_CONTAINER_PATH_LENGTH];
+  if (_build_container_path(c_path, sizeof(c_path), data_dir, name) < 0) {
+    result.error_code = CONTAINER_ERR_PATH_TOO_LONG;
+    result.error_msg = "Container path too long";
+    return result;
+  }
+
+  eng_container_t *c = create_container_struct(CONTAINER_TYPE_USER);
+  if (!c) {
+    result.error_code = CONTAINER_ERR_ALLOC;
+    result.error_msg = "Failed to allocate container structure";
+    return result;
+  }
+
+  c->name = strdup(name);
+  if (!c->name) {
+    container_close(c);
+    result.error_code = CONTAINER_ERR_ALLOC;
+    result.error_msg = "Failed to duplicate container name";
+    return result;
+  }
+
+  c->env = db_create_env(c_path, initial_container_size, NUM_USR_DBS);
+  if (!c->env) {
+    container_close(c);
+    result.error_code = CONTAINER_ERR_ENV_CREATE;
+    result.error_msg = "Failed to create LMDB environment";
+    return result;
+  }
+
+  // Open all user databases
+  bool iei = db_open(c->env, USR_DB_INVERTED_EVENT_INDEX_NAME,
+                     &c->data.usr->inverted_event_index_db);
+  bool ee = db_open(c->env, USR_DB_EVENT_TO_ENT_NAME,
+                    &c->data.usr->event_to_entity_db);
+  bool meta =
+      db_open(c->env, USR_DB_METADATA_NAME, &c->data.usr->user_dc_metadata_db);
+  bool cs = db_open(c->env, USR_DB_COUNTER_STORE_NAME,
+                    &c->data.usr->counter_store_db);
+  bool ci =
+      db_open(c->env, USR_DB_COUNT_INDEX_NAME, &c->data.usr->count_index_db);
+
+  if (!(iei && ee && meta && cs && ci)) {
+    container_close(c);
+    result.error_code = CONTAINER_ERR_DB_OPEN;
+    result.error_msg = "Failed to open one or more databases";
+    return result;
+  }
+
+  result.success = true;
+  result.container = c;
+  return result;
+}
+
+container_result_t create_system_container(const char *data_dir,
+                                           size_t initial_container_size) {
+  container_result_t result = {0};
+
+  char sys_path[MAX_CONTAINER_PATH_LENGTH];
+  if (_build_container_path(sys_path, sizeof(sys_path), data_dir,
+                            SYS_CONTAINER_NAME) < 0) {
+    result.error_code = CONTAINER_ERR_PATH_TOO_LONG;
+    result.error_msg = "System container path too long";
+    return result;
+  }
+
+  eng_container_t *c = create_container_struct(CONTAINER_TYPE_SYSTEM);
+  if (!c) {
+    result.error_code = CONTAINER_ERR_ALLOC;
+    result.error_msg = "Failed to allocate system container structure";
+    return result;
+  }
+
+  c->name = strdup(SYS_CONTAINER_NAME);
+  if (!c->name) {
+    container_close(c);
+    result.error_code = CONTAINER_ERR_ALLOC;
+    result.error_msg = "Failed to duplicate system container name";
+    return result;
+  }
+
+  c->env = db_create_env(sys_path, initial_container_size, NUM_SYS_DBS);
+  if (!c->env) {
+    container_close(c);
+    result.error_code = CONTAINER_ERR_ENV_CREATE;
+    result.error_msg = "Failed to create system LMDB environment";
+    return result;
+  }
+
+  bool id_to_int = db_open(c->env, SYS_DB_ENT_ID_TO_INT_NAME,
+                           &c->data.sys->ent_id_to_int_db);
+  bool int_to_id = db_open(c->env, SYS_DB_INT_TO_ENT_ID_NAME,
+                           &c->data.sys->int_to_ent_id_db);
+  bool meta =
+      db_open(c->env, SYS_DB_METADATA_NAME, &c->data.sys->sys_dc_metadata_db);
+
+  if (!(id_to_int && int_to_id && meta)) {
+    container_close(c);
+    result.error_code = CONTAINER_ERR_DB_OPEN;
+    result.error_msg = "Failed to open system databases";
+    return result;
+  }
+
+  result.success = true;
+  result.container = c;
+  return result;
+}
+
+bool container_get_user_db_handle(eng_container_t *c,
+                                  eng_dc_user_db_type_t db_type,
+                                  MDB_dbi *db_out) {
+  if (!c || c->type != CONTAINER_TYPE_USER || !db_out) {
+    return false;
+  }
+
+  switch (db_type) {
+  case USER_DB_INVERTED_EVENT_INDEX:
+    *db_out = c->data.usr->inverted_event_index_db;
+    break;
+  case USER_DB_EVENT_TO_ENTITY:
+    *db_out = c->data.usr->event_to_entity_db;
+    break;
+  case USER_DB_METADATA:
+    *db_out = c->data.usr->user_dc_metadata_db;
+    break;
+  case USER_DB_COUNTER_STORE:
+    *db_out = c->data.usr->counter_store_db;
+    break;
+  case USER_DB_COUNT_INDEX:
+    *db_out = c->data.usr->count_index_db;
+    break;
+  default:
+    return false;
+  }
+
+  return true;
+}
+
+bool container_get_system_db_handle(eng_container_t *c,
+                                    eng_dc_sys_db_type_t db_type,
+                                    MDB_dbi *db_out) {
+  if (!c || c->type != CONTAINER_TYPE_SYSTEM || !db_out) {
+    return false;
+  }
+
+  switch (db_type) {
+  case SYS_DB_ENT_ID_TO_INT:
+    *db_out = c->data.sys->ent_id_to_int_db;
+    break;
+  case SYS_DB_INT_TO_ENT_ID:
+    *db_out = c->data.sys->int_to_ent_id_db;
+    break;
+  case SYS_DB_METADATA:
+    *db_out = c->data.sys->sys_dc_metadata_db;
+    break;
+  default:
+    return false;
+  }
+
+  return true;
+}
+
+void container_free_db_key_contents(eng_container_db_key_t *db_key) {
+  if (!db_key) {
+    return;
+  }
+  free(db_key->container_name);
+  if (db_key->db_key.type == DB_KEY_STRING) {
+    free((char *)db_key->db_key.key.s);
+  }
+}

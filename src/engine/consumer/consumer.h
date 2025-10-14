@@ -8,14 +8,12 @@ sends messages to engine writer for persistence
 
 #include "ck_epoch.h"
 #include "consumer_cache_internal.h"
-#include "engine/context/context.h"
 #include "engine/engine_writer/engine_writer.h"
 #include "engine/op_queue/op_queue.h"
 #include "uv.h" // IWYU pragma: keep
 #include <stdint.h>
 
 typedef struct consumer_config_s {
-  eng_context_t *eng_context;
   eng_writer_t *writer;
   uint32_t flush_every_n;
   op_queue_t *op_queues;

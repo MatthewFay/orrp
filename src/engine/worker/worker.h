@@ -2,7 +2,6 @@
 #define WORKER_H
 
 #include "engine/cmd_queue/cmd_queue.h"
-#include "engine/context/context.h"
 #include "engine/op_queue/op_queue.h"
 #include "uthash.h"
 #include "uv.h" // IWYU pragma: keep
@@ -15,7 +14,6 @@ typedef struct worker_entity_mapping_s {
 } worker_entity_mapping_t;
 
 typedef struct worker_config_s {
-  eng_context_t *eng_ctx;
   cmd_queue_t *cmd_queues;
   uint32_t cmd_queue_consume_start; // Starting cmd queue index to consume
   uint32_t cmd_queue_consume_count; // Number of cmd queues to consume from
@@ -38,7 +36,7 @@ typedef struct {
 } worker_init_result_t;
 
 // Call this before `worker_start` - sets up environment for worker threads
-worker_init_result_t worker_init_global(eng_context_t *eng_ctx);
+worker_init_result_t worker_init_global(void);
 
 typedef struct {
   bool success;
