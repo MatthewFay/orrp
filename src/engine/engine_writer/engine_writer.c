@@ -3,6 +3,7 @@
 #include "core/db.h"
 #include "engine/container/container.h"
 #include "engine/container/container_types.h"
+#include "engine/engine_writer/engine_writer_queue.h"
 #include "engine/engine_writer/engine_writer_queue_msg.h"
 #include "lmdb.h"
 #include "log/log.h"
@@ -275,6 +276,8 @@ static void _eng_writer_thread_func(void *arg) {
     fprintf(stderr, "FATAL: Failed to initialize logging for writer thread\n");
     return;
   }
+
+  eng_writer_queue_init(&writer->queue);
 
   LOG_INFO("Writer thread started");
 
