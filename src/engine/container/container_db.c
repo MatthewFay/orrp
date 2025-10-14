@@ -181,9 +181,8 @@ container_result_t create_system_container(const char *data_dir,
   return result;
 }
 
-bool container_get_user_db_handle(eng_container_t *c,
-                                  eng_dc_user_db_type_t db_type,
-                                  MDB_dbi *db_out) {
+bool cdb_get_user_db_handle(eng_container_t *c, eng_dc_user_db_type_t db_type,
+                            MDB_dbi *db_out) {
   if (!c || c->type != CONTAINER_TYPE_USER || !db_out) {
     return false;
   }
@@ -211,9 +210,8 @@ bool container_get_user_db_handle(eng_container_t *c,
   return true;
 }
 
-bool container_get_system_db_handle(eng_container_t *c,
-                                    eng_dc_sys_db_type_t db_type,
-                                    MDB_dbi *db_out) {
+bool cdb_get_system_db_handle(eng_container_t *c, eng_dc_sys_db_type_t db_type,
+                              MDB_dbi *db_out) {
   if (!c || c->type != CONTAINER_TYPE_SYSTEM || !db_out) {
     return false;
   }
@@ -235,7 +233,7 @@ bool container_get_system_db_handle(eng_container_t *c,
   return true;
 }
 
-void container_free_db_key_contents(eng_container_db_key_t *db_key) {
+void cdb_free_db_key_contents(eng_container_db_key_t *db_key) {
   if (!db_key) {
     return;
   }
