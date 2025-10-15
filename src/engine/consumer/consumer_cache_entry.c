@@ -23,8 +23,9 @@ consumer_cache_create_entry(eng_container_db_key_t *db_key,
     return NULL;
   atomic_init(&entry->bitmap, NULL);
   atomic_init(&entry->flush_version, 0);
-  entry->db_key.container_name = strdup(db_key->container_name);
   entry->db_key = *db_key;
+  entry->db_key.container_name = strdup(db_key->container_name);
+
   if (db_key->db_key.type == DB_KEY_STRING) {
     entry->db_key.db_key.key.s = strdup(db_key->db_key.key.s);
   }
