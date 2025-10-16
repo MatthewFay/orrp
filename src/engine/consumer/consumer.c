@@ -4,6 +4,7 @@
 #include "core/bitmaps.h"
 #include "core/db.h"
 #include "engine/consumer/consumer_cache_internal.h"
+#include "engine/consumer/consumer_validate.h"
 #include "engine/container/container.h"
 #include "engine/container/container_types.h"
 #include "engine/engine_writer/engine_writer_queue.h"
@@ -358,6 +359,12 @@ static void _free_batch_hash(op_queue_msg_batch_t *batch_hash) {
   }
 }
 
+static bool _validate_op_msg(op_queue_msg_t *msg) {
+  if (!msg || !msg->ser_db_key || strlen(msg->ser_db_key) == 0 || !msg->op)
+    return false;
+  return consumer_validate_op(msg->op);
+}
+
 static bool _batch_by_container(const consumer_t *consumer,
                                 op_queue_msg_batch_t **batch_hash_out,
                                 bool *batched_any_out) {
@@ -372,6 +379,9 @@ static bool _batch_by_container(const consumer_t *consumer,
     for (int j = 0; j < MAX_BATCH_SIZE_PER_OP_Queue; j++) {
       if (!op_queue_dequeue(queue, &msg)) {
         break; // No more messages in this shard
+      }
+      if (!_validate_op_msg(msg)) {
+        return false;
       }
       batch = NULL;
       HASH_FIND_STR(*batch_hash_out, msg->op->db_key.container_name, batch);
