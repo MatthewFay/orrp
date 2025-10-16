@@ -45,7 +45,7 @@ static bool _create_incr_entity_id_op(uint32_t entity_id, worker_ops_t *ops,
     return false;
   }
 
-  op_t *op = op_create_int32_val(&db_key, COND_PUT,
+  op_t *op = op_create_int32_val(&db_key, OP_COND_PUT, OP_TARGET_INT32,
                                  COND_PUT_IF_EXISTING_LESS_THAN, entity_id);
   if (!op)
     return false;
@@ -70,7 +70,7 @@ static bool _create_incr_event_id_op(char *container_name, uint32_t event_id,
   if (!db_key_into(key_buffer, sizeof(key_buffer), &db_key)) {
     return false;
   }
-  op_t *op = op_create_int32_val(&db_key, COND_PUT,
+  op_t *op = op_create_int32_val(&db_key, OP_COND_PUT, OP_TARGET_INT32,
                                  COND_PUT_IF_EXISTING_LESS_THAN, event_id);
   if (!op)
     return false;
@@ -94,8 +94,8 @@ static bool _create_ent_mapping_ops(char *ent_str_id, uint32_t ent_int_id,
   if (!db_key_into(key_buffer, sizeof(key_buffer), &db_key)) {
     return false;
   }
-  op_t *ent_id_to_int_op =
-      op_create_int32_val(&db_key, PUT, COND_PUT_NONE, ent_int_id);
+  op_t *ent_id_to_int_op = op_create_int32_val(&db_key, OP_PUT, OP_TARGET_INT32,
+                                               COND_PUT_NONE, ent_int_id);
   if (!ent_id_to_int_op)
     return false;
   if (!_append_op(ops, key_buffer, ent_id_to_int_op, i)) {
@@ -110,8 +110,8 @@ static bool _create_ent_mapping_ops(char *ent_str_id, uint32_t ent_int_id,
     return false;
   }
 
-  op_t *int_to_ent_id_op =
-      op_create_str_val(&db_key, PUT, COND_PUT_NONE, ent_str_id);
+  op_t *int_to_ent_id_op = op_create_str_val(&db_key, OP_PUT, OP_TARGET_STRING,
+                                             COND_PUT_NONE, ent_str_id);
 
   if (!_append_op(ops, key_buffer, int_to_ent_id_op, i)) {
     op_destroy(int_to_ent_id_op);
@@ -135,8 +135,8 @@ static bool _create_event_to_entity_op(char *container_name, uint32_t event_id,
     return false;
   }
 
-  op_t *event_to_entity_op =
-      op_create_int32_val(&db_key, PUT, COND_PUT_NONE, ent_int_id);
+  op_t *event_to_entity_op = op_create_int32_val(
+      &db_key, OP_PUT, OP_TARGET_INT32, COND_PUT_NONE, ent_int_id);
 
   if (!event_to_entity_op) {
     return false;
@@ -170,8 +170,8 @@ static bool _create_write_to_event_index_ops(char *container_Name,
     if (!db_key_into(ser_db_key, sizeof(ser_db_key), &db_key)) {
       return false;
     }
-    op_t *o =
-        op_create_int32_val(&db_key, BM_ADD_VALUE, COND_PUT_NONE, event_id);
+    op_t *o = op_create_int32_val(&db_key, OP_ADD_VALUE, OP_TARGET_BITMAP,
+                                  COND_PUT_NONE, event_id);
     if (!o) {
       // TODO: handle error
       return false;
@@ -208,7 +208,8 @@ static bool _create_tag_counter_ops(char *container_Name, uint32_t entity_id,
       return false;
     }
 
-    op_t *o = op_create_count_tag_increment(&db_key, tag_buffer, entity_id, 1);
+    op_t *o =
+        op_create_tag_counter_increment(&db_key, tag_buffer, entity_id, 1);
     if (!o) {
       // TODO: handle error
       return false;

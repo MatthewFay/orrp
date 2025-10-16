@@ -148,12 +148,12 @@ static bool _process_cache_msgs(consumer_t *consumer, eng_container_t *dc,
       msg = b_entry->msg;
 
       switch (msg->op->op_type) {
-      case BM_CACHE:
+      case OP_CACHE:
         // Will be cached, no work to do
         LOG_DEBUG("BM_CACHE op for key: %s", key->ser_db_key);
         break;
-      case BM_ADD_VALUE:
-        bitmap_add(bm, msg->op->data.int32_value);
+      case OP_ADD_VALUE:
+        bitmap_add(bm, msg->op->value.int32_value);
         dirty = true;
         batch_ops++;
         break;
@@ -433,6 +433,7 @@ static void _flush(consumer_t *c) {
        cache_entry = cache_entry->dirty_next) {
     bitmap_t *bm = atomic_load(&cache_entry->bitmap);
     if (!bm) {
+      LOG_WARN("Failed to load bitmap for flush: %s", cache_entry->ser_db_key);
       skipped++;
       continue;
     }

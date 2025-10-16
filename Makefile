@@ -60,6 +60,7 @@ APP_SRCS = \
 			 src/engine/consumer/consumer_cache_internal.c \
 			 src/engine/consumer/consumer_cache.c \
 			 src/engine/consumer/consumer_ebr.c \
+			 src/engine/consumer/consumer_validate.c \
 			 src/engine/consumer/consumer.c \
 			 src/engine/container/container_cache.c \
 			 src/engine/container/container_db.c \
@@ -213,6 +214,7 @@ test: bin/test_bitmaps \
 			bin/test_api \
 			bin/test_cmd_context \
 			bin/test_consumer_cache \
+			bin/test_consumer_validate \
 			bin/test_container_cache \
 			bin/test_container_db \
 			bin/test_container \
@@ -243,6 +245,8 @@ test: bin/test_bitmaps \
 	./bin/test_cmd_context
 	@echo "--- Running consumer_cache test ---"
 	./bin/test_consumer_cache
+	@echo "--- Running consumer_validate test ---"
+	./bin/test_consumer_validate
 	@echo "--- Running container_cache test ---"
 	./bin/test_container_cache
 	@echo "--- Running container_db test ---"
@@ -276,6 +280,7 @@ test_build: bin/test_bitmaps \
 						bin/test_api \
 						bin/test_cmd_context \
 						bin/test_consumer_cache \
+						bin/test_consumer_validate \
 						bin/test_container_cache \
 						bin/test_container_db \
 						bin/test_container \
@@ -356,6 +361,13 @@ bin/test_consumer_cache: tests/engine/test_consumer_cache.c \
 							lib/roaring/roaring.c \
 							${UNITY_SRC} | $(BIN_DIR) $(LIBCK_A)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBCK_A) $(LIBS)
+
+# Rule to build the consumer_validate test executable
+bin/test_consumer_validate: tests/engine/test_consumer_validate.c \
+							src/engine/consumer/consumer_validate.c \
+							src/engine/op/op.c \
+							${UNITY_SRC} | $(BIN_DIR)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 # Rule to build the container cache test executable
 bin/test_container_cache: tests/engine/test_container_cache.c \
