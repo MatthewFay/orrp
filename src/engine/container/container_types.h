@@ -54,6 +54,7 @@ typedef enum {
   SYS_DB_ENT_ID_TO_INT = 0,
   SYS_DB_INT_TO_ENT_ID,
   SYS_DB_METADATA,
+  SYS_DB_COUNT
 } eng_dc_sys_db_type_t;
 
 typedef enum {

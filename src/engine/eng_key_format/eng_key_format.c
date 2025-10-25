@@ -1,4 +1,5 @@
 #include "eng_key_format.h"
+#include <stdint.h>
 #include <stdio.h>
 
 bool custom_tag_into(char *out_buf, size_t size, ast_node_t *custom_tag) {
@@ -27,8 +28,34 @@ bool custom_tag_into(char *out_buf, size_t size, ast_node_t *custom_tag) {
   return false;
 }
 
+bool tag_str_entity_id_into(char *out_buf, size_t size, const char *custom_tag,
+                            uint32_t entity_id) {
+  if (!out_buf || !custom_tag) {
+    return false;
+  }
+  int r = snprintf(out_buf, size, "%s|%d", custom_tag, entity_id);
+  if (r < 0 || (size_t)r >= size) {
+    return false;
+  }
+  return true;
+}
+
+bool tag_entity_id_into(char *out_buf, size_t size, ast_node_t *custom_tag,
+                        uint32_t entity_id) {
+  if (!out_buf || !custom_tag) {
+    return false;
+  }
+  char cus_tag[512];
+  bool tr = custom_tag_into(cus_tag, sizeof(cus_tag), custom_tag);
+  if (!tr)
+    return false;
+  return tag_str_entity_id_into(out_buf, size, cus_tag, entity_id);
+}
+
 bool db_key_into(char *buffer, size_t buffer_size,
                  eng_container_db_key_t *db_key) {
+  if (!buffer || !db_key)
+    return false;
   int r = -1;
   int db_type = 0;
   char *container_name;
@@ -52,6 +79,18 @@ bool db_key_into(char *buffer, size_t buffer_size,
     return false;
   }
   if (r < 0 || (size_t)r >= buffer_size) {
+    return false;
+  }
+  return true;
+}
+
+bool tag_count_into(char *out_buf, size_t size, const char *custom_tag,
+                    uint32_t count) {
+  if (!out_buf || !custom_tag) {
+    return false;
+  }
+  int r = snprintf(out_buf, size, "%s|%d", custom_tag, count);
+  if (r < 0 || (size_t)r >= size) {
     return false;
   }
   return true;

@@ -127,23 +127,23 @@ static bool _group_dirty_copies_by_container(write_batch_t **b_hash,
   return true;
 }
 
-static bool _get_val(eng_writer_entry_t *entry, void **val_out,
-                     size_t *val_size_out) {
-  *val_out = bitmap_serialize(entry->bitmap_copy, val_size_out);
+static bool _ser_bitmap(eng_writer_entry_t *entry, void **val_out,
+                        size_t *val_size_out) {
+  *val_out = bitmap_serialize(entry->val.bitmap_copy, val_size_out);
   if (!*val_out) {
     LOG_ERROR("Failed to serialize bitmap for flush");
     return false;
   }
   LOG_DEBUG("Serialized bitmap: %zu bytes, version %llu", *val_size_out,
-            entry->bitmap_copy->version);
+            entry->val.bitmap_copy->version);
   return true;
 }
 
 static bool _write_to_db(eng_container_t *c, MDB_txn *txn,
                          eng_writer_entry_t *entry) {
   MDB_dbi target_db;
-  size_t val_size;
-  void *val;
+  size_t val_size = 0;
+  void *val = NULL;
 
   if (!container_get_user_db_handle(c, entry->db_key.user_db_type,
                                     &target_db)) {
@@ -151,7 +151,22 @@ static bool _write_to_db(eng_container_t *c, MDB_txn *txn,
     return false;
   }
 
-  if (!_get_val(entry, &val, &val_size)) {
+  switch (entry->val_type) {
+  case ENG_WRITER_VAL_BITMAP:
+    if (!_ser_bitmap(entry, &val, &val_size)) {
+      return false;
+    }
+    break;
+  case ENG_WRITER_VAL_STR:
+    val = entry->val.str;
+    val_size = strlen(entry->val.str);
+    break;
+  case ENG_WRITER_VAL_INT32:
+    val = &entry->val.int32;
+    val_size = sizeof(uint32_t);
+    break;
+  default:
+    LOG_ERROR("Unknown value type");
     return false;
   }
 

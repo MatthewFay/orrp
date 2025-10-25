@@ -29,7 +29,7 @@ typedef struct consumer_s {
   volatile bool should_stop;
   uint64_t messages_processed; // Stats
   ck_epoch_t epoch;
-  ck_epoch_record_t consumer_cache_thread_epoch_record;
+  ck_epoch_record_t consumer_epoch_record;
   consumer_cache_t cache;
 } consumer_t;
 

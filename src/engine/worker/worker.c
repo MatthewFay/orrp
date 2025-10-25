@@ -6,13 +6,16 @@
 #include "engine/cmd_queue/cmd_queue_msg.h"
 #include "engine/container/container.h"
 #include "engine/container/container_types.h"
+#include "engine/eng_key_format/eng_key_format.h"
 #include "engine/op_queue/op_queue.h"
 #include "engine/op_queue/op_queue_msg.h"
 #include "engine/worker/worker_ops.h"
 #include "lmdb.h"
 #include "log/log.h"
+#include "query/ast.h"
 #include "uthash.h"
 #include "uv.h"
+#include "worker_types.h"
 #include <sched.h>
 #include <stdatomic.h>
 #include <stdbool.h>
@@ -117,17 +120,53 @@ static bool _get_entity_mapping_by_str(worker_t *worker, eng_container_t *sys_c,
   return true;
 }
 
-static void _cleanup_container_lookup(eng_container_t *dc, MDB_txn *txn,
-                                      db_get_result_t *get_r) {
-  if (dc)
+static bool _get_user_dc(worker_t *worker, const char *container_name,
+                         worker_user_dc_t **user_dc_out) {
+  worker_user_dc_t *user_dc = NULL;
+  HASH_FIND_STR(worker->user_dcs, container_name, user_dc);
+  if (user_dc) {
+    *user_dc_out = user_dc;
+    return true;
+  }
+
+  container_result_t cr = container_get_or_create_user(container_name);
+  if (!cr.success) {
+    LOG_ERROR("Failed to get container from cache: %s", container_name);
+    return false;
+  }
+  eng_container_t *dc = cr.container;
+
+  MDB_txn *txn = db_create_txn(dc->env, true);
+  if (!txn) {
+    LOG_ERROR("Failed to create transaction for container: %s", container_name);
     container_release(dc);
-  if (txn)
+    return false;
+  }
+
+  user_dc = calloc(1, sizeof(worker_user_dc_t));
+  if (!user_dc) {
+    LOG_ERROR("Unable to allocate user data container");
     db_abort_txn(txn);
-  if (get_r)
-    db_get_result_clear(get_r);
+    container_release(dc);
+    return false;
+  }
+  user_dc->container_name = strdup(container_name);
+  if (!user_dc->container_name) {
+    LOG_ERROR("Unable to duplicate container name");
+    free(user_dc);
+    db_abort_txn(txn);
+    container_release(dc);
+
+    return false;
+  }
+
+  HASH_ADD_KEYPTR(hh, worker->user_dcs, user_dc->container_name,
+                  strlen(user_dc->container_name), user_dc);
+  return true;
 }
 
-static bool _get_next_event_id_for_container(const char *container_name,
+static bool _get_next_event_id_for_container(worker_t *worker,
+                                             const char *container_name,
                                              uint32_t *event_id_out) {
   atomic_uint_fast32_t *next_event_id = NULL;
 
@@ -143,25 +182,15 @@ static bool _get_next_event_id_for_container(const char *container_name,
   LOG_DEBUG("Event ID cache miss for container: %s", container_name);
 
   // Cache miss - need to load from DB
-  container_result_t cr = container_get_or_create_user(container_name);
-  if (!cr.success) {
-    LOG_ERROR("Failed to get container from cache: %s", container_name);
+  worker_user_dc_t *user_dc = NULL;
+  if (!_get_user_dc(worker, container_name, &user_dc)) {
+    LOG_ERROR("Failed to get user container: %s", container_name);
     return false;
   }
-  eng_container_t *dc = cr.container;
-
-  MDB_txn *txn = db_create_txn(dc->env, true);
-  if (!txn) {
-    LOG_ERROR("Failed to create transaction for container: %s", container_name);
-    _cleanup_container_lookup(dc, txn, NULL);
-    return false;
-  }
-
   MDB_dbi db;
-  if (!container_get_user_db_handle(dc, USER_DB_METADATA, &db)) {
+  if (!container_get_user_db_handle(user_dc->dc, USER_DB_METADATA, &db)) {
     LOG_ERROR("Failed to get metadata DB handle for container: %s",
               container_name);
-    _cleanup_container_lookup(dc, txn, NULL);
     return false;
   }
 
@@ -170,21 +199,20 @@ static bool _get_next_event_id_for_container(const char *container_name,
   db_key.type = DB_KEY_STRING;
   db_key.key.s = USR_NEXT_EVENT_ID_KEY;
 
-  if (!db_get(db, txn, &db_key, &r)) {
+  if (!db_get(db, user_dc->txn, &db_key, &r)) {
     LOG_ERROR("Failed to get next event ID from DB for container: %s",
               container_name);
-    _cleanup_container_lookup(dc, txn, &r);
     return false;
   }
 
   uint32_t next =
       r.status == DB_GET_OK ? *(uint32_t *)r.value : USR_NEXT_EVENT_ID_INIT_VAL;
+  db_get_result_clear(&r);
 
   next_event_id = malloc(sizeof(atomic_uint_fast32_t));
   if (!next_event_id) {
     LOG_ERROR("Failed to allocate atomic counter for container: %s",
               container_name);
-    _cleanup_container_lookup(dc, txn, &r);
     return false;
   }
 
@@ -196,7 +224,6 @@ static bool _get_next_event_id_for_container(const char *container_name,
   if (lock_striped_ht_put_string(&g_next_event_id_by_container, container_name,
                                  next_event_id)) {
     *event_id_out = atomic_fetch_add(next_event_id, 1);
-    _cleanup_container_lookup(dc, txn, &r);
     return true;
   }
 
@@ -208,7 +235,6 @@ static bool _get_next_event_id_for_container(const char *container_name,
   if (lock_striped_ht_get_string(&g_next_event_id_by_container, container_name,
                                  (void **)&next_event_id)) {
     *event_id_out = atomic_fetch_add(next_event_id, 1);
-    _cleanup_container_lookup(dc, txn, &r);
     return true;
   }
 
@@ -216,7 +242,6 @@ static bool _get_next_event_id_for_container(const char *container_name,
   LOG_ERROR(
       "Failed to retrieve event ID after race condition for container: %s",
       container_name);
-  _cleanup_container_lookup(dc, txn, &r);
   return false;
 }
 
@@ -274,13 +299,80 @@ static bool _queue_up_ops(worker_t *worker, worker_ops_t *ops) {
                 queue_idx);
       // Failed to enqueue - clean up remaining ops
       for (uint32_t j = i; j < ops->num_ops; j++) {
-        op_queue_msg_free(ops->ops[j]);
+        op_queue_msg_free(ops->ops[j], true);
       }
       return false;
     }
     LOG_DEBUG("Enqueued op to queue %d: %s", queue_idx, msg->ser_db_key);
   }
 
+  return true;
+}
+
+static worker_entity_tag_counter_t *
+_create_entity_tag_counter(const char *tag_entity_id_key, uint32_t count) {
+  if (!tag_entity_id_key)
+    return NULL;
+  worker_entity_tag_counter_t *counter =
+      calloc(1, sizeof(worker_entity_tag_counter_t));
+  if (!counter)
+    return NULL;
+  counter->count = count;
+  counter->tag_entity_id_key = strdup(tag_entity_id_key);
+  if (!counter->tag_entity_id_key) {
+    free(counter);
+    return NULL;
+  }
+  return counter;
+}
+
+static bool _increment_entity_tag_counters(worker_t *worker,
+                                           cmd_queue_msg_t *msg,
+                                           uint32_t entity_id,
+                                           const char *container_name) {
+  ast_node_t *node = msg->command->custom_tags_head;
+  worker_entity_tag_counter_t *tag_counter = NULL;
+  worker_user_dc_t *user_dc = NULL;
+  char buffer[512];
+  db_get_result_t r = {0};
+  db_key_t db_key = {0};
+  MDB_dbi db;
+  uint32_t count = 0;
+  if (!node || msg->command->num_counter_tags < 1) {
+    return true;
+  }
+  for (; node && node->tag.is_counter; node = node->next) {
+    if (!tag_entity_id_into(buffer, sizeof(buffer), node, entity_id)) {
+      return false;
+    }
+    HASH_FIND_STR(worker->entity_tag_counters, buffer, tag_counter);
+    if (tag_counter) {
+      tag_counter->count++;
+      continue;
+    }
+    HASH_FIND_STR(worker->user_dcs, container_name, user_dc);
+    if (!user_dc && !_get_user_dc(worker, container_name, &user_dc)) {
+      return false;
+    }
+    if (!container_get_user_db_handle(user_dc->dc, USER_DB_COUNTER_STORE,
+                                      &db)) {
+      return false;
+    }
+    db_key.type = DB_KEY_STRING;
+    db_key.key.s = buffer;
+    if (!db_get(db, user_dc->txn, &db_key, &r)) {
+      return false;
+    }
+    count = r.status == DB_GET_OK ? *(uint32_t *)r.value + 1 : 1;
+    tag_counter = _create_entity_tag_counter(buffer, count);
+    db_get_result_clear(&r);
+    if (!tag_counter) {
+      return false;
+    }
+    HASH_ADD_KEYPTR(hh, worker->entity_tag_counters,
+                    tag_counter->tag_entity_id_key,
+                    strlen(tag_counter->tag_entity_id_key), tag_counter);
+  }
   return true;
 }
 
@@ -307,14 +399,6 @@ static bool _process_msg(worker_t *worker, cmd_queue_msg_t *msg,
   }
 
   bool is_new_ent = false;
-  char *container_name = msg->command->in_tag_value->literal.string_value;
-
-  uint32_t event_id = 0;
-  if (!_get_next_event_id_for_container(container_name, &event_id)) {
-    LOG_ERROR("Failed to get next event ID for container: %s", container_name);
-    return false;
-  }
-
   char *entity_id_str = msg->command->entity_tag_value->literal.string_value;
   worker_entity_mapping_t *em = NULL;
 
@@ -324,10 +408,24 @@ static bool _process_msg(worker_t *worker, cmd_queue_msg_t *msg,
     return false;
   }
 
+  char *container_name = msg->command->in_tag_value->literal.string_value;
+  uint32_t event_id = 0;
+  if (!_get_next_event_id_for_container(worker, container_name, &event_id)) {
+    LOG_ERROR("Failed to get next event ID for container: %s", container_name);
+    return false;
+  }
+
+  if (!_increment_entity_tag_counters(worker, msg, em->ent_int_id,
+                                      container_name)) {
+    LOG_ERROR("Failed to populate entity tag counters");
+    return false;
+  }
+
   worker_ops_t ops = {0};
 
   if (!worker_create_ops(msg, container_name, em->ent_str_id, em->ent_int_id,
-                         is_new_ent, event_id, &ops)) {
+                         is_new_ent, event_id, worker->entity_tag_counters,
+                         &ops)) {
     LOG_ERROR("Failed to create ops for entity %s in container %s",
               entity_id_str, container_name);
     return false;
@@ -346,12 +444,11 @@ static bool _process_msg(worker_t *worker, cmd_queue_msg_t *msg,
 }
 
 // Returns num messages processed
-static int _do_work(worker_t *worker) {
+static int _do_work(worker_t *worker, eng_container_t *sys_c,
+                    MDB_txn *sys_txn) {
   size_t prev_num_msgs = 0;
   size_t num_msgs_processed = 0;
   cmd_queue_msg_t *msg = NULL;
-  eng_container_t *sys_c = NULL;
-  MDB_txn *sys_txn = NULL;
 
   do {
     prev_num_msgs = num_msgs_processed;
@@ -371,11 +468,6 @@ static int _do_work(worker_t *worker) {
       }
     }
   } while (prev_num_msgs != num_msgs_processed);
-
-  // `sys_txn` is created lazily
-  if (sys_txn) {
-    db_abort_txn(sys_txn);
-  }
 
   return num_msgs_processed;
 }
@@ -397,7 +489,20 @@ static void _worker_cleanup(worker_t *worker) {
   }
   worker->entity_mappings = NULL;
 
-  LOG_INFO("Worker cleanup complete: freed %zu entity mappings", freed_count);
+  worker_entity_tag_counter_t *wetc_current, *wetc_tmp;
+  size_t freed_wetc_count = 0;
+
+  HASH_ITER(hh, worker->entity_tag_counters, wetc_current, wetc_tmp) {
+    HASH_DEL(worker->entity_tag_counters, wetc_current);
+    free(wetc_current->tag_entity_id_key);
+    free(wetc_current);
+    freed_wetc_count++;
+  }
+  worker->entity_tag_counters = NULL;
+
+  LOG_INFO("Worker cleanup complete: freed %zu entity mappings, %zu entity tag "
+           "counts",
+           freed_count, freed_wetc_count);
 }
 
 static void _worker_thread_func(void *arg) {
@@ -414,19 +519,38 @@ static void _worker_thread_func(void *arg) {
   int backoff = 1;
   int spin_count = 0;
   size_t total_processed = 0;
+  eng_container_t *sys_c = NULL;
+  MDB_txn *sys_txn = NULL;
+  worker->user_dcs = NULL;
 
   while (!worker->should_stop) {
-    int processed = _do_work(worker);
+    int processed = _do_work(worker, sys_c, sys_txn);
     if (processed > 0) {
       total_processed += processed;
       backoff = 1;
       spin_count = 0;
 
-      // Log stats periodically
       if (total_processed % 10000 == 0) {
         LOG_INFO("Worker processed %zu messages", total_processed);
       }
     } else {
+      // `sys_txn` is created lazily
+      if (sys_txn) {
+        db_abort_txn(sys_txn);
+      }
+
+      if (worker->user_dcs) {
+        worker_user_dc_t *user_dc, *user_dc_tmp;
+
+        HASH_ITER(hh, worker->user_dcs, user_dc, user_dc_tmp) {
+          HASH_DEL(worker->user_dcs, user_dc);
+          db_abort_txn(user_dc->txn);
+          container_release(user_dc->dc);
+          free(user_dc->container_name);
+          free(user_dc);
+        }
+      }
+
       if (spin_count < WORKER_SPIN_LIMIT) {
         sched_yield();
         spin_count++;

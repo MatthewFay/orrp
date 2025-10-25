@@ -1,15 +1,12 @@
 #ifndef CORE_BITMAPS_H
 #define CORE_BITMAPS_H
 
-#include "ck_epoch.h"
 #include "roaring.h"
 #include <stdbool.h>
 #include <stdint.h>
 
 typedef struct bitmap_s {
   roaring_bitmap_t *rb;
-  ck_epoch_entry_t epoch_entry; // Required for epoch reclamation
-  uint64_t version;
 } bitmap_t;
 
 // Function to create a new bitmap

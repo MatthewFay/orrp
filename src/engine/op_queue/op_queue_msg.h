@@ -12,6 +12,6 @@ typedef struct op_queue_msg_s {
 
 op_queue_msg_t *op_queue_msg_create(const char *ser_db_key, op_t *op);
 
-void op_queue_msg_free(op_queue_msg_t *msg);
+void op_queue_msg_free(op_queue_msg_t *msg, bool destroy_op);
 
 #endif

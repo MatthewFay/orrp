@@ -1,8 +1,11 @@
 #include "engine/worker/worker_ops.h"
 #include "core/db.h"
+#include "engine/container/container_types.h"
 #include "engine/eng_key_format/eng_key_format.h"
 #include "engine/op/op.h"
 #include "engine/op_queue/op_queue_msg.h"
+#include "engine/worker/worker_types.h"
+#include "uthash.h"
 #include "worker_ops.h"
 #include <stdbool.h>
 #include <stdint.h>
@@ -45,7 +48,7 @@ static bool _create_incr_entity_id_op(uint32_t entity_id, worker_ops_t *ops,
     return false;
   }
 
-  op_t *op = op_create_int32_val(&db_key, OP_COND_PUT, OP_TARGET_INT32,
+  op_t *op = op_create_int32_val(&db_key, OP_TYPE_COND_PUT,
                                  COND_PUT_IF_EXISTING_LESS_THAN, entity_id);
   if (!op)
     return false;
@@ -70,7 +73,7 @@ static bool _create_incr_event_id_op(char *container_name, uint32_t event_id,
   if (!db_key_into(key_buffer, sizeof(key_buffer), &db_key)) {
     return false;
   }
-  op_t *op = op_create_int32_val(&db_key, OP_COND_PUT, OP_TARGET_INT32,
+  op_t *op = op_create_int32_val(&db_key, OP_TYPE_COND_PUT,
                                  COND_PUT_IF_EXISTING_LESS_THAN, event_id);
   if (!op)
     return false;
@@ -94,8 +97,8 @@ static bool _create_ent_mapping_ops(char *ent_str_id, uint32_t ent_int_id,
   if (!db_key_into(key_buffer, sizeof(key_buffer), &db_key)) {
     return false;
   }
-  op_t *ent_id_to_int_op = op_create_int32_val(&db_key, OP_PUT, OP_TARGET_INT32,
-                                               COND_PUT_NONE, ent_int_id);
+  op_t *ent_id_to_int_op =
+      op_create_int32_val(&db_key, OP_TYPE_PUT, COND_PUT_NONE, ent_int_id);
   if (!ent_id_to_int_op)
     return false;
   if (!_append_op(ops, key_buffer, ent_id_to_int_op, i)) {
@@ -110,8 +113,8 @@ static bool _create_ent_mapping_ops(char *ent_str_id, uint32_t ent_int_id,
     return false;
   }
 
-  op_t *int_to_ent_id_op = op_create_str_val(&db_key, OP_PUT, OP_TARGET_STRING,
-                                             COND_PUT_NONE, ent_str_id);
+  op_t *int_to_ent_id_op =
+      op_create_str_val(&db_key, OP_TYPE_PUT, COND_PUT_NONE, ent_str_id);
 
   if (!_append_op(ops, key_buffer, int_to_ent_id_op, i)) {
     op_destroy(int_to_ent_id_op);
@@ -135,8 +138,8 @@ static bool _create_event_to_entity_op(char *container_name, uint32_t event_id,
     return false;
   }
 
-  op_t *event_to_entity_op = op_create_int32_val(
-      &db_key, OP_PUT, OP_TARGET_INT32, COND_PUT_NONE, ent_int_id);
+  op_t *event_to_entity_op =
+      op_create_int32_val(&db_key, OP_TYPE_PUT, COND_PUT_NONE, ent_int_id);
 
   if (!event_to_entity_op) {
     return false;
@@ -170,8 +173,8 @@ static bool _create_write_to_event_index_ops(char *container_Name,
     if (!db_key_into(ser_db_key, sizeof(ser_db_key), &db_key)) {
       return false;
     }
-    op_t *o = op_create_int32_val(&db_key, OP_ADD_VALUE, OP_TARGET_BITMAP,
-                                  COND_PUT_NONE, event_id);
+    op_t *o = op_create_int32_val(&db_key, OP_TYPE_ADD_VALUE, COND_PUT_NONE,
+                                  event_id);
     if (!o) {
       // TODO: handle error
       return false;
@@ -187,29 +190,49 @@ static bool _create_write_to_event_index_ops(char *container_Name,
 }
 
 static bool _create_tag_counter_ops(char *container_Name, uint32_t entity_id,
-                                    cmd_queue_msg_t *msg, worker_ops_t *ops,
-                                    int *i) {
+                                    cmd_queue_msg_t *msg,
+                                    worker_entity_tag_counter_t *tag_counters,
+                                    worker_ops_t *ops, int *i) {
   char tag_buffer[512]; // TODO: pull 512 from shared config
+  char tag_counter_key[512];
+  char counter_store_key[512];
   char ser_db_key[512];
+
   eng_container_db_key_t db_key;
+  worker_entity_tag_counter_t *tag_counter = NULL;
 
   ast_node_t *custom_tag = msg->command->custom_tags_head;
 
-  for (uint32_t ct_i = 0; ct_i < msg->command->num_counter_tags; ct_i++) {
-    if (!custom_tag_into(tag_buffer, sizeof(tag_buffer), custom_tag)) {
+  for (; custom_tag && custom_tag->tag.is_counter;
+       custom_tag = custom_tag->next) {
+    if (!(custom_tag_into(tag_buffer, sizeof(tag_buffer), custom_tag) &&
+          tag_str_entity_id_into(tag_counter_key, sizeof(tag_counter_key),
+                                 tag_buffer, entity_id))) {
       return false;
     }
+    HASH_FIND_STR(tag_counters, tag_counter_key, tag_counter);
+    if (!tag_counter) {
+      // TODO: log error
+      continue;
+    }
+    if (!tag_count_into(counter_store_key, sizeof(counter_store_key),
+                        tag_buffer, 1)) {
+      return false;
+    }
+
     db_key.dc_type = CONTAINER_TYPE_USER;
     db_key.container_name = container_Name;
-    db_key.user_db_type = USER_DB_COUNT_INDEX;
+    db_key.user_db_type = USER_DB_COUNTER_STORE;
     db_key.db_key.type = DB_KEY_STRING;
+    db_key.db_key.key.s = tag_counter_key;
 
     if (!db_key_into(ser_db_key, sizeof(ser_db_key), &db_key)) {
       return false;
     }
 
     op_t *o =
-        op_create_tag_counter_increment(&db_key, tag_buffer, entity_id, 1);
+        op_create_int32_val(&db_key, OP_TYPE_COND_PUT,
+                            COND_PUT_IF_EXISTING_LESS_THAN, tag_counter->count);
     if (!o) {
       // TODO: handle error
       return false;
@@ -218,7 +241,25 @@ static bool _create_tag_counter_ops(char *container_Name, uint32_t entity_id,
       op_destroy(o);
       return false;
     }
-    custom_tag = custom_tag->next;
+
+    db_key.dc_type = CONTAINER_TYPE_USER;
+    db_key.container_name = container_Name;
+    db_key.user_db_type = USER_DB_COUNT_INDEX;
+    db_key.db_key.type = DB_KEY_STRING;
+    db_key.db_key.key.s = counter_store_key;
+    if (!db_key_into(ser_db_key, sizeof(ser_db_key), &db_key)) {
+      return false;
+    }
+    op_t *o2 = op_create_int32_val(&db_key, OP_TYPE_ADD_VALUE, COND_PUT_NONE,
+                                   entity_id);
+    if (!o2) {
+      // TODO: handle error
+      return false;
+    }
+    if (!_append_op(ops, ser_db_key, o2, i)) {
+      op_destroy(o2);
+      return false;
+    }
   }
 
   return true;
@@ -227,13 +268,19 @@ static bool _create_tag_counter_ops(char *container_Name, uint32_t entity_id,
 static bool _create_ops(cmd_queue_msg_t *msg, char *container_name,
                         char *entity_id_str, uint32_t entity_id_int32,
                         bool is_new_entity, uint32_t event_id,
+                        worker_entity_tag_counter_t *tag_counters,
                         worker_ops_t *ops_out) {
   bool success = false;
   int ops_created = 0;
+  uint32_t num_custom_tags = msg->command->num_custom_tags;
+  uint32_t num_counter_tags = msg->command->num_counter_tags;
 
-  uint32_t num_ops = (is_new_entity ? 3 : 0) + 2 +
-                     msg->command->num_custom_tags +
-                     msg->command->num_counter_tags;
+  if (num_counter_tags && tag_counters == NULL) {
+    return false;
+  }
+
+  uint32_t num_ops = (is_new_entity ? 3 : 0) + 2 + // Don't ask
+                     num_custom_tags + num_counter_tags;
 
   ops_out->ops = malloc(num_ops * sizeof(op_queue_msg_t *));
   if (!ops_out->ops) {
@@ -261,8 +308,9 @@ static bool _create_ops(cmd_queue_msg_t *msg, char *container_name,
                                         &ops_created)) {
     goto cleanup;
   }
-  if (!_create_tag_counter_ops(container_name, entity_id_int32, msg, ops_out,
-                               &ops_created))
+  if (num_counter_tags &&
+      !_create_tag_counter_ops(container_name, entity_id_int32, msg,
+                               tag_counters, ops_out, &ops_created))
     goto cleanup;
 
   success = true;
@@ -271,7 +319,7 @@ cleanup:
   if (!success) {
     if (ops_out->ops) {
       for (int i = 0; i < ops_created; i++) {
-        op_queue_msg_free(ops_out->ops[i]);
+        op_queue_msg_free(ops_out->ops[i], true);
       }
       free(ops_out->ops);
       ops_out->ops = NULL;
@@ -284,6 +332,7 @@ cleanup:
 bool worker_create_ops(cmd_queue_msg_t *msg, char *container_name,
                        char *entity_id_str, uint32_t entity_id_int32,
                        bool is_new_entity, uint32_t event_id,
+                       worker_entity_tag_counter_t *tag_counters,
                        worker_ops_t *ops_out) {
   if (!msg || !container_name || !entity_id_str || !ops_out) {
     return false;
@@ -292,6 +341,6 @@ bool worker_create_ops(cmd_queue_msg_t *msg, char *container_name,
   memset(ops_out, 0, sizeof(worker_ops_t));
 
   return _create_ops(msg, container_name, entity_id_str, entity_id_int32,
-                     is_new_entity, event_id, ops_out);
+                     is_new_entity, event_id, tag_counters, ops_out);
   // If this returns false, ops_out is already cleaned up internally
 }

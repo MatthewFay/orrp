@@ -11,8 +11,11 @@ void consumer_ebr_register(ck_epoch_t *epoch, ck_epoch_record_t *record);
 
 void consumer_ebr_unregister(ck_epoch_record_t *record);
 
-// Mark bitmap for retirement (consumer thread calls this)
-void consumer_ebr_retire(ck_epoch_record_t *record, ck_epoch_entry_t *entry);
+// Mark cached bitmap for retirement (consumer thread calls this)
+void consumer_ebr_retire_bitmap(ck_epoch_record_t *record, ck_epoch_entry_t *entry);
+
+// Mark cached string for retirement (consumer thread calls this)
+void consumer_ebr_retire_str(ck_epoch_record_t *record, ck_epoch_entry_t *entry);
 
 // Reclaim memory (consumer thread calls this)
 void consumer_ebr_reclaim(ck_epoch_record_t *record);

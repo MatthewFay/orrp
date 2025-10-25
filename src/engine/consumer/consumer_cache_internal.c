@@ -1,7 +1,6 @@
 #include "consumer_cache_internal.h"
 #include "ck_ht.h"
 #include "consumer_cache_entry.h"
-#include "core/bitmaps.h"
 #include <stdatomic.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -159,11 +158,10 @@ consumer_cache_entry_t *consumer_cache_evict_lru(consumer_cache_t *cache) {
     return NULL;
 
   consumer_cache_entry_t *victim = cache->lru_tail;
-  bitmap_t *bm = atomic_load(&victim->bitmap);
   uint64_t flush_v = atomic_load(&victim->flush_version);
 
-  if (bm->version != flush_v) {
-    return NULL; // dirty, can't evict
+  if (victim->version != flush_v) {
+    return NULL; // Safety check: dirty, can't evict
   }
 
   if (!_rem_from_cache_table(cache, victim))

@@ -2,9 +2,12 @@
 #define WORKER_H
 
 #include "engine/cmd_queue/cmd_queue.h"
+#include "engine/container/container_types.h"
 #include "engine/op_queue/op_queue.h"
+#include "lmdb.h"
 #include "uthash.h"
 #include "uv.h" // IWYU pragma: keep
+#include "worker_types.h"
 #include <stdint.h>
 
 typedef struct worker_entity_mapping_s {
@@ -12,6 +15,14 @@ typedef struct worker_entity_mapping_s {
   char *ent_str_id;
   uint32_t ent_int_id;
 } worker_entity_mapping_t;
+
+// user data containers for processing optimization across cmd msgs
+typedef struct worker_user_dc_s {
+  UT_hash_handle hh;
+  char *container_name;
+  eng_container_t *dc;
+  MDB_txn *txn;
+} worker_user_dc_t;
 
 typedef struct worker_config_s {
   cmd_queue_t *cmd_queues;
@@ -25,6 +36,8 @@ typedef struct worker_s {
   worker_config_t config;
   uv_thread_t thread;
   worker_entity_mapping_t *entity_mappings;
+  worker_entity_tag_counter_t *entity_tag_counters;
+  worker_user_dc_t *user_dcs;
   volatile bool should_stop;
   uint64_t messages_processed; // Stats
 } worker_t;
