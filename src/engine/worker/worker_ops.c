@@ -203,8 +203,9 @@ static bool _create_tag_counter_ops(char *container_Name, uint32_t entity_id,
 
   ast_node_t *custom_tag = msg->command->custom_tags_head;
 
-  for (; custom_tag && custom_tag->tag.is_counter;
+  for (; custom_tag;
        custom_tag = custom_tag->next) {
+        if (!custom_tag->tag.is_counter) continue;
     if (!(custom_tag_into(tag_buffer, sizeof(tag_buffer), custom_tag) &&
           tag_str_entity_id_into(tag_counter_key, sizeof(tag_counter_key),
                                  tag_buffer, entity_id))) {

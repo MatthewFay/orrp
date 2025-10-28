@@ -11,18 +11,18 @@ void consumer_flush_clear_result(consumer_flush_result_t fr) {
 
 static bool _consumer_flush_prepare_entry(consumer_cache_entry_t *cache_entry,
                                           eng_writer_entry_t *writer_entry) {
-  bitmap_t *bm;
+  consumer_cache_bitmap_t *cc_bm;
+  consumer_cache_str_t *cc_str;
   uint32_t int32;
-  char *str;
   if (!cache_entry || !writer_entry)
     return false;
   switch (cache_entry->val_type) {
   case CONSUMER_CACHE_ENTRY_VAL_BM:
-    bm = atomic_load(&cache_entry->val.bitmap);
-    if (!bm)
+    cc_bm = atomic_load(&cache_entry->val.cc_bitmap);
+    if (!cc_bm || !cc_bm->bitmap)
       return false;
     writer_entry->val_type = ENG_WRITER_VAL_BITMAP;
-    writer_entry->val.bitmap_copy = bitmap_copy(bm);
+    writer_entry->val.bitmap_copy = bitmap_copy(cc_bm->bitmap);
     if (!writer_entry->val.bitmap_copy)
       return false;
     break;
@@ -32,11 +32,11 @@ static bool _consumer_flush_prepare_entry(consumer_cache_entry_t *cache_entry,
     writer_entry->val.int32 = int32;
     break;
   case CONSUMER_CACHE_ENTRY_VAL_STR:
-    str = atomic_load(&cache_entry->val.str);
-    if (!str || strlen(str) == 0)
+    cc_str = atomic_load(&cache_entry->val.cc_str);
+    if (!cc_str || !cc_str->str)
       return false;
     writer_entry->val_type = ENG_WRITER_VAL_STR;
-    writer_entry->val.str_copy = str;
+    writer_entry->val.str_copy = cc_str->str;
     break;
   default:
     return false;

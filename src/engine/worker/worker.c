@@ -49,20 +49,26 @@ static bool _get_entity_mapping_by_str(worker_t *worker, eng_container_t *sys_c,
 
   HASH_FIND_STR(worker->entity_mappings, entity_id_str, em);
   if (em) {
-    LOG_DEBUG("Entity mapping cache hit: %s -> %u", entity_id_str,
-              em->ent_int_id);
+    LOG_ACTION_DEBUG(
+        ACT_CACHE_HIT,
+        "context=\"entity_mapping\" entity_id=\"%s\" ent_int_id=%u",
+        entity_id_str, em->ent_int_id);
     *mapping_out = em;
     return true;
   }
 
-  LOG_DEBUG("Entity mapping cache miss: %s", entity_id_str);
+  LOG_ACTION_DEBUG(ACT_CACHE_MISS,
+                   "context=\"entity_mapping\" entity_id=\"%s\"",
+                   entity_id_str);
 
   bool created_txn = false;
   if (!sys_txn) {
     sys_txn = db_create_txn(sys_c->env, true);
     if (!sys_txn) {
-      LOG_ERROR("Failed to create transaction for entity mapping lookup: %s",
-                entity_id_str);
+      LOG_ACTION_ERROR(ACT_TXN_FAILED,
+                       "context=\"entity_mapping_lookup\" entity_id=\"%s\" "
+                       "err=\"failed to create transaction\"",
+                       entity_id_str);
       return false;
     }
     created_txn = true;
@@ -74,7 +80,10 @@ static bool _get_entity_mapping_by_str(worker_t *worker, eng_container_t *sys_c,
   db_key.key.s = (char *)entity_id_str;
 
   if (!db_get(sys_c->data.sys->sys_dc_metadata_db, sys_txn, &db_key, &r)) {
-    LOG_ERROR("Failed to get entity metadata from DB: %s", entity_id_str);
+    LOG_ACTION_ERROR(
+        ACT_DB_READ_FAILED,
+        "context=\"entity_metadata\" entity_id=\"%s\" db=sys_dc_metadata",
+        entity_id_str);
     if (created_txn)
       db_abort_txn(sys_txn);
     return false;
@@ -82,7 +91,10 @@ static bool _get_entity_mapping_by_str(worker_t *worker, eng_container_t *sys_c,
 
   em = malloc(sizeof(worker_entity_mapping_t));
   if (!em) {
-    LOG_ERROR("Failed to allocate entity mapping for: %s", entity_id_str);
+    LOG_ACTION_ERROR(
+        ACT_MEMORY_ALLOC_FAILED,
+        "context=\"entity_mapping\" entity_id=\"%s\" size_bytes=%zu err=\"%s\"",
+        entity_id_str, sizeof(worker_entity_mapping_t), strerror(errno));
     db_get_result_clear(&r);
     if (created_txn)
       db_abort_txn(sys_txn);
@@ -91,7 +103,10 @@ static bool _get_entity_mapping_by_str(worker_t *worker, eng_container_t *sys_c,
 
   em->ent_str_id = strdup(entity_id_str);
   if (!em->ent_str_id) {
-    LOG_ERROR("Failed to duplicate entity string ID: %s", entity_id_str);
+    LOG_ACTION_ERROR(
+        ACT_MEMORY_ALLOC_FAILED,
+        "context=\"entity_str_id_dup\" entity_id=\"%s\" err=\"%s\"",
+        entity_id_str, strerror(errno));
     free(em);
     db_get_result_clear(&r);
     if (created_txn)
@@ -101,12 +116,17 @@ static bool _get_entity_mapping_by_str(worker_t *worker, eng_container_t *sys_c,
 
   if (r.status == DB_GET_OK) {
     em->ent_int_id = *(uint32_t *)r.value;
-    LOG_DEBUG("Loaded existing entity: %s -> %u", entity_id_str,
-              em->ent_int_id);
+    LOG_ACTION_DEBUG(ACT_DB_READ,
+                     "context=\"entity_mapping\" entity_id=\"%s\" "
+                     "ent_int_id=%u status=existing",
+                     entity_id_str, em->ent_int_id);
   } else {
     em->ent_int_id = _get_next_entity_id();
     *is_new_ent_out = true;
-    LOG_INFO("Created new entity: %s -> %u", entity_id_str, em->ent_int_id);
+    LOG_ACTION_INFO(
+        ACT_CACHE_ENTRY_CREATED,
+        "context=\"entity_mapping\" entity_id=\"%s\" ent_int_id=%u status=new",
+        entity_id_str, em->ent_int_id);
   }
 
   db_get_result_clear(&r);
@@ -341,7 +361,9 @@ static bool _increment_entity_tag_counters(worker_t *worker,
   if (!node || msg->command->num_counter_tags < 1) {
     return true;
   }
-  for (; node && node->tag.is_counter; node = node->next) {
+  for (; node; node = node->next) {
+    if (!node->tag.is_counter)
+      continue;
     if (!tag_entity_id_into(buffer, sizeof(buffer), node, entity_id)) {
       return false;
     }

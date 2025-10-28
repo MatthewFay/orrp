@@ -2,13 +2,11 @@
 #include "consumer_batch.h"
 #include "consumer_cache_entry.h"
 #include "consumer_ebr.h"
+#include "consumer_schema.h"
 #include "core/bitmaps.h"
 #include "core/db.h"
 #include "engine/consumer/consumer_cache_internal.h"
 #include "engine/consumer/consumer_flush.h"
-#include "engine/consumer/consumer_ops.h"
-#include "engine/consumer/consumer_processor.h"
-#include "engine/consumer/consumer_validate.h"
 #include "engine/container/container.h"
 #include "engine/container/container_types.h"
 #include "engine/engine_writer/engine_writer_queue.h"
@@ -38,134 +36,493 @@ LOG_INIT(consumer);
 
 #define CONSUMER_CACHE_CAPACITY 65536
 
+typedef enum {
+  CONSUMER_PROCESS_SUCCESS,         // All succeeded
+  CONSUMER_PROCESS_PARTIAL_FAILURE, // Some failed, some succeeded
+  CONSUMER_PROCESS_FAILURE          // All failed (or critical error)
+} consumer_process_status_t;
+
+typedef struct {
+  consumer_process_status_t status;
+  uint32_t msgs_processed;
+  uint32_t msgs_failed;
+} consumer_process_result_t;
+
+static consumer_cache_entry_t *_create_bm_entry(db_get_result_t *r,
+                                                consumer_batch_db_key_t *key,
+                                                op_queue_msg_t *msg) {
+  bitmap_t *bm = NULL;
+  consumer_cache_bitmap_t *cc_bm = calloc(1, sizeof(consumer_cache_bitmap_t));
+  if (!cc_bm) {
+    return NULL;
+  }
+  if (r->status == DB_GET_OK) {
+    bm = bitmap_deserialize(r->value, r->value_len);
+    if (!bm) {
+      LOG_ACTION_ERROR(ACT_DESERIALIZATION_FAILED, "key=\"%s\" val_type=bitmap",
+                       key->ser_db_key);
+      free(cc_bm);
+      return NULL;
+    }
+    LOG_DEBUG("Loaded existing bitmap from DB for key: %s", key->ser_db_key);
+  } else {
+    bm = bitmap_create();
+    if (!bm) {
+      LOG_ERROR("Failed to create new bitmap for key: %s", key->ser_db_key);
+      free(cc_bm);
+      return NULL;
+    }
+    LOG_DEBUG("Created new bitmap for key: %s", key->ser_db_key);
+  }
+  cc_bm->bitmap = bm;
+  consumer_cache_entry_t *e = consumer_cache_create_entry_bitmap(
+      &msg->op->db_key, msg->ser_db_key, cc_bm);
+  if (!e) {
+    LOG_ACTION_ERROR(ACT_CACHE_ENTRY_CREATE_FAILED,
+                     "key=\"%s\" val_type=bitmap", msg->ser_db_key);
+    bitmap_free(bm);
+    free(cc_bm);
+  }
+  return e;
+}
+
+static consumer_cache_entry_t *_create_str_entry(db_get_result_t *r,
+                                                 consumer_batch_db_key_t *key,
+                                                 op_queue_msg_t *msg) {
+  consumer_cache_str_t *cc_str = calloc(1, sizeof(consumer_cache_str_t));
+  if (!cc_str) {
+    return NULL;
+  }
+  if (r->status == DB_GET_OK) {
+    cc_str->str = strdup(r->value);
+    if (!cc_str->str) {
+      LOG_ACTION_ERROR(ACT_MEMORY_ALLOC_FAILED, "key=\"%s\" val_type=str",
+                       key->ser_db_key);
+      free(cc_str);
+      return NULL;
+    }
+    LOG_DEBUG("Loaded existing string from DB for key: %s", key->ser_db_key);
+  }
+  consumer_cache_entry_t *e = consumer_cache_create_entry_str(
+      &msg->op->db_key, msg->ser_db_key, cc_str);
+  if (!e) {
+    LOG_ACTION_ERROR(ACT_CACHE_ENTRY_CREATE_FAILED, "key=\"%s\" val_type=str",
+                     msg->ser_db_key);
+    free(cc_str->str);
+    free(cc_str);
+  }
+  return e;
+}
+
+static consumer_cache_entry_t *_create_int32_entry(db_get_result_t *r,
+                                                   consumer_batch_db_key_t *key,
+                                                   op_queue_msg_t *msg) {
+  uint32_t val = r->status == DB_GET_OK ? *(uint32_t *)r->value : 0;
+  consumer_cache_entry_t *e =
+      consumer_cache_create_entry_int32(&msg->op->db_key, msg->ser_db_key, val);
+  if (!e) {
+    LOG_ACTION_ERROR(ACT_CACHE_ENTRY_CREATE_FAILED, "key=\"%s\" val_type=int32",
+                     key->ser_db_key);
+  }
+  return e;
+}
+
 static consumer_cache_entry_t *
 _get_or_Create_cache_entry(eng_container_t *dc, consumer_cache_t *cache,
                            consumer_batch_db_key_t *key, op_queue_msg_t *msg,
                            MDB_txn *txn, bool *was_cached_out) {
+  db_get_result_t r;
+  MDB_dbi db;
+  consumer_cache_entry_t *cached_entry = NULL;
+
   *was_cached_out = false;
 
-  consumer_cache_entry_t *cached_entry = NULL;
   if (consumer_cache_get_entry(cache, key->ser_db_key, &cached_entry)) {
     *was_cached_out = true;
     LOG_DEBUG("Cache hit for key: %s", key->ser_db_key);
     return cached_entry;
   }
-
   LOG_DEBUG("Cache miss for key: %s", key->ser_db_key);
 
-  COP_RESULT_T cop_r = cops_create_entry_from_op_msg(dc, msg, txn);
-  if (cop_r.success) {
-    return cop_r.entry;
+  if (msg->op->db_key.dc_type == CONTAINER_TYPE_USER) {
+    if (!container_get_user_db_handle(dc, msg->op->db_key.user_db_type, &db)) {
+      LOG_ERROR("Unable to get user db handle");
+      return NULL;
+    }
+  } else {
+    if (!container_get_system_db_handle(dc, msg->op->db_key.sys_db_type, &db)) {
+
+      LOG_ERROR("Unable to get system db handle");
+      return NULL;
+    }
   }
-  LOG_ERROR("Error creating cache entry: %s", cop_r.err_msg);
-  return NULL;
+
+  if (!db_get(db, txn, &msg->op->db_key.db_key, &r)) {
+    LOG_ERROR("Failed to get DB value for key: %s", key->ser_db_key);
+    return NULL;
+  }
+
+  consumer_cache_entry_val_type_t val_type =
+      consumer_schema_get_value_type(&msg->op->db_key);
+
+  consumer_cache_entry_t *entry = NULL;
+
+  switch (val_type) {
+  case CONSUMER_CACHE_ENTRY_VAL_BM:
+    entry = _create_bm_entry(&r, key, msg);
+    break;
+  case CONSUMER_CACHE_ENTRY_VAL_INT32:
+    entry = _create_int32_entry(&r, key, msg);
+    break;
+  case CONSUMER_CACHE_ENTRY_VAL_STR:
+    entry = _create_str_entry(&r, key, msg);
+    break;
+  default:
+    break;
+  }
+
+  db_get_result_clear(&r);
+  return entry;
+}
+
+static void _fail_all_batch_db_key_msgs(consumer_process_result_t *result,
+                                        consumer_batch_db_key_t *batch_db_key) {
+  result->msgs_failed += batch_db_key->count;
+}
+
+static bool _try_evict(consumer_t *consumer) {
+  if (consumer->cache.n_entries >= CONSUMER_CACHE_CAPACITY) {
+    consumer_cache_entry_t *victim = consumer_cache_evict_lru(&consumer->cache);
+    if (victim) {
+      LOG_ACTION_DEBUG(ACT_CACHE_ENTRY_EVICTED, "key=\"%s\"",
+                       victim->ser_db_key);
+      if (victim->val_type == CONSUMER_CACHE_ENTRY_VAL_BM) {
+        consumer_ebr_retire_bitmap(&consumer->consumer_epoch_record,
+                                   &victim->val.cc_bitmap->epoch_entry);
+      } else if (victim->val_type == CONSUMER_CACHE_ENTRY_VAL_STR) {
+        consumer_ebr_retire_str(&consumer->consumer_epoch_record,
+                                &victim->val.cc_bitmap->epoch_entry);
+      }
+      consumer_cache_free_entry(victim);
+      return true;
+    } else {
+      LOG_ACTION_WARN(ACT_CACHE_ENTRY_EVICT_FAILED, "n_entries=%d cap=%d",
+                      consumer->cache.n_entries, CONSUMER_CACHE_CAPACITY);
+    }
+  }
+  return false;
+}
+
+static void _process_int32_ops(consumer_t *consumer,
+                               consumer_process_result_t *result,
+                               consumer_cache_entry_t *cache_entry,
+                               consumer_batch_db_key_t *batch_db_key,
+                               bool was_cached) {
+  uint32_t current_val = atomic_load(&cache_entry->val.int32);
+  uint32_t new_val = current_val;
+  uint32_t msgs_processed = 0;
+  uint32_t msgs_failed = 0;
+  bool dirty = false;
+
+  // Apply all operations
+  consumer_batch_msg_node_t *batch_node = batch_db_key->head;
+  while (batch_node) {
+    op_queue_msg_t *msg = batch_node->msg;
+
+    switch (msg->op->op_type) {
+    case OP_TYPE_CACHE:
+      msgs_processed++;
+      break;
+
+    case OP_TYPE_ADD_VALUE:
+      new_val += msg->op->value.int32;
+      dirty = true;
+      msgs_processed++;
+      break;
+
+    case OP_TYPE_PUT:
+      new_val = msg->op->value.int32;
+      dirty = true;
+      msgs_processed++;
+      break;
+
+    case OP_TYPE_COND_PUT:
+      if (msg->op->cond_type == COND_PUT_IF_EXISTING_LESS_THAN) {
+        if (new_val < msg->op->value.int32) {
+          new_val = msg->op->value.int32;
+          dirty = true;
+        }
+      }
+      msgs_processed++;
+      break;
+
+    default:
+      LOG_ACTION_ERROR(ACT_OP_REJECTED, "op_type=%d key=\"%s\"",
+                       msg->op->op_type, batch_db_key->ser_db_key);
+      msgs_failed++;
+      break;
+    }
+    batch_node = batch_node->next;
+  }
+
+  // If we modified the value, commit it
+  if (dirty) {
+    atomic_store(&cache_entry->val.int32, new_val);
+    cache_entry->version++;
+
+    consumer_cache_add_entry_to_dirty_list(&consumer->cache, cache_entry);
+
+    LOG_ACTION_DEBUG(ACT_OP_APPLIED,
+                     "count=%u key=\"%s\" version=%llx old_val=%u new_val=%u",
+                     msgs_processed, batch_db_key->ser_db_key,
+                     cache_entry->version, current_val, new_val);
+  }
+
+  result->msgs_processed += msgs_processed;
+  result->msgs_failed += msgs_failed;
+
+  // Add to cache if new entry
+  if (!was_cached) {
+    _try_evict(consumer);
+
+    if (!consumer_cache_add_entry(&consumer->cache, batch_db_key->ser_db_key,
+                                  cache_entry)) {
+      LOG_ACTION_ERROR(ACT_CACHE_ENTRY_ADD_FAILED, "key=\"%s\"",
+                       batch_db_key->ser_db_key);
+      consumer_cache_free_entry(cache_entry);
+
+      return _fail_all_batch_db_key_msgs(result, batch_db_key);
+    }
+  }
+}
+
+static void _process_str_ops(consumer_t *consumer,
+                             consumer_process_result_t *result,
+                             consumer_cache_entry_t *cache_entry,
+                             consumer_batch_db_key_t *batch_db_key,
+                             bool was_cached) {
+  consumer_cache_str_t *old_cc_str = atomic_load(&cache_entry->val.cc_str);
+  char *last_str = NULL;
+  uint32_t msgs_processed = 0;
+  uint32_t msgs_failed = 0;
+
+  // Find the last PUT (last write wins)
+  consumer_batch_msg_node_t *batch_node = batch_db_key->head;
+  while (batch_node) {
+    op_queue_msg_t *msg = batch_node->msg;
+
+    switch (msg->op->op_type) {
+    case OP_TYPE_CACHE:
+      msgs_processed++;
+      break;
+    case OP_TYPE_PUT:
+      last_str = msg->op->value.str; // Don't copy yet, just track last one
+      msgs_processed++;
+      break;
+    default:
+      LOG_ACTION_ERROR(ACT_OP_REJECTED, "op_type=%d key=\"%s\"",
+                       msg->op->op_type, batch_db_key->ser_db_key);
+      msgs_failed++;
+      break;
+    }
+    batch_node = batch_node->next;
+  }
+
+  // If we have a PUT to apply, do it once
+  if (last_str) {
+    consumer_cache_str_t *new_cc_str = calloc(1, sizeof(consumer_cache_str_t));
+    if (!new_cc_str) {
+      return _fail_all_batch_db_key_msgs(result, batch_db_key);
+    }
+
+    new_cc_str->str = strdup(last_str);
+    if (!new_cc_str->str) {
+      free(new_cc_str);
+      return _fail_all_batch_db_key_msgs(result, batch_db_key);
+    }
+
+    atomic_store(&cache_entry->val.cc_str, new_cc_str);
+    cache_entry->version++;
+
+    if (was_cached && old_cc_str) {
+      consumer_ebr_retire_str(&consumer->consumer_epoch_record,
+                              &old_cc_str->epoch_entry);
+    }
+
+    consumer_cache_add_entry_to_dirty_list(&consumer->cache, cache_entry);
+
+    LOG_ACTION_DEBUG(ACT_OP_APPLIED, "count=%u key=\"%s\" version=%llx",
+                     msgs_processed, batch_db_key->ser_db_key,
+                     cache_entry->version);
+  }
+
+  result->msgs_processed += msgs_processed;
+  result->msgs_failed += msgs_failed;
+
+  // Add to cache if new entry
+  if (!was_cached) {
+    _try_evict(consumer);
+
+    if (!consumer_cache_add_entry(&consumer->cache, batch_db_key->ser_db_key,
+                                  cache_entry)) {
+      LOG_ACTION_ERROR(ACT_CACHE_ENTRY_ADD_FAILED, "key=\"%s\"",
+                       batch_db_key->ser_db_key);
+
+      consumer_cache_str_t *failed_str = atomic_load(&cache_entry->val.cc_str);
+      if (failed_str) {
+        free(failed_str->str);
+        free(failed_str);
+      }
+      consumer_cache_free_entry(cache_entry);
+
+      return _fail_all_batch_db_key_msgs(result, batch_db_key);
+    }
+  }
+}
+
+static void _process_bitmap_ops(consumer_t *consumer,
+                                consumer_process_result_t *result,
+                                consumer_cache_entry_t *cache_entry,
+                                consumer_batch_db_key_t *batch_db_key,
+                                bool was_cached) {
+  op_queue_msg_t *msg;
+  consumer_cache_bitmap_t *cc_bm = atomic_load(&cache_entry->val.cc_bitmap);
+  bitmap_t *bm_copy = NULL;
+
+  if (was_cached) {
+    // if cached, create a copy because other threads could be using it
+    bm_copy = bitmap_copy(cc_bm->bitmap);
+    if (!bm_copy) {
+      LOG_ACTION_ERROR(ACT_BITMAP_COPY_FAILED, "key=\"%s\"",
+                       batch_db_key->ser_db_key);
+      return _fail_all_batch_db_key_msgs(result, batch_db_key);
+    }
+  }
+
+  consumer_batch_msg_node_t *batch_node = batch_db_key->head;
+  bool dirty = false;
+  uint32_t msgs_processed = 0;
+  uint32_t msgs_failed = 0;
+  while (batch_node) {
+    msg = batch_node->msg;
+
+    switch (msg->op->op_type) {
+    case OP_TYPE_CACHE:
+      // Will be cached, no work to do
+      msgs_processed++;
+      break;
+    case OP_TYPE_ADD_VALUE:
+      bitmap_add(bm_copy, msg->op->value.int32);
+      dirty = true;
+      msgs_processed++;
+      break;
+    default:
+      LOG_ACTION_ERROR(ACT_OP_REJECTED, "op_type=%d key=\"%s\"",
+                       msg->op->op_type, batch_db_key->ser_db_key);
+      msgs_failed++;
+      break;
+    }
+    batch_node = batch_node->next;
+  }
+
+  consumer_cache_bitmap_t *new_cc_bm;
+  if (dirty) {
+    new_cc_bm = calloc(1, sizeof(consumer_cache_bitmap_t));
+    if (!new_cc_bm) {
+      bitmap_free(bm_copy);
+      return _fail_all_batch_db_key_msgs(result, batch_db_key);
+    }
+    new_cc_bm->bitmap = bm_copy;
+    atomic_store(&cache_entry->val.cc_bitmap, new_cc_bm);
+    cache_entry->version++;
+
+    if (was_cached) {
+      consumer_ebr_retire_bitmap(&consumer->consumer_epoch_record,
+                                 &cc_bm->epoch_entry);
+    }
+    LOG_ACTION_DEBUG(ACT_OP_APPLIED, "count=%u key=\"%s\" version=%llx",
+                     msgs_processed, batch_db_key->ser_db_key,
+                     cache_entry->version);
+    result->msgs_processed += msgs_processed;
+    result->msgs_failed += msgs_failed;
+  } else {
+    bitmap_free(bm_copy);
+  }
+
+  if (dirty) {
+    consumer_cache_add_entry_to_dirty_list(&consumer->cache, cache_entry);
+  }
+
+  if (was_cached) {
+    return;
+  }
+
+  _try_evict(consumer);
+
+  if (!consumer_cache_add_entry(&consumer->cache, batch_db_key->ser_db_key,
+                                cache_entry)) {
+    LOG_ACTION_ERROR(ACT_CACHE_ENTRY_ADD_FAILED, "key=\"%s\"",
+                     batch_db_key->ser_db_key);
+    bitmap_free(new_cc_bm->bitmap);
+    free(new_cc_bm);
+    consumer_cache_free_entry(cache_entry);
+
+    return _fail_all_batch_db_key_msgs(result, batch_db_key);
+  }
 }
 
 // Process all messages for a container
-static bool _process_op_msgs(consumer_t *consumer, eng_container_t *dc,
-                             consumer_batch_db_key_t *keys, MDB_txn *txn) {
-  consumer_batch_db_key_t *key, *tmp;
-  op_queue_msg_t *msg;
-  uint32_t keys_processed = 0;
-  uint32_t ops_applied = 0;
+static void _process_op_msgs(consumer_t *consumer, eng_container_t *dc,
+                             consumer_batch_db_key_t *key, MDB_txn *txn,
+                             consumer_process_result_t *result) {
+  consumer_batch_msg_node_t *batch_node = key->head;
+  bool was_cached;
 
-  HASH_ITER(hh, keys, key, tmp) {
-    bool was_cached;
-    consumer_batch_msg_node_t *b_entry = key->head;
-
-    consumer_cache_entry_t *cache_entry = _get_or_Create_cache_entry(
-        dc, &consumer->cache, key, b_entry->msg, txn, &was_cached);
-    if (!cache_entry) {
-      LOG_ERROR("Failed to get or create cache entry for key: %s",
-                key->ser_db_key);
-      return false;
-    }
-
-    bitmap_t *old_bm;
-    bitmap_t *bm = atomic_load(&cache_entry->bitmap);
-    if (was_cached) {
-      // if cached, create a copy because other threads could be using it
-      old_bm = bm;
-      bm = bitmap_copy(bm);
-      if (!bm) {
-        LOG_ERROR("Failed to copy bitmap for key: %s", key->ser_db_key);
-        return false;
-      }
-    }
-
-    bool dirty = false;
-    uint32_t batch_ops = 0;
-
-    while (b_entry) {
-      msg = b_entry->msg;
-
-      switch (msg->op->op_type) {
-      case OP_CACHE:
-        // Will be cached, no work to do
-        LOG_DEBUG("BM_CACHE op for key: %s", key->ser_db_key);
-        break;
-      case OP_ADD_VALUE:
-        bitmap_add(bm, msg->op->value.int32_value);
-        dirty = true;
-        batch_ops++;
-        break;
-      default:
-        LOG_WARN("Unknown op type %d for key: %s", msg->op->op_type,
-                 key->ser_db_key);
-        break;
-      }
-      b_entry = b_entry->next;
-    }
-
-    if (dirty) {
-      bm->version++;
-      atomic_store(&cache_entry->bitmap, bm);
-      if (was_cached) {
-        consumer_ebr_retire(&consumer->consumer_epoch_record,
-                            &old_bm->epoch_entry);
-      }
-      LOG_DEBUG("Applied %u ops to key %s, version now %llx", batch_ops,
-                key->ser_db_key, bm->version);
-      ops_applied += batch_ops;
-    } else {
-      bitmap_free(bm);
-    }
-
-    if (dirty) {
-      consumer_cache_add_entry_to_dirty_list(&consumer->cache, cache_entry);
-    }
-
-    if (was_cached) {
-      keys_processed++;
-      continue;
-    }
-
-    if (consumer->cache.n_entries >= CONSUMER_CACHE_CAPACITY) {
-      consumer_cache_entry_t *victim =
-          consumer_cache_evict_lru(&consumer->cache);
-      if (victim) {
-        LOG_DEBUG("Evicted LRU cache entry: %s", victim->ser_db_key);
-        consumer_ebr_retire(&consumer->consumer_epoch_record,
-                            &victim->bitmap->epoch_entry);
-        consumer_cache_free_entry(victim);
-      } else {
-        LOG_WARN("Cache at capacity but failed to evict LRU entry");
-      }
-    }
-
-    if (!consumer_cache_add_entry(&consumer->cache, key->ser_db_key,
-                                  cache_entry)) {
-      LOG_ERROR("Failed to add cache entry for key: %s", key->ser_db_key);
-    }
-
-    keys_processed++;
+  consumer_cache_entry_t *cache_entry = _get_or_Create_cache_entry(
+      dc, &consumer->cache, key, batch_node->msg, txn, &was_cached);
+  if (!cache_entry) {
+    LOG_ACTION_ERROR(ACT_CACHE_ENTRY_CREATE_FAILED, "key=\"%s\"",
+                     key->ser_db_key);
+    return _fail_all_batch_db_key_msgs(result, key);
   }
 
-  LOG_DEBUG("Processed %u keys, applied %u ops", keys_processed, ops_applied);
-  return true;
+  switch (cache_entry->val_type) {
+  case CONSUMER_CACHE_ENTRY_VAL_BM:
+    _process_bitmap_ops(consumer, result, cache_entry, key, was_cached);
+    break;
+  case CONSUMER_CACHE_ENTRY_VAL_STR:
+    _process_str_ops(consumer, result, cache_entry, key, was_cached);
+    break;
+  case CONSUMER_CACHE_ENTRY_VAL_INT32:
+    _process_int32_ops(consumer, result, cache_entry, key, was_cached);
+    break;
+  default:
+    return;
+  }
 }
 
-// returns number of msgs processed, or -1 on error
+static consumer_process_result_t
+_process_container_batch(consumer_t *consumer, eng_container_t *dc,
+                         MDB_txn *txn, consumer_batch_container_t *batch) {
+  consumer_process_result_t result = {0};
+  consumer_batch_db_key_t *batch_db_keys = batch->db_keys;
+  consumer_batch_db_key_t *batch_db_key, *tmp;
+
+  HASH_ITER(hh, batch_db_keys, batch_db_key, tmp) {
+    _process_op_msgs(consumer, dc, batch_db_key, txn, &result);
+  }
+
+  if (result.msgs_processed == 0) {
+    result.status = CONSUMER_PROCESS_FAILURE;
+  } else if (result.msgs_failed > 0) {
+    result.status = CONSUMER_PROCESS_PARTIAL_FAILURE;
+  } else {
+    result.status = CONSUMER_PROCESS_SUCCESS;
+  }
+  return result;
+}
+
+// returns number of msgs processed, or -1 on total failure
 static int _process_batch(consumer_t *consumer,
                           consumer_batch_container_t *batch) {
   if (!batch || !batch->container_name || !batch->db_keys) {
@@ -196,21 +553,29 @@ static int _process_batch(consumer_t *consumer,
     return -1;
   }
 
-  consumer_process_result_t result = consumer_process_container_batch(
-      &consumer->cache, dc, txn, &consumer->consumer_epoch_record, batch);
+  consumer_process_result_t result =
+      _process_container_batch(consumer, dc, txn, batch);
 
   db_abort_txn(txn);
   container_release(dc);
 
-  if (result.success) {
-    LOG_DEBUG(
-        "Finished processing batch: %s, %u msgs processed, %u msgs failed",
-        batch->container_name, result.msgs_processed, result.msgs_failed);
+  switch (result.status) {
+  case CONSUMER_PROCESS_SUCCESS:
+    LOG_DEBUG("Finished processing batch %s: %u msgs processed, %u msgs failed",
+              batch->container_name, result.msgs_processed, result.msgs_failed);
     return result.msgs_processed;
+  case CONSUMER_PROCESS_PARTIAL_FAILURE:
+    LOG_ERROR("Error processing batch %s: %u msgs processed, %u msgs failed.",
+              batch->container_name, result.msgs_processed, result.msgs_failed);
+    return result.msgs_processed;
+  case CONSUMER_PROCESS_FAILURE:
+    LOG_ERROR("Error processing batch %s", batch->container_name);
+    return -1;
+  default:
+    LOG_ERROR("Error processing batch %s: Unknown result status",
+              batch->container_name);
+    return -1;
   }
-  LOG_ERROR("Error processing batch %s: %s", batch->container_name,
-            result.err_msg);
-  return -1;
 }
 
 static void _process_batches(consumer_t *consumer,
@@ -220,23 +585,20 @@ static void _process_batches(consumer_t *consumer,
   uint32_t batches_failed = 0;
 
   HASH_ITER(hh, container_table, batch, tmp) {
-    if (_process_batch(consumer, batch) >= 0) {
+    if (_process_batch(consumer, batch) > 0) {
       batches_processed++;
     } else {
       batches_failed++;
     }
   }
 
-  if (batches_failed > 0) {
-    LOG_WARN("Batch processing: %u succeeded, %u failed", batches_processed,
-             batches_failed);
-  }
-}
+  LOG_DEBUG("Batch processing: %u succeeded, %u failed", batches_processed,
+            batches_failed);
 
-static bool _validate_op_msg(op_queue_msg_t *msg) {
-  if (!msg || !msg->ser_db_key || strlen(msg->ser_db_key) == 0 || !msg->op)
-    return false;
-  return consumer_validate_op(msg->op);
+  if (batches_failed > 0) {
+    LOG_ERROR("Batch processing error: %u succeeded, %u failed",
+              batches_processed, batches_failed);
+  }
 }
 
 static void _flush_dirty(consumer_t *c) {
@@ -295,7 +657,7 @@ static void _consumer_thread_func(void *arg) {
     return;
   }
 
-  LOG_INFO("Consumer thread started");
+  LOG_ACTION_INFO(ACT_THREAD_STARTED, "thread_type=consumer");
 
   consumer_cache_init(&consumer->cache, &cache_config);
   consumer_ebr_register(&consumer->epoch, &consumer->consumer_epoch_record);
@@ -324,8 +686,12 @@ static void _consumer_thread_func(void *arg) {
         if (!op_queue_dequeue(queue, &msg)) {
           break; // No more messages in this shard
         }
-        if (!_validate_op_msg(msg)) {
-          LOG_ERROR("Invalid op msg");
+        schema_validation_result_t result = consumer_schema_validate_msg(msg);
+        if (!result.valid) {
+          const char *msg_key =
+              (msg && msg->ser_db_key) ? msg->ser_db_key : "unknown";
+          LOG_ACTION_ERROR(ACT_OP_VALIDATION_FAILED, "key=\"%s\" err=\"%s\"",
+                           msg_key, result.error_msg);
           continue;
         }
 
