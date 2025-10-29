@@ -23,33 +23,37 @@ int main() {
 
   uv_loop_t *loop = uv_default_loop();
   if (!loop) {
-    LOG_FATAL("Unable to initialize event loop");
+    LOG_ACTION_FATAL(ACT_SYSTEM_INIT,
+                     "err=\"unable to initialize event loop\"");
     return -1;
   }
 
-  LOG_INFO("Initializing engine");
+  LOG_ACTION_INFO(ACT_SYSTEM_INIT, "component=engine");
 
   bool r = eng_init();
   if (!r) {
-    LOG_FATAL("Unable to initialize database engine");
+    LOG_ACTION_FATAL(ACT_SYSTEM_INIT,
+                     "component=engine err=\"initialization failed\"");
     return -1;
   }
 
-  LOG_INFO("Engine has been initialized!");
+  LOG_ACTION_INFO(ACT_SYSTEM_INIT, "component=engine status=complete");
 
   const char *host = "0.0.0.0"; // Listen on all available network interfaces
   int port = 7878;              // The port for the database
 
-  LOG_INFO("Starting server..");
+  LOG_ACTION_INFO(ACT_SYSTEM_INIT, "component=server host=\"%s\" port=%d", host,
+                  port);
 
   // This function will block and run the server until the process is
   // terminated.
   start_server(host, port, loop);
 
-  LOG_INFO("Stopping engine..");
+  LOG_ACTION_INFO(ACT_SYSTEM_SHUTDOWN, "component=engine");
 
   api_stop_eng();
-  LOG_INFO("Engine stopped.");
+
+  LOG_ACTION_INFO(ACT_SYSTEM_SHUTDOWN, "component=engine status=complete");
 
   log_global_shutdown();
 

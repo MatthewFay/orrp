@@ -55,8 +55,9 @@ static void _free_batch_hash(write_batch_t *batch_hash) {
 static write_batch_t *_create_batch(char *container_name) {
   write_batch_t *batch = calloc(1, sizeof(write_batch_t));
   if (!batch) {
-    LOG_ERROR("Failed to allocate write batch for container: %s",
-              container_name);
+    LOG_ACTION_ERROR(ACT_MEMORY_ALLOC_FAILED,
+                     "context=\"write_batch\" container=\"%s\"",
+                     container_name);
     return NULL;
   }
   batch->container_name = container_name;
@@ -68,8 +69,9 @@ static bool _add_entry_to_batch(write_batch_t *batch,
                                 eng_writer_entry_t *entry) {
   write_batch_item_t *item = calloc(1, sizeof(write_batch_item_t));
   if (!item) {
-    LOG_ERROR("Failed to allocate write batch item for container: %s",
-              batch->container_name);
+    LOG_ACTION_ERROR(ACT_MEMORY_ALLOC_FAILED,
+                     "context=\"write_batch_item\" container=\"%s\"",
+                     batch->container_name);
     return false;
   }
   item->entry = entry;
@@ -89,15 +91,16 @@ static bool _group_dirty_copies_by_container(write_batch_t **b_hash,
   write_batch_t *batch_hash = *b_hash;
   write_batch_t *batch = NULL;
 
-  LOG_DEBUG("Grouping %u entries by container", msg->count);
+  LOG_ACTION_DEBUG(ACT_BATCH_GROUPING, "entry_count=%u", msg->count);
 
   for (uint32_t i = 0; i < msg->count; ++i) {
     eng_writer_entry_t *entry = &msg->entries[i];
     HASH_FIND_STR(batch_hash, entry->db_key.container_name, batch);
     if (batch) {
       if (!_add_entry_to_batch(batch, entry)) {
-        LOG_ERROR("Failed to add entry to existing batch for container: %s",
-                  entry->db_key.container_name);
+        LOG_ACTION_ERROR(ACT_BATCH_ADD_FAILED,
+                         "context=\"existing_batch\" container=\"%s\"",
+                         entry->db_key.container_name);
         _free_batch_hash(batch_hash);
         return false;
       }
@@ -111,16 +114,18 @@ static bool _group_dirty_copies_by_container(write_batch_t **b_hash,
     }
 
     if (!_add_entry_to_batch(batch, entry)) {
-      LOG_ERROR("Failed to add entry to new batch for container: %s",
-                entry->db_key.container_name);
+      LOG_ACTION_ERROR(ACT_BATCH_ADD_FAILED,
+                       "context=\"new_batch\" container=\"%s\"",
+                       entry->db_key.container_name);
       _free_batch_hash(batch_hash);
       return false;
     }
 
     HASH_ADD_KEYPTR(hh, batch_hash, batch->container_name,
                     strlen(batch->container_name), batch);
-    LOG_DEBUG("Created new write batch for container: %s",
-              batch->container_name);
+    LOG_ACTION_DEBUG(ACT_BATCH_CREATED,
+                     "context=\"write_batch\" container=\"%s\"",
+                     batch->container_name);
   }
 
   *b_hash = batch_hash;
@@ -131,11 +136,12 @@ static bool _ser_bitmap(eng_writer_entry_t *entry, void **val_out,
                         size_t *val_size_out) {
   *val_out = bitmap_serialize(entry->val.bitmap_copy, val_size_out);
   if (!*val_out) {
-    LOG_ERROR("Failed to serialize bitmap for flush");
+    LOG_ACTION_ERROR(ACT_SERIALIZATION_FAILED, "val_type=bitmap");
     return false;
   }
-  LOG_DEBUG("Serialized bitmap: %zu bytes, version %llu", *val_size_out,
-            entry->version);
+  LOG_ACTION_DEBUG(ACT_SERIALIZATION_SUCCESS,
+                   "val_type=bitmap size_bytes=%zu version=%llu", *val_size_out,
+                   entry->version);
   return true;
 }
 
@@ -147,7 +153,8 @@ static bool _write_to_db(eng_container_t *c, MDB_txn *txn,
 
   if (!container_get_user_db_handle(c, entry->db_key.user_db_type,
                                     &target_db)) {
-    LOG_ERROR("Failed to get DB handle for container: %s", c->name);
+    LOG_ACTION_ERROR(ACT_DB_HANDLE_FAILED, "container=\"%s\" db_type=%d",
+                     c->name, entry->db_key.user_db_type);
     return false;
   }
 
@@ -166,12 +173,14 @@ static bool _write_to_db(eng_container_t *c, MDB_txn *txn,
     val_size = sizeof(uint32_t);
     break;
   default:
-    LOG_ERROR("Unknown value type");
+    LOG_ACTION_ERROR(ACT_WRITE_FAILED,
+                     "err=\"unknown_value_type\" container=\"%s\"", c->name);
     return false;
   }
 
   if (!db_put(target_db, txn, &entry->db_key.db_key, val, val_size, false)) {
-    LOG_ERROR("Failed to write to DB for container: %s", c->name);
+    LOG_ACTION_ERROR(ACT_DB_WRITE_FAILED, "container=\"%s\" size_bytes=%zu",
+                     c->name, val_size);
     free(val);
     return false;
   }
@@ -191,8 +200,8 @@ static void _bump_flush_version(write_batch_t *container_batch) {
     item = item->next;
   }
 
-  LOG_DEBUG("Bumped flush version for %u entries in container: %s", bumped,
-            container_batch->container_name);
+  LOG_ACTION_DEBUG(ACT_FLUSH_VERSION_UPDATED, "count=%u container=\"%s\"",
+                   bumped, container_batch->container_name);
 }
 
 static void _flush_dirty_snapshots_to_db(write_batch_t *hash) {
@@ -211,16 +220,16 @@ static void _flush_dirty_snapshots_to_db(write_batch_t *hash) {
 
     container_result_t cr = container_get_or_create_user(batch->container_name);
     if (!cr.success) {
-      LOG_ERROR("Failed to get container from cache: %s",
-                batch->container_name);
+      LOG_ACTION_ERROR(ACT_CONTAINER_OPEN_FAILED, "container=\"%s\"",
+                       batch->container_name);
       continue;
     }
     eng_container_t *c = cr.container;
 
     MDB_txn *txn = db_create_txn(c->env, false);
     if (!txn) {
-      LOG_ERROR("Failed to create write transaction for container: %s",
-                batch->container_name);
+      LOG_ACTION_ERROR(ACT_TXN_BEGIN, "err=\"failed\" container=\"%s\"",
+                       batch->container_name);
       container_release(c);
       continue;
     }
@@ -231,8 +240,9 @@ static void _flush_dirty_snapshots_to_db(write_batch_t *hash) {
 
     while (item) {
       if (!_write_to_db(c, txn, item->entry)) {
-        LOG_ERROR("Write failed for entry %u/%u in container: %s",
-                  batch_written + 1, batch->count, batch->container_name);
+        LOG_ACTION_ERROR(ACT_DB_WRITE_FAILED, "entry=%u/%u container=\"%s\"",
+                         batch_written + 1, batch->count,
+                         batch->container_name);
         all_successful = false;
         break;
       }
@@ -244,12 +254,13 @@ static void _flush_dirty_snapshots_to_db(write_batch_t *hash) {
       _bump_flush_version(batch);
       successful_batches++;
       successful_entries += batch->count;
-      LOG_DEBUG("Successfully wrote %u entries to container: %s", batch->count,
-                batch->container_name);
+      LOG_ACTION_DEBUG(ACT_DB_WRITE, "entries_written=%u container=\"%s\"",
+                       batch->count, batch->container_name);
     } else {
       if (all_successful) {
-        LOG_ERROR("Transaction commit failed for container: %s (%u entries)",
-                  batch->container_name, batch->count);
+        LOG_ACTION_ERROR(ACT_TXN_COMMIT,
+                         "err=\"failed\" container=\"%s\" entries=%u",
+                         batch->container_name, batch->count);
       }
       db_abort_txn(txn);
     }
@@ -258,16 +269,16 @@ static void _flush_dirty_snapshots_to_db(write_batch_t *hash) {
   }
 
   if (successful_batches > 0) {
-    LOG_INFO("Flushed %u/%u entries across %u/%u containers",
-             successful_entries, total_entries, successful_batches,
-             total_batches);
+    LOG_ACTION_INFO(
+        ACT_PERF_FLUSH_COMPLETE, "entries_written=%u/%u containers=%u/%u",
+        successful_entries, total_entries, successful_batches, total_batches);
   }
 
   if (successful_batches < total_batches) {
-    LOG_WARN("Write batch partially failed: %u/%u batches succeeded, %u/%u "
-             "entries written",
-             successful_batches, total_batches, successful_entries,
-             total_entries);
+    LOG_ACTION_WARN(ACT_FLUSH_PARTIAL_FAILURE,
+                    "batches_succeeded=%u/%u entries_written=%u/%u",
+                    successful_batches, total_batches, successful_entries,
+                    total_entries);
   }
 }
 
@@ -294,7 +305,7 @@ static void _eng_writer_thread_func(void *arg) {
 
   eng_writer_queue_init(&writer->queue);
 
-  LOG_INFO("Writer thread started");
+  LOG_ACTION_INFO(ACT_THREAD_STARTED, "thread_type=writer");
 
   while (!writer->should_stop) {
     have_work = false;
@@ -315,9 +326,8 @@ static void _eng_writer_thread_func(void *arg) {
       total_entries += msg->count;
 
       if (!_group_dirty_copies_by_container(&batch_hash, msg)) {
-        LOG_ERROR("Failed to group entries by container, discarding message "
-                  "with %u entries",
-                  msg->count);
+        LOG_ACTION_ERROR(ACT_BATCH_GROUPING_FAILED,
+                         "entries=%u action=discarding", msg->count);
         eng_writer_queue_free_msg(msg);
         break;
       }
@@ -328,10 +338,11 @@ static void _eng_writer_thread_func(void *arg) {
       backoff = 1;
       spin_count = 0;
 
-      LOG_DEBUG("Dequeued %u messages in this cycle", dequeued);
+      LOG_ACTION_DEBUG(ACT_MSG_DEQUEUED, "msg_type=writer count=%u", dequeued);
 
       if (!batch_hash) {
-        LOG_WARN("Had work but no batch hash created");
+        LOG_ACTION_WARN(ACT_BATCH_GROUPING_FAILED,
+                        "err=\"no_batch_hash_created\"");
         continue;
       }
 
@@ -350,15 +361,17 @@ static void _eng_writer_thread_func(void *arg) {
 
     // Periodic stats
     if (total_cycles % 10000 == 0 && total_messages > 0) {
-      LOG_INFO("Writer stats: cycles=%llu, messages=%llu, entries=%llu, "
-               "avg_entries_per_msg=%.1f",
-               total_cycles, total_messages, total_entries,
-               (double)total_entries / total_messages);
+      LOG_ACTION_INFO(ACT_WRITER_STATS,
+                      "total_cycles=%llu total_messages=%llu "
+                      "total_entries=%llu avg_entries_per_msg=%.1f",
+                      total_cycles, total_messages, total_entries,
+                      (double)total_entries / total_messages);
     }
   }
 
-  LOG_INFO("Writer thread exiting [total_messages=%llu, total_entries=%llu]",
-           total_messages, total_entries);
+  LOG_ACTION_INFO(ACT_THREAD_STOPPED,
+                  "thread_type=writer total_messages=%llu total_entries=%llu",
+                  total_messages, total_entries);
 }
 
 bool eng_writer_start(eng_writer_t *writer, const eng_writer_config_t *config) {

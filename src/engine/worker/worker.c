@@ -151,32 +151,36 @@ static bool _get_user_dc(worker_t *worker, const char *container_name,
 
   container_result_t cr = container_get_or_create_user(container_name);
   if (!cr.success) {
-    LOG_ERROR("Failed to get container from cache: %s", container_name);
+    LOG_ACTION_ERROR(ACT_CONTAINER_OPEN_FAILED, "container=\"%s\"",
+                     container_name);
     return false;
   }
   eng_container_t *dc = cr.container;
 
   MDB_txn *txn = db_create_txn(dc->env, true);
   if (!txn) {
-    LOG_ERROR("Failed to create transaction for container: %s", container_name);
+    LOG_ACTION_ERROR(ACT_TXN_BEGIN, "err=\"failed\" container=\"%s\"",
+                     container_name);
     container_release(dc);
     return false;
   }
 
   user_dc = calloc(1, sizeof(worker_user_dc_t));
   if (!user_dc) {
-    LOG_ERROR("Unable to allocate user data container");
+    LOG_ACTION_ERROR(ACT_MEMORY_ALLOC_FAILED,
+                     "context=\"user_dc\" container=\"%s\"", container_name);
     db_abort_txn(txn);
     container_release(dc);
     return false;
   }
   user_dc->container_name = strdup(container_name);
   if (!user_dc->container_name) {
-    LOG_ERROR("Unable to duplicate container name");
+    LOG_ACTION_ERROR(ACT_MEMORY_ALLOC_FAILED,
+                     "context=\"container_name_dup\" container=\"%s\"",
+                     container_name);
     free(user_dc);
     db_abort_txn(txn);
     container_release(dc);
-
     return false;
   }
 
@@ -194,23 +198,26 @@ static bool _get_next_event_id_for_container(worker_t *worker,
   if (lock_striped_ht_get_string(&g_next_event_id_by_container, container_name,
                                  (void **)&next_event_id)) {
     *event_id_out = atomic_fetch_add(next_event_id, 1);
-    LOG_DEBUG("Event ID cache hit for container %s: %u", container_name,
-              *event_id_out);
+    LOG_ACTION_DEBUG(ACT_CACHE_HIT,
+                     "context=\"event_id\" container=\"%s\" event_id=%u",
+                     container_name, *event_id_out);
     return true;
   }
 
-  LOG_DEBUG("Event ID cache miss for container: %s", container_name);
+  LOG_ACTION_DEBUG(ACT_CACHE_MISS, "context=\"event_id\" container=\"%s\"",
+                   container_name);
 
   // Cache miss - need to load from DB
   worker_user_dc_t *user_dc = NULL;
   if (!_get_user_dc(worker, container_name, &user_dc)) {
-    LOG_ERROR("Failed to get user container: %s", container_name);
+    LOG_ACTION_ERROR(ACT_CONTAINER_OPEN_FAILED, "container=\"%s\"",
+                     container_name);
     return false;
   }
   MDB_dbi db;
   if (!container_get_user_db_handle(user_dc->dc, USER_DB_METADATA, &db)) {
-    LOG_ERROR("Failed to get metadata DB handle for container: %s",
-              container_name);
+    LOG_ACTION_ERROR(ACT_DB_HANDLE_FAILED, "db=metadata container=\"%s\"",
+                     container_name);
     return false;
   }
 
@@ -220,8 +227,9 @@ static bool _get_next_event_id_for_container(worker_t *worker,
   db_key.key.s = USR_NEXT_EVENT_ID_KEY;
 
   if (!db_get(db, user_dc->txn, &db_key, &r)) {
-    LOG_ERROR("Failed to get next event ID from DB for container: %s",
-              container_name);
+    LOG_ACTION_ERROR(ACT_DB_READ_FAILED,
+                     "context=\"next_event_id\" container=\"%s\"",
+                     container_name);
     return false;
   }
 
@@ -231,14 +239,16 @@ static bool _get_next_event_id_for_container(worker_t *worker,
 
   next_event_id = malloc(sizeof(atomic_uint_fast32_t));
   if (!next_event_id) {
-    LOG_ERROR("Failed to allocate atomic counter for container: %s",
-              container_name);
+    LOG_ACTION_ERROR(ACT_MEMORY_ALLOC_FAILED,
+                     "context=\"event_id_counter\" container=\"%s\"",
+                     container_name);
     return false;
   }
 
   atomic_init(next_event_id, next);
-  LOG_INFO("Initialized event ID counter for container %s at %u",
-           container_name, next);
+  LOG_ACTION_INFO(ACT_COUNTER_INIT,
+                  "counter_type=event_id container=\"%s\" value=%u",
+                  container_name, next);
 
   // Try to insert into cache
   if (lock_striped_ht_put_string(&g_next_event_id_by_container, container_name,
@@ -248,8 +258,9 @@ static bool _get_next_event_id_for_container(worker_t *worker,
   }
 
   // Race condition - someone else inserted, use theirs
-  LOG_DEBUG("Race condition detected inserting event ID for container: %s",
-            container_name);
+  LOG_ACTION_DEBUG(ACT_RACE_CONDITION,
+                   "context=\"event_id_insert\" container=\"%s\"",
+                   container_name);
   free(next_event_id);
 
   if (lock_striped_ht_get_string(&g_next_event_id_by_container, container_name,
@@ -259,9 +270,10 @@ static bool _get_next_event_id_for_container(worker_t *worker,
   }
 
   // Something went very wrong
-  LOG_ERROR(
-      "Failed to retrieve event ID after race condition for container: %s",
-      container_name);
+  LOG_ACTION_ERROR(ACT_RACE_CONDITION,
+                   "context=\"event_id_retrieve_after_race\" container=\"%s\" "
+                   "err=\"failed\"",
+                   container_name);
   return false;
 }
 
@@ -315,15 +327,17 @@ static bool _queue_up_ops(worker_t *worker, worker_ops_t *ops) {
     op_queue_t *queue = &worker->config.op_queues[queue_idx];
 
     if (!op_queue_enqueue(queue, msg)) {
-      LOG_ERROR("Failed to enqueue op %u/%u to queue %d", i + 1, ops->num_ops,
-                queue_idx);
+      LOG_ACTION_ERROR(ACT_MSG_ENQUEUE_FAILED,
+                       "msg_type=op op_num=%u/%u queue_id=%d", i + 1,
+                       ops->num_ops, queue_idx);
       // Failed to enqueue - clean up remaining ops
       for (uint32_t j = i; j < ops->num_ops; j++) {
         op_queue_msg_free(ops->ops[j], true);
       }
       return false;
     }
-    LOG_DEBUG("Enqueued op to queue %d: %s", queue_idx, msg->ser_db_key);
+    LOG_ACTION_DEBUG(ACT_MSG_ENQUEUED, "msg_type=op queue_id=%d key=\"%s\"",
+                     queue_idx, msg->ser_db_key);
   }
 
   return true;
@@ -401,19 +415,19 @@ static bool _increment_entity_tag_counters(worker_t *worker,
 static bool _process_msg(worker_t *worker, cmd_queue_msg_t *msg,
                          eng_container_t **sys_c_ptr, MDB_txn **sys_txn_ptr) {
   if (!msg || !msg->command) {
-    LOG_WARN("Received invalid message: null command");
+    LOG_ACTION_WARN(ACT_MSG_INVALID, "err=\"null_command\"");
     return false;
   }
 
   if (!*sys_c_ptr) {
     container_result_t cr = container_get_system();
     if (!cr.success) {
-      LOG_ERROR("Cannot get system container");
+      LOG_ACTION_ERROR(ACT_CONTAINER_OPEN_FAILED, "container=system");
       return false;
     }
     MDB_txn *txn = db_create_txn(cr.container->env, true);
     if (!txn) {
-      LOG_ERROR("Cannot create system transaction");
+      LOG_ACTION_ERROR(ACT_TXN_BEGIN, "err=\"failed\" container=system");
       return false;
     }
     *sys_c_ptr = cr.container;
@@ -426,20 +440,22 @@ static bool _process_msg(worker_t *worker, cmd_queue_msg_t *msg,
 
   if (!_get_entity_mapping_by_str(worker, *sys_c_ptr, *sys_txn_ptr,
                                   entity_id_str, &em, &is_new_ent)) {
-    LOG_ERROR("Failed to get entity mapping for: %s", entity_id_str);
+    LOG_ACTION_ERROR(ACT_ENTITY_MAPPING_FAILED, "entity_id=\"%s\"",
+                     entity_id_str);
     return false;
   }
 
   char *container_name = msg->command->in_tag_value->literal.string_value;
   uint32_t event_id = 0;
   if (!_get_next_event_id_for_container(worker, container_name, &event_id)) {
-    LOG_ERROR("Failed to get next event ID for container: %s", container_name);
+    LOG_ACTION_ERROR(ACT_EVENT_ID_FAILED, "container=\"%s\"", container_name);
     return false;
   }
 
   if (!_increment_entity_tag_counters(worker, msg, em->ent_int_id,
                                       container_name)) {
-    LOG_ERROR("Failed to populate entity tag counters");
+    LOG_ACTION_ERROR(ACT_TAG_COUNTER_FAILED, "entity_id=%u container=\"%s\"",
+                     em->ent_int_id, container_name);
     return false;
   }
 
@@ -448,13 +464,13 @@ static bool _process_msg(worker_t *worker, cmd_queue_msg_t *msg,
   if (!worker_create_ops(msg, container_name, em->ent_str_id, em->ent_int_id,
                          is_new_ent, event_id, worker->entity_tag_counters,
                          &ops)) {
-    LOG_ERROR("Failed to create ops for entity %s in container %s",
-              entity_id_str, container_name);
+    LOG_ACTION_ERROR(ACT_OP_CREATE_FAILED, "entity_id=\"%s\" container=\"%s\"",
+                     entity_id_str, container_name);
     return false;
   }
 
-  LOG_DEBUG("Created %u ops for entity %u, event %u", ops.num_ops,
-            em->ent_int_id, event_id);
+  LOG_ACTION_DEBUG(ACT_OP_CREATED, "num_ops=%u entity_id=%u event_id=%u",
+                   ops.num_ops, em->ent_int_id, event_id);
 
   bool success = _queue_up_ops(worker, &ops);
 
@@ -482,7 +498,7 @@ static int _do_work(worker_t *worker, eng_container_t *sys_c,
         if (_process_msg(worker, msg, &sys_c, &sys_txn)) {
           num_msgs_processed++;
         } else {
-          LOG_WARN("Failed to process message from queue %u", cmd_queue_idx);
+          LOG_ACTION_WARN(ACT_MSG_PROCESS_FAILED, "queue_id=%u", cmd_queue_idx);
         }
 
         cmd_queue_free_msg(msg);
@@ -522,9 +538,10 @@ static void _worker_cleanup(worker_t *worker) {
   }
   worker->entity_tag_counters = NULL;
 
-  LOG_INFO("Worker cleanup complete: freed %zu entity mappings, %zu entity tag "
-           "counts",
-           freed_count, freed_wetc_count);
+  LOG_ACTION_INFO(
+      ACT_CLEANUP_COMPLETE,
+      "context=worker entity_mappings_freed=%zu tag_counters_freed=%zu",
+      freed_count, freed_wetc_count);
 }
 
 static void _worker_thread_func(void *arg) {
@@ -536,7 +553,7 @@ static void _worker_thread_func(void *arg) {
     return;
   }
 
-  LOG_INFO("Worker thread started");
+  LOG_ACTION_INFO(ACT_THREAD_STARTED, "thread_type=worker");
 
   int backoff = 1;
   int spin_count = 0;
@@ -553,7 +570,8 @@ static void _worker_thread_func(void *arg) {
       spin_count = 0;
 
       if (total_processed % 10000 == 0) {
-        LOG_INFO("Worker processed %zu messages", total_processed);
+        LOG_ACTION_INFO(ACT_WORKER_STATS, "msgs_processed=%zu",
+                        total_processed);
       }
     } else {
       // `sys_txn` is created lazily
@@ -586,7 +604,8 @@ static void _worker_thread_func(void *arg) {
 
   _worker_cleanup(worker);
 
-  LOG_INFO("Worker thread exiting [total_processed=%zu]", total_processed);
+  LOG_ACTION_INFO(ACT_THREAD_STOPPED, "thread_type=worker total_processed=%zu",
+                  total_processed);
 }
 
 worker_result_t worker_start(worker_t *worker, const worker_config_t *config) {

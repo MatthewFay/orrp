@@ -59,27 +59,31 @@ static consumer_cache_entry_t *_create_bm_entry(db_get_result_t *r,
   if (r->status == DB_GET_OK) {
     bm = bitmap_deserialize(r->value, r->value_len);
     if (!bm) {
-      LOG_ACTION_ERROR(ACT_DESERIALIZATION_FAILED, "key=\"%s\" val_type=bitmap",
+      LOG_ACTION_ERROR(ACT_DESERIALIZATION_FAILED, "val_type=bitmap key=\"%s\"",
                        key->ser_db_key);
       free(cc_bm);
       return NULL;
     }
-    LOG_DEBUG("Loaded existing bitmap from DB for key: %s", key->ser_db_key);
+    LOG_ACTION_DEBUG(ACT_DB_READ,
+                     "context=\"bitmap_load\" key=\"%s\" status=existing",
+                     key->ser_db_key);
   } else {
     bm = bitmap_create();
     if (!bm) {
-      LOG_ERROR("Failed to create new bitmap for key: %s", key->ser_db_key);
+      LOG_ACTION_ERROR(ACT_MEMORY_ALLOC_FAILED,
+                       "context=\"bitmap_create\" key=\"%s\"", key->ser_db_key);
       free(cc_bm);
       return NULL;
     }
-    LOG_DEBUG("Created new bitmap for key: %s", key->ser_db_key);
+    LOG_ACTION_DEBUG(ACT_CACHE_ENTRY_CREATED,
+                     "context=\"bitmap_new\" key=\"%s\"", key->ser_db_key);
   }
   cc_bm->bitmap = bm;
   consumer_cache_entry_t *e = consumer_cache_create_entry_bitmap(
       &msg->op->db_key, msg->ser_db_key, cc_bm);
   if (!e) {
     LOG_ACTION_ERROR(ACT_CACHE_ENTRY_CREATE_FAILED,
-                     "key=\"%s\" val_type=bitmap", msg->ser_db_key);
+                     "val_type=bitmap key=\"%s\"", msg->ser_db_key);
     bitmap_free(bm);
     free(cc_bm);
   }
@@ -96,17 +100,19 @@ static consumer_cache_entry_t *_create_str_entry(db_get_result_t *r,
   if (r->status == DB_GET_OK) {
     cc_str->str = strdup(r->value);
     if (!cc_str->str) {
-      LOG_ACTION_ERROR(ACT_MEMORY_ALLOC_FAILED, "key=\"%s\" val_type=str",
-                       key->ser_db_key);
+      LOG_ACTION_ERROR(ACT_MEMORY_ALLOC_FAILED,
+                       "context=\"str_dup\" key=\"%s\"", key->ser_db_key);
       free(cc_str);
       return NULL;
     }
-    LOG_DEBUG("Loaded existing string from DB for key: %s", key->ser_db_key);
+    LOG_ACTION_DEBUG(ACT_DB_READ,
+                     "context=\"string_load\" key=\"%s\" status=existing",
+                     key->ser_db_key);
   }
   consumer_cache_entry_t *e = consumer_cache_create_entry_str(
       &msg->op->db_key, msg->ser_db_key, cc_str);
   if (!e) {
-    LOG_ACTION_ERROR(ACT_CACHE_ENTRY_CREATE_FAILED, "key=\"%s\" val_type=str",
+    LOG_ACTION_ERROR(ACT_CACHE_ENTRY_CREATE_FAILED, "val_type=str key=\"%s\"",
                      msg->ser_db_key);
     free(cc_str->str);
     free(cc_str);
@@ -121,7 +127,7 @@ static consumer_cache_entry_t *_create_int32_entry(db_get_result_t *r,
   consumer_cache_entry_t *e =
       consumer_cache_create_entry_int32(&msg->op->db_key, msg->ser_db_key, val);
   if (!e) {
-    LOG_ACTION_ERROR(ACT_CACHE_ENTRY_CREATE_FAILED, "key=\"%s\" val_type=int32",
+    LOG_ACTION_ERROR(ACT_CACHE_ENTRY_CREATE_FAILED, "val_type=int32 key=\"%s\"",
                      key->ser_db_key);
   }
   return e;
@@ -139,26 +145,27 @@ _get_or_Create_cache_entry(eng_container_t *dc, consumer_cache_t *cache,
 
   if (consumer_cache_get_entry(cache, key->ser_db_key, &cached_entry)) {
     *was_cached_out = true;
-    LOG_DEBUG("Cache hit for key: %s", key->ser_db_key);
+    LOG_ACTION_DEBUG(ACT_CACHE_HIT, "key=\"%s\"", key->ser_db_key);
     return cached_entry;
   }
-  LOG_DEBUG("Cache miss for key: %s", key->ser_db_key);
+  LOG_ACTION_DEBUG(ACT_CACHE_MISS, "key=\"%s\"", key->ser_db_key);
 
   if (msg->op->db_key.dc_type == CONTAINER_TYPE_USER) {
     if (!container_get_user_db_handle(dc, msg->op->db_key.user_db_type, &db)) {
-      LOG_ERROR("Unable to get user db handle");
+      LOG_ACTION_ERROR(ACT_DB_HANDLE_FAILED, "container_type=user db_type=%d",
+                       msg->op->db_key.user_db_type);
       return NULL;
     }
   } else {
     if (!container_get_system_db_handle(dc, msg->op->db_key.sys_db_type, &db)) {
-
-      LOG_ERROR("Unable to get system db handle");
+      LOG_ACTION_ERROR(ACT_DB_HANDLE_FAILED, "container_type=system db_type=%d",
+                       msg->op->db_key.sys_db_type);
       return NULL;
     }
   }
 
   if (!db_get(db, txn, &msg->op->db_key.db_key, &r)) {
-    LOG_ERROR("Failed to get DB value for key: %s", key->ser_db_key);
+    LOG_ACTION_ERROR(ACT_DB_READ_FAILED, "key=\"%s\"", key->ser_db_key);
     return NULL;
   }
 
@@ -206,7 +213,7 @@ static bool _try_evict(consumer_t *consumer) {
       consumer_cache_free_entry(victim);
       return true;
     } else {
-      LOG_ACTION_WARN(ACT_CACHE_ENTRY_EVICT_FAILED, "n_entries=%d cap=%d",
+      LOG_ACTION_WARN(ACT_CACHE_ENTRY_EVICT_FAILED, "n_entries=%d capacity=%d",
                       consumer->cache.n_entries, CONSUMER_CACHE_CAPACITY);
     }
   }
@@ -273,7 +280,8 @@ static void _process_int32_ops(consumer_t *consumer,
     consumer_cache_add_entry_to_dirty_list(&consumer->cache, cache_entry);
 
     LOG_ACTION_DEBUG(ACT_OP_APPLIED,
-                     "count=%u key=\"%s\" version=%llx old_val=%u new_val=%u",
+                     "context=\"int32_ops\" count=%u key=\"%s\" version=%llu "
+                     "old_val=%u new_val=%u",
                      msgs_processed, batch_db_key->ser_db_key,
                      cache_entry->version, current_val, new_val);
   }
@@ -351,9 +359,9 @@ static void _process_str_ops(consumer_t *consumer,
 
     consumer_cache_add_entry_to_dirty_list(&consumer->cache, cache_entry);
 
-    LOG_ACTION_DEBUG(ACT_OP_APPLIED, "count=%u key=\"%s\" version=%llx",
-                     msgs_processed, batch_db_key->ser_db_key,
-                     cache_entry->version);
+    LOG_ACTION_DEBUG(
+        ACT_OP_APPLIED, "context=\"str_ops\" count=%u key=\"%s\" version=%llu",
+        msgs_processed, batch_db_key->ser_db_key, cache_entry->version);
   }
 
   result->msgs_processed += msgs_processed;
@@ -440,7 +448,8 @@ static void _process_bitmap_ops(consumer_t *consumer,
       consumer_ebr_retire_bitmap(&consumer->consumer_epoch_record,
                                  &cc_bm->epoch_entry);
     }
-    LOG_ACTION_DEBUG(ACT_OP_APPLIED, "count=%u key=\"%s\" version=%llx",
+    LOG_ACTION_DEBUG(ACT_OP_APPLIED,
+                     "context=\"bitmap_ops\" count=%u key=\"%s\" version=%llu",
                      msgs_processed, batch_db_key->ser_db_key,
                      cache_entry->version);
     result->msgs_processed += msgs_processed;
@@ -526,9 +535,9 @@ _process_container_batch(consumer_t *consumer, eng_container_t *dc,
 static int _process_batch(consumer_t *consumer,
                           consumer_batch_container_t *batch) {
   if (!batch || !batch->container_name || !batch->db_keys) {
-    LOG_WARN("Invalid batch: container=%p, keys=%p",
-             batch ? batch->container_name : NULL,
-             batch ? batch->db_keys : NULL);
+    LOG_ACTION_WARN(ACT_BATCH_INVALID, "container=%p db_keys=%p",
+                    batch ? batch->container_name : NULL,
+                    batch ? batch->db_keys : NULL);
     return -1;
   }
 
@@ -539,7 +548,8 @@ static int _process_batch(consumer_t *consumer,
     cr = container_get_or_create_user(batch->container_name);
   }
   if (!cr.success) {
-    LOG_ERROR("Failed to get container %s from cache", batch->container_name);
+    LOG_ACTION_ERROR(ACT_CONTAINER_OPEN_FAILED, "container=\"%s\"",
+                     batch->container_name);
     return -1;
   }
 
@@ -547,8 +557,8 @@ static int _process_batch(consumer_t *consumer,
 
   MDB_txn *txn = db_create_txn(dc->env, true);
   if (!txn) {
-    LOG_ERROR("Failed to create transaction for container: %s",
-              batch->container_name);
+    LOG_ACTION_ERROR(ACT_TXN_BEGIN, "err=\"failed\" container=\"%s\"",
+                     batch->container_name);
     container_release(dc);
     return -1;
   }
@@ -561,19 +571,26 @@ static int _process_batch(consumer_t *consumer,
 
   switch (result.status) {
   case CONSUMER_PROCESS_SUCCESS:
-    LOG_DEBUG("Finished processing batch %s: %u msgs processed, %u msgs failed",
-              batch->container_name, result.msgs_processed, result.msgs_failed);
+    LOG_ACTION_DEBUG(
+        ACT_BATCH_PROCESSED,
+        "container=\"%s\" msgs_processed=%u msgs_failed=%u status=success",
+        batch->container_name, result.msgs_processed, result.msgs_failed);
     return result.msgs_processed;
   case CONSUMER_PROCESS_PARTIAL_FAILURE:
-    LOG_ERROR("Error processing batch %s: %u msgs processed, %u msgs failed.",
-              batch->container_name, result.msgs_processed, result.msgs_failed);
+    LOG_ACTION_ERROR(ACT_BATCH_PROCESSED,
+                     "container=\"%s\" msgs_processed=%u msgs_failed=%u "
+                     "status=partial_failure",
+                     batch->container_name, result.msgs_processed,
+                     result.msgs_failed);
     return result.msgs_processed;
   case CONSUMER_PROCESS_FAILURE:
-    LOG_ERROR("Error processing batch %s", batch->container_name);
+    LOG_ACTION_ERROR(ACT_BATCH_PROCESS_FAILED, "container=\"%s\"",
+                     batch->container_name);
     return -1;
   default:
-    LOG_ERROR("Error processing batch %s: Unknown result status",
-              batch->container_name);
+    LOG_ACTION_ERROR(ACT_BATCH_PROCESS_FAILED,
+                     "container=\"%s\" err=\"unknown_status\"",
+                     batch->container_name);
     return -1;
   }
 }
@@ -592,12 +609,14 @@ static void _process_batches(consumer_t *consumer,
     }
   }
 
-  LOG_DEBUG("Batch processing: %u succeeded, %u failed", batches_processed,
-            batches_failed);
+  LOG_ACTION_DEBUG(ACT_PERF_BATCH_COMPLETE,
+                   "batches_processed=%u batches_failed=%u", batches_processed,
+                   batches_failed);
 
   if (batches_failed > 0) {
-    LOG_ERROR("Batch processing error: %u succeeded, %u failed",
-              batches_processed, batches_failed);
+    LOG_ACTION_ERROR(ACT_BATCH_PROCESS_FAILED,
+                     "batches_processed=%u batches_failed=%u",
+                     batches_processed, batches_failed);
   }
 }
 
@@ -607,30 +626,33 @@ static void _flush_dirty(consumer_t *c) {
     return;
   }
 
-  LOG_DEBUG("Flushing %u dirty cache entries to writer", num_dirty_entries);
+  LOG_ACTION_DEBUG(ACT_FLUSH_STARTING, "num_dirty=%u", num_dirty_entries);
 
   consumer_flush_result_t fr =
       consumer_flush_prepare(c->cache.dirty_head, num_dirty_entries);
   if (!fr.success || !fr.msg) {
-    LOG_ERROR("Flush error: %s", fr.err_msg);
+    LOG_ACTION_ERROR(ACT_FLUSH_FAILED, "err=\"%s\"", fr.err_msg);
     return;
   }
 
   if (fr.entries_skipped > 0) {
-    LOG_WARN("Flush entries skipped: %u", fr.entries_skipped);
+    LOG_ACTION_WARN(ACT_FLUSH_ENTRIES_SKIPPED, "count=%u", fr.entries_skipped);
   }
 
   if (fr.entries_prepared > 0) {
     if (!eng_writer_queue_enqueue(&c->config.writer->queue, fr.msg)) {
-      LOG_ERROR("Failed to enqueue flush message with %u entries to writer",
-                fr.entries_prepared);
+      LOG_ACTION_ERROR(ACT_FLUSH_FAILED,
+                       "context=\"enqueue\" entries_prepared=%u",
+                       fr.entries_prepared);
     } else {
-      LOG_INFO("Flushed %u entries to writer (%u skipped)", fr.entries_prepared,
-               fr.entries_skipped);
+      LOG_ACTION_INFO(ACT_PERF_FLUSH_COMPLETE,
+                      "entries_flushed=%u entries_skipped=%u",
+                      fr.entries_prepared, fr.entries_skipped);
     }
   } else {
-    LOG_WARN("Flush prepared but no entries successfully copied (%u skipped)",
-             fr.entries_skipped);
+    LOG_ACTION_WARN(ACT_FLUSH_FAILED,
+                    "context=\"no_entries\" entries_skipped=%u",
+                    fr.entries_skipped);
   }
 
   consumer_flush_clear_result(fr);
@@ -640,7 +662,7 @@ static void _flush_dirty(consumer_t *c) {
 static void _reclamation(consumer_t *consumer) {
   uint32_t pending = consumer->consumer_epoch_record.n_pending;
   if (pending >= MIN_RECLAIM_BATCH_SIZE) {
-    LOG_DEBUG("Running EBR reclamation with %u pending entries", pending);
+    LOG_ACTION_DEBUG(ACT_EBR_RECLAIM, "pending=%u", pending);
     consumer_ebr_reclaim(&consumer->consumer_epoch_record);
   }
 }
@@ -657,7 +679,8 @@ static void _consumer_thread_func(void *arg) {
     return;
   }
 
-  LOG_ACTION_INFO(ACT_THREAD_STARTED, "thread_type=consumer");
+  LOG_ACTION_INFO(ACT_THREAD_STARTED, "thread_type=consumer consumer_id=%d",
+                  config->consumer_id);
 
   consumer_cache_init(&consumer->cache, &cache_config);
   consumer_ebr_register(&consumer->epoch, &consumer->consumer_epoch_record);
@@ -696,8 +719,8 @@ static void _consumer_thread_func(void *arg) {
         }
 
         if (!consumer_batch_add_msg(&container_table, msg)) {
-          LOG_ERROR("Failed to add message to existing batch for container: %s",
-                    msg->op->db_key.container_name);
+          LOG_ACTION_ERROR(ACT_BATCH_ADD_FAILED, "container=\"%s\"",
+                           msg->op->db_key.container_name);
           continue;
         }
 
@@ -707,7 +730,7 @@ static void _consumer_thread_func(void *arg) {
     }
 
     if (batched_any) {
-      LOG_DEBUG("Batched %u messages from queues", msgs_batched);
+      LOG_ACTION_DEBUG(ACT_BATCH_CREATED, "msgs_batched=%u", msgs_batched);
       backoff = 1;
       spin_count = 0;
       active_cycles++;
@@ -735,8 +758,9 @@ static void _consumer_thread_func(void *arg) {
       // Periodic stats
       if (total_cycles % 100000 == 0) {
         double active_pct = (active_cycles * 100.0) / total_cycles;
-        LOG_INFO("Consumer stats: cycles=%llu, active=%.1f%%, cache_entries=%u",
-                 total_cycles, active_pct, consumer->cache.n_entries);
+        LOG_ACTION_INFO(ACT_CONSUMER_STATS,
+                        "total_cycles=%llu active_pct=%.1f cache_entries=%u",
+                        total_cycles, active_pct, consumer->cache.n_entries);
       }
     }
   }
@@ -744,7 +768,8 @@ static void _consumer_thread_func(void *arg) {
   consumer_ebr_unregister(&consumer->consumer_epoch_record);
   consumer_cache_destroy(&consumer->cache);
 
-  LOG_INFO("Consumer thread exiting [total_cycles=%llu]", total_cycles);
+  LOG_ACTION_INFO(ACT_THREAD_STOPPED, "thread_type=consumer total_cycles=%llu",
+                  total_cycles);
 }
 
 consumer_result_t consumer_start(consumer_t *consumer,
@@ -785,7 +810,7 @@ consumer_result_t consumer_stop(consumer_t *consumer) {
 
 bool consumer_get_stats(consumer_t *consumer, uint64_t *processed_out) {
   if (!consumer || !processed_out) {
-    LOG_WARN("Invalid arguments to consumer_get_stats");
+    LOG_ACTION_WARN(ACT_INVALID_ARGS, "function=consumer_get_stats");
     return false;
   }
   *processed_out = consumer->messages_processed;

@@ -54,62 +54,67 @@ bool eng_init(void) {
     return NULL;
   }
 
-  LOG_INFO("Initializing database engine...");
-  LOG_INFO(
-      "Configuration: cmd_queues=%d, workers=%d, op_queues=%d, consumers=%d",
-      NUM_CMD_QUEUEs, NUM_WORKERS, NUM_OP_QUEUES, NUM_CONSUMERS);
+  LOG_ACTION_INFO(ACT_SYSTEM_INIT, "component=engine");
+  LOG_ACTION_INFO(ACT_SYSTEM_INIT,
+                  "component=engine config=\"cmd_queues=%d workers=%d "
+                  "op_queues=%d consumers=%d\"",
+                  NUM_CMD_QUEUEs, NUM_WORKERS, NUM_OP_QUEUES, NUM_CONSUMERS);
 
   // Initialize container subsystem
   if (!container_init(DC_CACHE_CAPACITY, CONTAINER_FOLDER, CONTAINER_SIZE)) {
-    LOG_FATAL("Failed to initialize container subsystem");
+    LOG_ACTION_FATAL(ACT_SUBSYSTEM_INIT_FAILED, "subsystem=container");
     return NULL;
   }
-  LOG_INFO("Container subsystem initialized (cache_capacity=%d)",
-           DC_CACHE_CAPACITY);
+  LOG_ACTION_INFO(ACT_SUBSYSTEM_INIT, "subsystem=container cache_capacity=%d",
+                  DC_CACHE_CAPACITY);
 
   // Get system container
   container_result_t sys_result = container_get_system();
   if (!sys_result.success) {
-    LOG_FATAL("Failed to get system container: %s",
-              sys_result.error_msg ? sys_result.error_msg : "unknown error");
+    LOG_ACTION_FATAL(ACT_CONTAINER_OPEN_FAILED, "container=system err=\"%s\"",
+                     sys_result.error_msg ? sys_result.error_msg
+                                          : "unknown error");
     container_shutdown();
     return NULL;
   }
-  LOG_INFO("System container initialized successfully");
+  LOG_ACTION_INFO(ACT_CONTAINER_OPENED, "container=system");
 
   // Start engine writer
   eng_writer_config_t writer_config = {};
   if (!eng_writer_start(&g_eng_writer, &writer_config)) {
-    LOG_FATAL("Failed to start engine writer");
+    LOG_ACTION_FATAL(ACT_THREAD_START_FAILED, "thread_type=writer");
     container_shutdown();
     return NULL;
   }
-  LOG_INFO("Engine writer started");
+  LOG_ACTION_INFO(ACT_THREAD_STARTED, "thread_type=writer");
 
   // Initialize command queues
-  LOG_INFO("Initializing %d command queues...", NUM_CMD_QUEUEs);
+  LOG_ACTION_INFO(ACT_QUEUE_INIT, "queue_type=cmd count=%d", NUM_CMD_QUEUEs);
   for (int i = 0; i < NUM_CMD_QUEUEs; i++) {
     if (!cmd_queue_init(&g_cmd_queues[i])) {
-      LOG_FATAL("Failed to initialize command queue %d", i);
+      LOG_ACTION_FATAL(ACT_QUEUE_INIT_FAILED, "queue_type=cmd queue_id=%d", i);
       container_shutdown();
       return NULL;
     }
   }
-  LOG_INFO("Command queues initialized successfully");
+  LOG_ACTION_INFO(ACT_QUEUE_INIT, "queue_type=cmd count=%d status=complete",
+                  NUM_CMD_QUEUEs);
 
   // Initialize operation queues
-  LOG_INFO("Initializing %d operation queues...", NUM_OP_QUEUES);
+  LOG_ACTION_INFO(ACT_QUEUE_INIT, "queue_type=op count=%d", NUM_OP_QUEUES);
   for (int i = 0; i < NUM_OP_QUEUES; i++) {
     if (!op_queue_init(&g_op_queues[i])) {
-      LOG_FATAL("Failed to initialize operation queue %d", i);
+      LOG_ACTION_FATAL(ACT_QUEUE_INIT_FAILED, "queue_type=op queue_id=%d", i);
       container_shutdown();
       return NULL;
     }
   }
-  LOG_INFO("Operation queues initialized successfully");
+  LOG_ACTION_INFO(ACT_QUEUE_INIT, "queue_type=op count=%d status=complete",
+                  NUM_OP_QUEUES);
 
   // Start consumer threads
-  LOG_INFO("Starting %d consumer threads...", NUM_CONSUMERS);
+  LOG_ACTION_INFO(ACT_THREAD_POOL_STARTING, "thread_type=consumer count=%d",
+                  NUM_CONSUMERS);
   for (int i = 0; i < NUM_CONSUMERS; i++) {
     consumer_config_t consumer_config = {
         .writer = &g_eng_writer,
@@ -121,30 +126,35 @@ bool eng_init(void) {
         .consumer_id = i};
 
     if (!consumer_start(&g_consumers[i], &consumer_config).success) {
-      LOG_FATAL("Failed to start consumer %d (queues %d-%d)", i,
-                consumer_config.op_queue_consume_start,
-                consumer_config.op_queue_consume_start +
-                    consumer_config.op_queue_consume_count - 1);
+      LOG_ACTION_FATAL(ACT_THREAD_START_FAILED,
+                       "thread_type=consumer thread_id=%d op_queues=%d-%d", i,
+                       consumer_config.op_queue_consume_start,
+                       consumer_config.op_queue_consume_start +
+                           consumer_config.op_queue_consume_count - 1);
       container_shutdown();
       return NULL;
     }
-    LOG_DEBUG("Consumer %d started (op_queues %d-%d)", i,
-              consumer_config.op_queue_consume_start,
-              consumer_config.op_queue_consume_start +
-                  consumer_config.op_queue_consume_count - 1);
+    LOG_ACTION_DEBUG(ACT_THREAD_STARTED,
+                     "thread_type=consumer thread_id=%d op_queues=%d-%d", i,
+                     consumer_config.op_queue_consume_start,
+                     consumer_config.op_queue_consume_start +
+                         consumer_config.op_queue_consume_count - 1);
   }
-  LOG_INFO("All consumer threads started successfully");
+  LOG_ACTION_INFO(ACT_THREAD_POOL_STARTING,
+                  "thread_type=consumer count=%d status=complete",
+                  NUM_CONSUMERS);
 
   // Initialize global worker state
   if (!worker_init_global().success) {
-    LOG_FATAL("Failed to initialize global worker state");
+    LOG_ACTION_FATAL(ACT_SUBSYSTEM_INIT_FAILED, "subsystem=worker_global");
     container_shutdown();
     return NULL;
   }
-  LOG_INFO("Global worker state initialized");
+  LOG_ACTION_INFO(ACT_SUBSYSTEM_INIT, "subsystem=worker_global");
 
   // Start worker threads
-  LOG_INFO("Starting %d worker threads...", NUM_WORKERS);
+  LOG_ACTION_INFO(ACT_THREAD_POOL_STARTING, "thread_type=worker count=%d",
+                  NUM_WORKERS);
   for (int i = 0; i < NUM_WORKERS; i++) {
     worker_config_t worker_config = {
         .cmd_queues = g_cmd_queues,
@@ -154,76 +164,85 @@ bool eng_init(void) {
         .op_queue_total_count = NUM_OP_QUEUES};
 
     if (!worker_start(&g_workers[i], &worker_config).success) {
-      LOG_FATAL("Failed to start worker %d (cmd_queues %d-%d)", i,
-                worker_config.cmd_queue_consume_start,
-                worker_config.cmd_queue_consume_start +
-                    worker_config.cmd_queue_consume_count - 1);
+      LOG_ACTION_FATAL(ACT_THREAD_START_FAILED,
+                       "thread_type=worker thread_id=%d cmd_queues=%d-%d", i,
+                       worker_config.cmd_queue_consume_start,
+                       worker_config.cmd_queue_consume_start +
+                           worker_config.cmd_queue_consume_count - 1);
       container_shutdown();
       return NULL;
     }
-    LOG_DEBUG("Worker %d started (cmd_queues %d-%d)", i,
-              worker_config.cmd_queue_consume_start,
-              worker_config.cmd_queue_consume_start +
-                  worker_config.cmd_queue_consume_count - 1);
+    LOG_ACTION_DEBUG(ACT_THREAD_STARTED,
+                     "thread_type=worker thread_id=%d cmd_queues=%d-%d", i,
+                     worker_config.cmd_queue_consume_start,
+                     worker_config.cmd_queue_consume_start +
+                         worker_config.cmd_queue_consume_count - 1);
   }
-  LOG_INFO("All worker threads started successfully");
+  LOG_ACTION_INFO(ACT_THREAD_POOL_STARTING,
+                  "thread_type=worker count=%d status=complete", NUM_WORKERS);
 
-  LOG_INFO("Database engine initialization complete");
+  LOG_ACTION_INFO(ACT_SYSTEM_INIT, "component=engine status=complete");
   return true;
 }
 
 // Shut down the engine
 void eng_shutdown(void) {
-  LOG_INFO("Shutting down database engine...");
+  LOG_ACTION_INFO(ACT_SYSTEM_SHUTDOWN, "component=engine");
 
   // Stop worker threads
-  LOG_INFO("Stopping %d worker threads...", NUM_WORKERS);
+  LOG_ACTION_INFO(ACT_THREAD_POOL_STOPPING, "thread_type=worker count=%d",
+                  NUM_WORKERS);
   for (int i = 0; i < NUM_WORKERS; i++) {
     if (!worker_stop(&g_workers[i]).success) {
-      LOG_ERROR("Failed to stop worker %d", i);
+      LOG_ACTION_ERROR(ACT_THREAD_STOP_FAILED,
+                       "thread_type=worker thread_id=%d", i);
     }
   }
-  LOG_INFO("All worker threads stopped");
+  LOG_ACTION_INFO(ACT_THREAD_POOL_STOPPING,
+                  "thread_type=worker status=complete");
 
   // Stop consumer threads
-  LOG_INFO("Stopping %d consumer threads...", NUM_CONSUMERS);
+  LOG_ACTION_INFO(ACT_THREAD_POOL_STOPPING, "thread_type=consumer count=%d",
+                  NUM_CONSUMERS);
   for (int i = 0; i < NUM_CONSUMERS; i++) {
     if (!consumer_stop(&g_consumers[i]).success) {
-      LOG_ERROR("Failed to stop consumer %d", i);
+      LOG_ACTION_ERROR(ACT_THREAD_STOP_FAILED,
+                       "thread_type=consumer thread_id=%d", i);
     }
   }
-  LOG_INFO("All consumer threads stopped");
+  LOG_ACTION_INFO(ACT_THREAD_POOL_STOPPING,
+                  "thread_type=consumer status=complete");
 
   // Stop engine writer
-  LOG_INFO("Stopping engine writer...");
+  LOG_ACTION_INFO(ACT_THREAD_STOPPING, "thread_type=writer");
   if (!eng_writer_stop(&g_eng_writer)) {
-    LOG_ERROR("Failed to stop engine writer");
+    LOG_ACTION_ERROR(ACT_THREAD_STOP_FAILED, "thread_type=writer");
   }
-  LOG_INFO("Engine writer stopped");
+  LOG_ACTION_INFO(ACT_THREAD_STOPPED, "thread_type=writer");
 
   // Shutdown container subsystem (closes all containers)
-  LOG_INFO("Shutting down container subsystem...");
+  LOG_ACTION_INFO(ACT_SUBSYSTEM_SHUTDOWN, "subsystem=container");
   container_shutdown();
 
   // Destroy command queues
-  LOG_INFO("Destroying command queues...");
+  LOG_ACTION_INFO(ACT_QUEUE_DESTROY, "queue_type=cmd count=%d", NUM_CMD_QUEUEs);
   for (int i = 0; i < NUM_CMD_QUEUEs; i++) {
     cmd_queue_destroy(&g_cmd_queues[i]);
   }
 
   // Destroy operation queues
-  LOG_INFO("Destroying operation queues...");
+  LOG_ACTION_INFO(ACT_QUEUE_DESTROY, "queue_type=op count=%d", NUM_OP_QUEUES);
   for (int i = 0; i < NUM_OP_QUEUES; i++) {
     op_queue_destroy(&g_op_queues[i]);
   }
 
-  LOG_INFO("Database engine shutdown complete");
+  LOG_ACTION_INFO(ACT_SYSTEM_SHUTDOWN, "component=engine status=complete");
 }
 
 static bool _eng_enqueue_cmd(cmd_ctx_t *command) {
   cmd_queue_msg_t *msg = cmd_queue_create_msg(command);
   if (!msg) {
-    LOG_ERROR("Failed to create command queue message");
+    LOG_ACTION_ERROR(ACT_MSG_CREATE_FAILED, "msg_type=cmd");
     return false;
   }
 
@@ -232,37 +251,41 @@ static bool _eng_enqueue_cmd(cmd_ctx_t *command) {
       xxhash64(entity_id, strlen(entity_id), CMD_QUEUE_HASH_SEED);
   int queue_idx = hash & CMD_QUEUE_MASK;
 
-  LOG_DEBUG("Enqueuing command for entity %s to queue %d", entity_id,
-            queue_idx);
+  LOG_ACTION_DEBUG(ACT_MSG_ENQUEUED,
+                   "msg_type=cmd entity_id=\"%s\" queue_id=%d", entity_id,
+                   queue_idx);
 
   cmd_queue_t *queue = &g_cmd_queues[queue_idx];
   if (!queue) {
-    LOG_ERROR("Invalid command queue at index %d", queue_idx);
+    LOG_ACTION_ERROR(ACT_QUEUE_INVALID, "queue_type=cmd queue_id=%d",
+                     queue_idx);
     cmd_queue_free_msg(msg);
     return false;
   }
 
   if (!cmd_queue_enqueue(queue, msg)) {
-    LOG_WARN("Command queue %d full, rejecting command for entity: %s",
-             queue_idx, entity_id);
+    LOG_ACTION_WARN(ACT_QUEUE_FULL,
+                    "queue_type=cmd queue_id=%d entity_id=\"%s\"", queue_idx,
+                    entity_id);
     cmd_queue_free_msg(msg);
     return false;
   }
 
-  LOG_DEBUG("Command enqueued successfully to queue %d", queue_idx);
+  LOG_ACTION_DEBUG(ACT_MSG_ENQUEUED, "msg_type=cmd queue_id=%d status=success",
+                   queue_idx);
   return true;
 }
 
 void eng_event(api_response_t *r, ast_node_t *ast) {
   cmd_ctx_t *cmd_ctx = build_cmd_context(ast);
   if (!cmd_ctx) {
-    LOG_ERROR("Failed to build command context from AST");
+    LOG_ACTION_ERROR(ACT_CMD_CTX_BUILD_FAILED, "context=api");
     r->err_msg = "Error generating command context";
     return;
   }
 
   if (!_eng_enqueue_cmd(cmd_ctx)) {
-    LOG_WARN("Failed to enqueue command - rate limit or queue full");
+    LOG_ACTION_WARN(ACT_CMD_ENQUEUE_FAILED, "reason=rate_limit");
     r->err_msg = "Rate limit error, please try again later";
     return;
   }

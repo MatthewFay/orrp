@@ -109,7 +109,7 @@ static void close_client_connection(client_t *client) {
  */
 void on_timeout(uv_timer_t *timer) {
   client_t *client = timer->data;
-  LOG_WARN("Client %lld timed out due to inactivity", client->client_id);
+  LOG_ACTION_WARN(ACT_CLIENT_TIMEOUT, "client_id=%lld", client->client_id);
   close_client_connection(client);
 }
 
@@ -164,7 +164,7 @@ void on_close(uv_handle_t *handle) {
 
   // Centralized cleanup logic. Check if this is the last reference.
   if (client->open_handles == 0 && client->work_refs == 0) {
-    LOG_INFO("Client %lld fully closed and freed", client->client_id);
+    LOG_ACTION_INFO(ACT_CLIENT_FREED, "client_id=%lld", client->client_id);
     active_connections--;
     free(client);
   }
@@ -189,8 +189,9 @@ void send_response(client_t *client, const char *response) {
   // Use flexible array member (FAM) for a single allocation.
   write_req_t *wr = malloc(sizeof(write_req_t) + len);
   if (!wr) {
-    LOG_ERROR("Failed to allocate write request for client %lld",
-              client->client_id);
+    LOG_ACTION_ERROR(ACT_MEMORY_ALLOC_FAILED,
+                     "context=\"write_request\" client_id=%lld",
+                     client->client_id);
     return;
   }
 
@@ -200,8 +201,8 @@ void send_response(client_t *client, const char *response) {
   int r =
       uv_write(&wr->req, (uv_stream_t *)&client->handle, &wr->buf, 1, on_write);
   if (r) {
-    LOG_ERROR("uv_write failed to client %lld: %s", client->client_id,
-              uv_strerror(r));
+    LOG_ACTION_ERROR(ACT_WRITE_FAILED, "client_id=%lld err=\"%s\"",
+                     client->client_id, uv_strerror(r));
     free(wr); // Free on failure.
   }
 }
@@ -216,7 +217,7 @@ void send_response(client_t *client, const char *response) {
  */
 void on_write(uv_write_t *req, int status) {
   if (status < 0) {
-    LOG_ERROR("Write error: %s", uv_strerror(status));
+    LOG_ACTION_ERROR(ACT_WRITE_FAILED, "err=\"%s\"", uv_strerror(status));
   }
   // Free the write request struct itself, which also frees the buffer (FAM).
   free(req);
@@ -226,8 +227,8 @@ void on_write(uv_write_t *req, int status) {
 static void decrement_work_and_cleanup(client_t *client) {
   client->work_refs--;
   if (client->open_handles == 0 && client->work_refs == 0) {
-    LOG_INFO("Client %lld all work done and handles closed; freeing client",
-             client->client_id);
+    LOG_ACTION_INFO(ACT_CLIENT_FREED, "client_id=%lld reason=\"work_complete\"",
+                    client->client_id);
     active_connections--;
     free(client);
   }
@@ -240,7 +241,8 @@ static void decrement_work_and_cleanup(client_t *client) {
 static void work_cb(uv_work_t *req) {
   work_ctx_t *ctx = (work_ctx_t *)req;
 
-  LOG_DEBUG("Processing command for client %lld", ctx->client->client_id);
+  LOG_ACTION_DEBUG(ACT_CMD_PROCESSING, "client_id=%lld",
+                   ctx->client->client_id);
 
   // All resources that need cleanup
   Queue *tokens = NULL;
@@ -248,15 +250,17 @@ static void work_cb(uv_work_t *req) {
 
   tokens = tok_tokenize(ctx->command);
   if (!tokens) {
-    LOG_DEBUG("Tokenization failed for client %lld", ctx->client->client_id);
+    LOG_ACTION_DEBUG(ACT_TOKENIZATION_FAILED, "client_id=%lld",
+                     ctx->client->client_id);
     ctx->result = NULL;
     goto cleanup;
   }
 
   parsed = parse(tokens);
   if (parsed->type == OP_TYPE_ERROR) {
-    LOG_DEBUG("Parse error for client %lld: %s", ctx->client->client_id,
-              parsed->error_message ? parsed->error_message : "unknown");
+    LOG_ACTION_DEBUG(ACT_PARSE_FAILED, "client_id=%lld err=\"%s\"",
+                     ctx->client->client_id,
+                     parsed->error_message ? parsed->error_message : "unknown");
     ctx->result = NULL;
     goto cleanup;
   }
@@ -264,11 +268,14 @@ static void work_cb(uv_work_t *req) {
   ctx->result = api_exec(parsed->ast);
 
   if (!ctx->result) {
-    LOG_ERROR("api_exec returned NULL for client %lld", ctx->client->client_id);
+    LOG_ACTION_ERROR(ACT_API_EXEC_FAILED,
+                     "client_id=%lld err=\"returned_null\"",
+                     ctx->client->client_id);
   } else if (!ctx->result->is_ok) {
-    LOG_DEBUG("Command execution failed for client %lld: %s",
-              ctx->client->client_id,
-              ctx->result->err_msg ? ctx->result->err_msg : "unknown error");
+    LOG_ACTION_DEBUG(ACT_CMD_EXEC_FAILED, "client_id=%lld err=\"%s\"",
+                     ctx->client->client_id,
+                     ctx->result->err_msg ? ctx->result->err_msg
+                                          : "unknown error");
   }
 
 cleanup:
@@ -296,8 +303,8 @@ static void after_work_cb(uv_work_t *req, int status) {
 
   if (status != 0) {
     // System-level error from libuv
-    LOG_ERROR("uv_queue_work system error for client %lld: %s",
-              client->client_id, uv_strerror(status));
+    LOG_ACTION_ERROR(ACT_WORK_QUEUE_FAILED, "client_id=%lld err=\"%s\"",
+                     client->client_id, uv_strerror(status));
     send_response(client, "ERROR: Internal server error\n");
   } else if (!ctx->result) {
     // Parse/tokenization error or api_exec returned NULL
@@ -305,7 +312,7 @@ static void after_work_cb(uv_work_t *req, int status) {
   } else if (ctx->result->is_ok) {
     // Success
     send_response(client, "OK\n");
-    LOG_DEBUG("Command succeeded for client %lld", client->client_id);
+    LOG_ACTION_DEBUG(ACT_CMD_SUCCEEDED, "client_id=%lld", client->client_id);
   } else {
     // Execution error
     const char *err =
@@ -313,7 +320,8 @@ static void after_work_cb(uv_work_t *req, int status) {
     char error_buf[256];
     snprintf(error_buf, sizeof(error_buf), "ERROR: %s\n", err);
     send_response(client, error_buf);
-    LOG_DEBUG("Command failed for client %lld: %s", client->client_id, err);
+    LOG_ACTION_DEBUG(ACT_CMD_EXEC_FAILED, "client_id=%lld err=\"%s\"",
+                     client->client_id, err);
   }
 
   // Cleanup
@@ -344,20 +352,23 @@ void process_one_command(client_t *client, char *command) {
   if (cmd_len == 0)
     return; // Ignore empty commands.
 
-  LOG_DEBUG("Client %lld sent command (len=%zu)", client->client_id, cmd_len);
+  LOG_ACTION_DEBUG(ACT_CMD_RECEIVED, "client_id=%lld cmd_len=%zu",
+                   client->client_id, cmd_len);
 
   work_ctx_t *ctx = calloc(1, sizeof(work_ctx_t));
   if (!ctx) {
-    LOG_ERROR("Failed to allocate work context for client %lld",
-              client->client_id);
+    LOG_ACTION_ERROR(ACT_MEMORY_ALLOC_FAILED,
+                     "context=\"work_context\" client_id=%lld",
+                     client->client_id);
     send_response(client, "ERROR: Internal server error (OOM)\n");
     return;
   }
 
   ctx->command = malloc(cmd_len + 1);
   if (!ctx->command) {
-    LOG_ERROR("Failed to allocate command buffer for client %lld",
-              client->client_id);
+    LOG_ACTION_ERROR(ACT_MEMORY_ALLOC_FAILED,
+                     "context=\"command_buffer\" client_id=%lld",
+                     client->client_id);
     free(ctx);
     send_response(client, "ERROR: Internal server error (OOM)\n");
     return;
@@ -370,8 +381,8 @@ void process_one_command(client_t *client, char *command) {
 
   int rc = uv_queue_work(loop, &ctx->req, work_cb, after_work_cb);
   if (rc != 0) {
-    LOG_ERROR("uv_queue_work failed for client %lld: %s", client->client_id,
-              uv_strerror(rc));
+    LOG_ACTION_ERROR(ACT_WORK_QUEUE_FAILED, "client_id=%lld err=\"%s\"",
+                     client->client_id, uv_strerror(rc));
     // Rollback
     client->work_refs--;
     free(ctx->command);
@@ -409,8 +420,8 @@ void process_data_buffer(client_t *client) {
 
     // Security: Check command length *before* processing.
     if (newline_pos - buffer_start > MAX_COMMAND_LENGTH) {
-      LOG_ERROR("Client %lld sent command exceeding MAX_COMMAND_LENGTH",
-                client->client_id);
+      LOG_ACTION_ERROR(ACT_CMD_TOO_LONG, "client_id=%lld max_len=%d",
+                       client->client_id, MAX_COMMAND_LENGTH);
       send_response(client, "ERROR: Command too long\n");
       close_client_connection(client);
       return;
@@ -436,7 +447,8 @@ void process_data_buffer(client_t *client) {
 
   // Security: If the buffer is full with no newline, close the connection.
   if (client->buffer_len == READ_BUFFER_SIZE) {
-    LOG_ERROR("Client %lld buffer full without newline", client->client_id);
+    LOG_ACTION_ERROR(ACT_BUFFER_OVERFLOW, "client_id=%lld buffer_size=%d",
+                     client->client_id, READ_BUFFER_SIZE);
     send_response(client, "ERROR: Command buffer overflow\n");
     close_client_connection(client);
   }
@@ -460,16 +472,18 @@ void on_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
   if (nread > 0) {
     // Data received, update buffer length and reset idle timer
     client->buffer_len += nread;
-    LOG_DEBUG("Read %zd bytes from client %lld", nread, client->client_id);
+    LOG_ACTION_DEBUG(ACT_DATA_RECEIVED, "client_id=%lld bytes=%zd",
+                     client->client_id, nread);
     uv_timer_again(&client->timeout_timer); // Reset idle timer.
     // Process any complete commands in the buffer
     process_data_buffer(client);
   } else if (nread < 0) {
     if (nread != UV_EOF) {
-      LOG_ERROR("Read error on client %lld: %s", client->client_id,
-                uv_strerror(nread));
+      LOG_ACTION_ERROR(ACT_READ_FAILED, "client_id=%lld err=\"%s\"",
+                       client->client_id, uv_strerror(nread));
     } else {
-      LOG_INFO("Client %lld disconnected (EOF)", client->client_id);
+      LOG_ACTION_INFO(ACT_CLIENT_DISCONNECTED, "client_id=%lld reason=EOF",
+                      client->client_id);
     }
     close_client_connection(client);
   }
@@ -488,15 +502,15 @@ void on_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
  */
 void on_new_connection(uv_stream_t *server, int status) {
   if (status < 0) {
-    LOG_ERROR("New connection error: %s", uv_strerror(status));
+    LOG_ACTION_ERROR(ACT_CONNECTION_FAILED, "err=\"%s\"", uv_strerror(status));
     return;
   }
 
   uv_loop_t *loop = server->loop;
 
   if (active_connections >= MAX_CONCURRENT_CONNECTIONS) {
-    LOG_WARN("Max connections reached (%d), rejecting new connection",
-             MAX_CONCURRENT_CONNECTIONS);
+    LOG_ACTION_WARN(ACT_CONNECTION_REJECTED, "reason=max_connections max=%d",
+                    MAX_CONCURRENT_CONNECTIONS);
     // To reject, we must still accept, then immediately close.
     uv_tcp_t *temp_client = malloc(sizeof(uv_tcp_t));
     if (temp_client && uv_tcp_init(loop, temp_client) == 0) {
@@ -513,7 +527,7 @@ void on_new_connection(uv_stream_t *server, int status) {
   // Use calloc for zero-initialized memory.
   client_t *client = calloc(1, sizeof(client_t));
   if (!client) {
-    LOG_FATAL("Failed to allocate memory for new client");
+    LOG_ACTION_FATAL(ACT_MEMORY_ALLOC_FAILED, "context=\"new_client\"");
     return; // Cannot recover.
   }
 
@@ -526,8 +540,8 @@ void on_new_connection(uv_stream_t *server, int status) {
   // Accept the connection
   if (uv_accept(server, (uv_stream_t *)&client->handle) == 0) {
     active_connections++;
-    LOG_INFO("Client %lld connected (total: %d)", client->client_id,
-             active_connections);
+    LOG_ACTION_INFO(ACT_CLIENT_CONNECTED, "client_id=%lld total_connections=%d",
+                    client->client_id, active_connections);
 
     // --- Initialize the timer handle and increment the handle counter ---
     uv_timer_init(loop, &client->timeout_timer);
@@ -539,7 +553,7 @@ void on_new_connection(uv_stream_t *server, int status) {
     // Start reading data from the client
     uv_read_start((uv_stream_t *)&client->handle, alloc_buffer, on_read);
   } else {
-    LOG_ERROR("Failed to accept client connection");
+    LOG_ACTION_ERROR(ACT_CONNECTION_FAILED, "err=\"accept_failed\"");
     uv_close((uv_handle_t *)&client->handle, on_close);
   }
 }
@@ -556,8 +570,8 @@ static void close_walk_cb(uv_handle_t *handle, void *arg) {
   if (handle != (uv_handle_t *)&server_handle &&
       handle != (uv_handle_t *)&signal_handle) {
     if (!uv_is_closing(handle)) {
-      LOG_DEBUG("Shutdown: closing handle type %s",
-                uv_handle_type_name(handle->type));
+      LOG_ACTION_DEBUG(ACT_HANDLE_CLOSING, "handle_type=%s",
+                       uv_handle_type_name(handle->type));
       uv_close(handle, on_close);
     }
   }
@@ -571,7 +585,7 @@ static void initiate_shutdown(void) {
     return;
   shutting_down = true;
 
-  LOG_WARN("Shutdown initiated...");
+  LOG_ACTION_WARN(ACT_SERVER_SHUTDOWN_INITIATED, "");
 
   uv_loop_t *loop = server_handle.loop;
 
@@ -590,7 +604,8 @@ static void initiate_shutdown(void) {
  */
 static void on_signal(uv_signal_t *handle, int signum) {
   (void)signum;
-  LOG_WARN("SIGINT received, initiating graceful shutdown...");
+  LOG_ACTION_WARN(ACT_SIGNAL_RECEIVED,
+                  "signal=SIGINT action=graceful_shutdown");
 
   // Stop the signal handler to prevent multiple shutdown signals
   uv_signal_stop(handle);
@@ -628,20 +643,21 @@ void start_server(const char *host, int port, uv_loop_t *loop) {
   int r = uv_listen((uv_stream_t *)&server_handle, SERVER_BACKLOG,
                     on_new_connection);
   if (r) {
-    LOG_FATAL("Listen error: %s", uv_strerror(r));
+    LOG_ACTION_FATAL(ACT_SERVER_START_FAILED, "err=\"%s\"", uv_strerror(r));
     return;
   }
 
-  LOG_INFO("🚀 Database server started on %s:%d", host, port);
-  LOG_INFO("Configuration: max_conn=%d, timeout=%dms, max_cmd_len=%d",
-           MAX_CONCURRENT_CONNECTIONS, CONNECTION_IDLE_TIMEOUT,
-           MAX_COMMAND_LENGTH);
+  LOG_ACTION_INFO(ACT_SERVER_STARTED, "host=\"%s\" port=%d", host, port);
+  LOG_ACTION_INFO(ACT_SERVER_CONFIG,
+                  "max_conn=%d timeout_ms=%d max_cmd_len=%d backlog=%d",
+                  MAX_CONCURRENT_CONNECTIONS, CONNECTION_IDLE_TIMEOUT,
+                  MAX_COMMAND_LENGTH, SERVER_BACKLOG);
 
   // This call blocks until all handles are closed
   uv_run(loop, UV_RUN_DEFAULT);
 
   // --- Shutdown Sequence ---
-  LOG_INFO("Event loop stopped. Finalizing shutdown...");
+  LOG_ACTION_INFO(ACT_SERVER_FINALIZING, "");
 
   // Ensure all close callbacks are processed.
   uv_run(loop, UV_RUN_NOWAIT);
@@ -649,14 +665,13 @@ void start_server(const char *host, int port, uv_loop_t *loop) {
   // Close the loop itself.
   int close_status = uv_loop_close(loop);
   if (close_status != 0) {
-    LOG_WARN("uv_loop_close failed with status %d: %s. Some handles were "
-             "likely not closed.",
-             close_status, uv_strerror(close_status));
+    LOG_ACTION_WARN(ACT_LOOP_CLOSE_FAILED, "status=%d err=\"%s\"", close_status,
+                    uv_strerror(close_status));
     // Forcibly clean up remaining handles if any exist.
     uv_walk(loop, (uv_walk_cb)uv_close, NULL);
     uv_run(loop, UV_RUN_ONCE); // allow close callbacks to run
     uv_loop_close(loop);       // try again
   }
 
-  LOG_INFO("Server shut down cleanly.");
+  LOG_ACTION_INFO(ACT_SYSTEM_SHUTDOWN, "component=server status=complete");
 }
