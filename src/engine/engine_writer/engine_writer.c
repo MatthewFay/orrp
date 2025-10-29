@@ -135,7 +135,7 @@ static bool _ser_bitmap(eng_writer_entry_t *entry, void **val_out,
     return false;
   }
   LOG_DEBUG("Serialized bitmap: %zu bytes, version %llu", *val_size_out,
-            entry->val.bitmap_copy->version);
+            entry->version);
   return true;
 }
 
@@ -158,8 +158,8 @@ static bool _write_to_db(eng_container_t *c, MDB_txn *txn,
     }
     break;
   case ENG_WRITER_VAL_STR:
-    val = entry->val.str;
-    val_size = strlen(entry->val.str);
+    val = entry->val.str_copy;
+    val_size = strlen(entry->val.str_copy);
     break;
   case ENG_WRITER_VAL_INT32:
     val = &entry->val.int32;
@@ -185,7 +185,7 @@ static void _bump_flush_version(write_batch_t *container_batch) {
   uint32_t bumped = 0;
 
   while (item) {
-    uint32_t v = item->entry->bitmap_copy->version;
+    uint32_t v = item->entry->version;
     atomic_store(item->entry->flush_version_ptr, v);
     bumped++;
     item = item->next;

@@ -71,6 +71,7 @@ dkms.conf
 
 # tests
 /tmp/
+/test_data/
 
 #zlog artifacts
 lib/zlog/install/bin/zlog-chk-conf
