@@ -13,13 +13,11 @@ op_queue_msg_t *op_queue_msg_create(const char *key, op_t *op) {
   return msg;
 }
 
-void op_queue_msg_free(op_queue_msg_t *msg, bool destroy_op) {
+void op_queue_msg_free(op_queue_msg_t *msg) {
   if (!msg)
     return;
 
-  if (destroy_op) {
-    op_destroy(msg->op);
-  }
+  op_destroy(msg->op);
 
   free(msg->ser_db_key);
   free(msg);

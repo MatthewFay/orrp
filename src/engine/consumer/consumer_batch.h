@@ -14,7 +14,7 @@ typedef struct consumer_batch_msg_node_s {
 // Hash table entry: one per unique db_key within a container
 typedef struct consumer_batch_db_key_s {
   UT_hash_handle hh;
-  const char *ser_db_key; // hash key (borrowed)
+  char *ser_db_key;
   consumer_batch_msg_node_t *head;
   consumer_batch_msg_node_t *tail;
   uint32_t count;
@@ -23,7 +23,7 @@ typedef struct consumer_batch_db_key_s {
 // Hash table entry: one per unique container
 typedef struct consumer_batch_container_s {
   UT_hash_handle hh;
-  const char *container_name; // hash key (borrowed)
+  char *container_name;
   eng_dc_type_t container_type;
   consumer_batch_db_key_t *db_keys; // uthash table of db_keys
 } consumer_batch_container_t;
@@ -31,7 +31,6 @@ typedef struct consumer_batch_container_s {
 bool consumer_batch_add_msg(consumer_batch_container_t **container_table,
                             op_queue_msg_t *msg);
 
-// Also free's consumed `op` msgs
 void consumer_batch_free_table(consumer_batch_container_t *container_table);
 
 #endif

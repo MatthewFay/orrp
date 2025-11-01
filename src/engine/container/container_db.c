@@ -239,6 +239,6 @@ void cdb_free_db_key_contents(eng_container_db_key_t *db_key) {
   }
   free(db_key->container_name);
   if (db_key->db_key.type == DB_KEY_STRING) {
-    free((char *)db_key->db_key.key.s);
+    free(db_key->db_key.key.s);
   }
 }

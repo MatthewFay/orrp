@@ -9,8 +9,8 @@ typedef enum { DB_KEY_STRING, DB_KEY_INTEGER } db_key_type_t;
 typedef struct {
   db_key_type_t type;
   union {
-    const char *s; // For string keys
-    uint32_t i;    // For integer keys
+    char *s;    // For string keys
+    uint32_t i; // For integer keys
   } key;
 } db_key_t;
 

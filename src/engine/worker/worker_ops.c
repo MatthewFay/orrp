@@ -1,5 +1,6 @@
 #include "engine/worker/worker_ops.h"
 #include "core/db.h"
+#include "engine/container/container.h"
 #include "engine/container/container_types.h"
 #include "engine/eng_key_format/eng_key_format.h"
 #include "engine/op/op.h"
@@ -35,131 +36,196 @@ static bool _append_op(worker_ops_t *ops, char *key_buffer, op_t *op, int *i) {
   return true;
 }
 
-static bool _create_incr_entity_id_op(uint32_t entity_id, worker_ops_t *ops,
-                                      int *i) {
+static worker_ops_result_t
+_create_incr_entity_id_op(uint32_t entity_id, worker_ops_t *ops, int *i) {
   char key_buffer[512];
   eng_container_db_key_t db_key;
   db_key.dc_type = CONTAINER_TYPE_SYSTEM;
   db_key.sys_db_type = SYS_DB_METADATA;
   db_key.db_key.type = DB_KEY_STRING;
-  db_key.db_key.key.s = SYS_NEXT_ENT_ID_KEY;
-  db_key.container_name = SYS_CONTAINER_NAME;
+  db_key.db_key.key.s = strdup(SYS_NEXT_ENT_ID_KEY);
+
+  db_key.container_name = strdup(SYS_CONTAINER_NAME);
+  if (!db_key.container_name) {
+    return WORKER_OPS_ERROR("Memory allocation failed", "container_name_dup");
+  }
+
   if (!db_key_into(key_buffer, sizeof(key_buffer), &db_key)) {
-    return false;
+    free(db_key.container_name);
+    return WORKER_OPS_ERROR("Key formatting failed", "db_key_into");
   }
 
   op_t *op = op_create_int32_val(&db_key, OP_TYPE_COND_PUT,
                                  COND_PUT_IF_EXISTING_LESS_THAN, entity_id);
-  if (!op)
-    return false;
+  if (!op) {
+    free(db_key.container_name);
+    return WORKER_OPS_ERROR("Operation creation failed", "op_create");
+  }
 
   if (!_append_op(ops, key_buffer, op, i)) {
     op_destroy(op);
-    return false;
+    free(db_key.container_name);
+    return WORKER_OPS_ERROR("Failed to append operation", "append_op");
   }
-  return true;
+
+  return WORKER_OPS_SUCCESS();
 }
 
-static bool _create_incr_event_id_op(char *container_name, uint32_t event_id,
-                                     worker_ops_t *ops, int *i) {
+static worker_ops_result_t _create_incr_event_id_op(char *container_name,
+                                                    uint32_t event_id,
+                                                    worker_ops_t *ops, int *i) {
   char key_buffer[512];
 
   eng_container_db_key_t db_key;
   db_key.dc_type = CONTAINER_TYPE_USER;
-  db_key.container_name = container_name;
+
+  db_key.container_name = strdup(container_name);
+  if (!db_key.container_name) {
+    return WORKER_OPS_ERROR("Memory allocation failed", "container_name_dup");
+  }
+
   db_key.user_db_type = USER_DB_METADATA;
   db_key.db_key.type = DB_KEY_STRING;
-  db_key.db_key.key.s = USR_NEXT_EVENT_ID_KEY;
+  db_key.db_key.key.s = strdup(USR_NEXT_EVENT_ID_KEY);
+
   if (!db_key_into(key_buffer, sizeof(key_buffer), &db_key)) {
-    return false;
+    container_free_db_key_contents(&db_key);
+    return WORKER_OPS_ERROR("Key formatting failed", "db_key_into");
   }
+
   op_t *op = op_create_int32_val(&db_key, OP_TYPE_COND_PUT,
                                  COND_PUT_IF_EXISTING_LESS_THAN, event_id);
-  if (!op)
-    return false;
+  if (!op) {
+    container_free_db_key_contents(&db_key);
+    return WORKER_OPS_ERROR("Operation creation failed", "op_create");
+  }
 
   if (!_append_op(ops, key_buffer, op, i)) {
     op_destroy(op);
-    return false;
+    return WORKER_OPS_ERROR("Failed to append operation", "append_op");
   }
-  return true;
+
+  return WORKER_OPS_SUCCESS();
 }
 
-static bool _create_ent_mapping_ops(char *ent_str_id, uint32_t ent_int_id,
-                                    worker_ops_t *ops, int *i) {
+static worker_ops_result_t _create_ent_mapping_ops(char *ent_str_id,
+                                                   uint32_t ent_int_id,
+                                                   worker_ops_t *ops, int *i) {
   char key_buffer[512];
   eng_container_db_key_t db_key;
   db_key.dc_type = CONTAINER_TYPE_SYSTEM;
   db_key.sys_db_type = SYS_DB_ENT_ID_TO_INT;
   db_key.db_key.type = DB_KEY_STRING;
-  db_key.db_key.key.s = ent_str_id;
-  db_key.container_name = SYS_CONTAINER_NAME;
-  if (!db_key_into(key_buffer, sizeof(key_buffer), &db_key)) {
-    return false;
+
+  db_key.db_key.key.s = strdup(ent_str_id);
+  if (!db_key.db_key.key.s) {
+    return WORKER_OPS_ERROR("Memory allocation failed", "ent_str_id_dup");
   }
+
+  db_key.container_name = strdup(SYS_CONTAINER_NAME);
+  if (!db_key.container_name) {
+    free(db_key.db_key.key.s);
+    return WORKER_OPS_ERROR("Memory allocation failed", "container_name_dup");
+  }
+
+  if (!db_key_into(key_buffer, sizeof(key_buffer), &db_key)) {
+    free(db_key.db_key.key.s);
+    free(db_key.container_name);
+    return WORKER_OPS_ERROR("Key formatting failed", "db_key_into");
+  }
+
   op_t *ent_id_to_int_op =
       op_create_int32_val(&db_key, OP_TYPE_PUT, COND_PUT_NONE, ent_int_id);
-  if (!ent_id_to_int_op)
-    return false;
+  if (!ent_id_to_int_op) {
+    free(db_key.db_key.key.s);
+    free(db_key.container_name);
+    return WORKER_OPS_ERROR("Operation creation failed", "op_create");
+  }
+
   if (!_append_op(ops, key_buffer, ent_id_to_int_op, i)) {
     op_destroy(ent_id_to_int_op);
-    return false;
+    free(db_key.db_key.key.s);
+    free(db_key.container_name);
+    return WORKER_OPS_ERROR("Failed to append operation", "append_op");
   }
 
   db_key.sys_db_type = SYS_DB_INT_TO_ENT_ID;
   db_key.db_key.type = DB_KEY_INTEGER;
   db_key.db_key.key.i = ent_int_id;
+
+  db_key.container_name = strdup(SYS_CONTAINER_NAME);
+  if (!db_key.container_name) {
+    return WORKER_OPS_ERROR("Memory allocation failed", "container_name_dup");
+  }
+
   if (!db_key_into(key_buffer, sizeof(key_buffer), &db_key)) {
-    return false;
+    free(db_key.container_name);
+    return WORKER_OPS_ERROR("Key formatting failed", "db_key_into");
   }
 
   op_t *int_to_ent_id_op =
       op_create_str_val(&db_key, OP_TYPE_PUT, COND_PUT_NONE, ent_str_id);
+  if (!int_to_ent_id_op) {
+    free(db_key.container_name);
+    return WORKER_OPS_ERROR("Operation creation failed", "op_create");
+  }
 
   if (!_append_op(ops, key_buffer, int_to_ent_id_op, i)) {
     op_destroy(int_to_ent_id_op);
-    return false;
+    free(db_key.container_name);
+    return WORKER_OPS_ERROR("Failed to append operation", "append_op");
   }
-  return true;
+
+  return WORKER_OPS_SUCCESS();
 }
 
-static bool _create_event_to_entity_op(char *container_name, uint32_t event_id,
-                                       uint32_t ent_int_id, worker_ops_t *ops,
-                                       int *i) {
+static worker_ops_result_t
+_create_event_to_entity_op(char *container_name, uint32_t event_id,
+                           uint32_t ent_int_id, worker_ops_t *ops, int *i) {
   char key_buffer[512] = {0};
 
   eng_container_db_key_t db_key;
   db_key.dc_type = CONTAINER_TYPE_USER;
-  db_key.container_name = container_name;
+
+  db_key.container_name = strdup(container_name);
+  if (!db_key.container_name) {
+    return WORKER_OPS_ERROR("Memory allocation failed", "container_name_dup");
+  }
+
   db_key.user_db_type = USER_DB_EVENT_TO_ENTITY;
   db_key.db_key.type = DB_KEY_INTEGER;
   db_key.db_key.key.i = event_id;
+
   if (!db_key_into(key_buffer, sizeof(key_buffer), &db_key)) {
-    return false;
+    free(db_key.container_name);
+    return WORKER_OPS_ERROR("Key formatting failed", "db_key_into");
   }
 
   op_t *event_to_entity_op =
       op_create_int32_val(&db_key, OP_TYPE_PUT, COND_PUT_NONE, ent_int_id);
 
   if (!event_to_entity_op) {
-    return false;
+    free(db_key.container_name);
+    return WORKER_OPS_ERROR("Operation creation failed", "op_create");
   }
+
   if (!_append_op(ops, key_buffer, event_to_entity_op, i)) {
     op_destroy(event_to_entity_op);
-    return false;
+    free(db_key.container_name);
+    return WORKER_OPS_ERROR("Failed to append operation", "append_op");
   }
-  return true;
+
+  return WORKER_OPS_SUCCESS();
 }
 
-static bool _create_write_to_event_index_ops(char *container_Name,
-                                             uint32_t event_id,
-                                             cmd_queue_msg_t *msg,
-                                             worker_ops_t *ops, int *i) {
-  char key_buffer[512]; // TODO: pull 512 from shared config
+static worker_ops_result_t
+_create_write_to_event_index_ops(char *container_name, uint32_t event_id,
+                                 cmd_queue_msg_t *msg, worker_ops_t *ops,
+                                 int *i) {
+  char key_buffer[512];
   char ser_db_key[512];
   eng_container_db_key_t db_key;
   db_key.dc_type = CONTAINER_TYPE_USER;
-  db_key.container_name = container_Name;
   db_key.user_db_type = USER_DB_INVERTED_EVENT_INDEX;
   db_key.db_key.type = DB_KEY_STRING;
 
@@ -167,33 +233,51 @@ static bool _create_write_to_event_index_ops(char *container_Name,
 
   for (uint32_t ct_i = 0; ct_i < msg->command->num_custom_tags; ct_i++) {
     if (!custom_tag_into(key_buffer, sizeof(key_buffer), custom_tag)) {
-      return false;
+      return WORKER_OPS_ERROR("Key formatting failed", "custom_tag_into");
     }
-    db_key.db_key.key.s = key_buffer;
+
+    db_key.db_key.key.s = strdup(key_buffer);
+    if (!db_key.db_key.key.s) {
+      return WORKER_OPS_ERROR("Memory allocation failed", "key_buffer_dup");
+    }
+
+    db_key.container_name = strdup(container_name);
+    if (!db_key.container_name) {
+      free(db_key.db_key.key.s);
+      return WORKER_OPS_ERROR("Memory allocation failed", "container_name_dup");
+    }
+
     if (!db_key_into(ser_db_key, sizeof(ser_db_key), &db_key)) {
-      return false;
+      free(db_key.db_key.key.s);
+      free(db_key.container_name);
+      return WORKER_OPS_ERROR("Key formatting failed", "db_key_into");
     }
+
     op_t *o = op_create_int32_val(&db_key, OP_TYPE_ADD_VALUE, COND_PUT_NONE,
                                   event_id);
     if (!o) {
-      // TODO: handle error
-      return false;
+      free(db_key.db_key.key.s);
+      free(db_key.container_name);
+      return WORKER_OPS_ERROR("Operation creation failed", "op_create");
     }
-    if (!_append_op(ops, key_buffer, o, i)) {
+
+    if (!_append_op(ops, ser_db_key, o, i)) {
       op_destroy(o);
-      return false;
+      free(db_key.db_key.key.s);
+      free(db_key.container_name);
+      return WORKER_OPS_ERROR("Failed to append operation", "append_op");
     }
+
     custom_tag = custom_tag->next;
   }
 
-  return true;
+  return WORKER_OPS_SUCCESS();
 }
 
-static bool _create_tag_counter_ops(char *container_Name, uint32_t entity_id,
-                                    cmd_queue_msg_t *msg,
-                                    worker_entity_tag_counter_t *tag_counters,
-                                    worker_ops_t *ops, int *i) {
-  char tag_buffer[512]; // TODO: pull 512 from shared config
+static worker_ops_result_t _create_tag_counter_ops(
+    char *container_name, uint32_t entity_id, cmd_queue_msg_t *msg,
+    worker_entity_tag_counter_t *tag_counters, worker_ops_t *ops, int *i) {
+  char tag_buffer[512];
   char tag_counter_key[512];
   char counter_store_key[512];
   char ser_db_key[512];
@@ -203,145 +287,190 @@ static bool _create_tag_counter_ops(char *container_Name, uint32_t entity_id,
 
   ast_node_t *custom_tag = msg->command->custom_tags_head;
 
-  for (; custom_tag;
-       custom_tag = custom_tag->next) {
-        if (!custom_tag->tag.is_counter) continue;
+  for (; custom_tag; custom_tag = custom_tag->next) {
+    if (!custom_tag->tag.is_counter)
+      continue;
+
     if (!(custom_tag_into(tag_buffer, sizeof(tag_buffer), custom_tag) &&
           tag_str_entity_id_into(tag_counter_key, sizeof(tag_counter_key),
                                  tag_buffer, entity_id))) {
-      return false;
+      return WORKER_OPS_ERROR("Key formatting failed", "tag_counter_key");
     }
+
     HASH_FIND_STR(tag_counters, tag_counter_key, tag_counter);
     if (!tag_counter) {
-      // TODO: log error
+      // Skip this counter, not an error
       continue;
     }
+
     if (!tag_count_into(counter_store_key, sizeof(counter_store_key),
-                        tag_buffer, 1)) {
-      return false;
+                        tag_buffer, tag_counter->count)) {
+      return WORKER_OPS_ERROR("Key formatting failed", "counter_store_key");
     }
 
     db_key.dc_type = CONTAINER_TYPE_USER;
-    db_key.container_name = container_Name;
+
+    db_key.container_name = strdup(container_name);
+    if (!db_key.container_name) {
+      return WORKER_OPS_ERROR("Memory allocation failed", "container_name_dup");
+    }
+
     db_key.user_db_type = USER_DB_COUNTER_STORE;
     db_key.db_key.type = DB_KEY_STRING;
-    db_key.db_key.key.s = tag_counter_key;
+
+    db_key.db_key.key.s = strdup(tag_counter_key);
+    if (!db_key.db_key.key.s) {
+      free(db_key.container_name);
+      return WORKER_OPS_ERROR("Memory allocation failed",
+                              "tag_counter_key_dup");
+    }
 
     if (!db_key_into(ser_db_key, sizeof(ser_db_key), &db_key)) {
-      return false;
+      free(db_key.db_key.key.s);
+      free(db_key.container_name);
+      return WORKER_OPS_ERROR("Key formatting failed", "db_key_into");
     }
 
     op_t *o =
         op_create_int32_val(&db_key, OP_TYPE_COND_PUT,
                             COND_PUT_IF_EXISTING_LESS_THAN, tag_counter->count);
     if (!o) {
-      // TODO: handle error
-      return false;
+      free(db_key.db_key.key.s);
+      free(db_key.container_name);
+      return WORKER_OPS_ERROR("Operation creation failed", "op_create");
     }
+
     if (!_append_op(ops, ser_db_key, o, i)) {
       op_destroy(o);
-      return false;
+      free(db_key.db_key.key.s);
+      free(db_key.container_name);
+      return WORKER_OPS_ERROR("Failed to append operation", "append_op");
     }
 
     db_key.dc_type = CONTAINER_TYPE_USER;
-    db_key.container_name = container_Name;
+
+    db_key.container_name = strdup(container_name);
+    if (!db_key.container_name) {
+      return WORKER_OPS_ERROR("Memory allocation failed", "container_name_dup");
+    }
+
     db_key.user_db_type = USER_DB_COUNT_INDEX;
     db_key.db_key.type = DB_KEY_STRING;
-    db_key.db_key.key.s = counter_store_key;
-    if (!db_key_into(ser_db_key, sizeof(ser_db_key), &db_key)) {
-      return false;
+
+    db_key.db_key.key.s = strdup(counter_store_key);
+    if (!db_key.db_key.key.s) {
+      free(db_key.container_name);
+      return WORKER_OPS_ERROR("Memory allocation failed",
+                              "counter_store_key_dup");
     }
+
+    if (!db_key_into(ser_db_key, sizeof(ser_db_key), &db_key)) {
+      free(db_key.db_key.key.s);
+      free(db_key.container_name);
+      return WORKER_OPS_ERROR("Key formatting failed", "db_key_into");
+    }
+
     op_t *o2 = op_create_int32_val(&db_key, OP_TYPE_ADD_VALUE, COND_PUT_NONE,
                                    entity_id);
     if (!o2) {
-      // TODO: handle error
-      return false;
+      free(db_key.db_key.key.s);
+      free(db_key.container_name);
+      return WORKER_OPS_ERROR("Operation creation failed", "op_create");
     }
+
     if (!_append_op(ops, ser_db_key, o2, i)) {
       op_destroy(o2);
-      return false;
+      free(db_key.db_key.key.s);
+      free(db_key.container_name);
+      return WORKER_OPS_ERROR("Failed to append operation", "append_op");
     }
   }
 
-  return true;
+  return WORKER_OPS_SUCCESS();
 }
 
-static bool _create_ops(cmd_queue_msg_t *msg, char *container_name,
-                        char *entity_id_str, uint32_t entity_id_int32,
-                        bool is_new_entity, uint32_t event_id,
-                        worker_entity_tag_counter_t *tag_counters,
-                        worker_ops_t *ops_out) {
-  bool success = false;
+static worker_ops_result_t
+_create_ops(cmd_queue_msg_t *msg, char *container_name, char *entity_id_str,
+            uint32_t entity_id_int32, bool is_new_entity, uint32_t event_id,
+            worker_entity_tag_counter_t *tag_counters, worker_ops_t *ops_out) {
+  worker_ops_result_t result;
   int ops_created = 0;
   uint32_t num_custom_tags = msg->command->num_custom_tags;
   uint32_t num_counter_tags = msg->command->num_counter_tags;
 
   if (num_counter_tags && tag_counters == NULL) {
-    return false;
+    return WORKER_OPS_ERROR("Counter tags present but no counters provided",
+                            "counter_tags_validation");
   }
 
-  uint32_t num_ops = (is_new_entity ? 3 : 0) + 2 + // Don't ask
-                     num_custom_tags + num_counter_tags;
+  uint32_t num_ops =
+      (is_new_entity ? 3 : 0) + 2 + num_custom_tags + (num_counter_tags * 2);
 
   ops_out->ops = malloc(num_ops * sizeof(op_queue_msg_t *));
   if (!ops_out->ops) {
-    goto cleanup;
+    return WORKER_OPS_ERROR("Memory allocation failed", "ops_array");
   }
   ops_out->num_ops = num_ops;
 
   if (is_new_entity) {
-    if (!_create_incr_entity_id_op(entity_id_int32, ops_out, &ops_created)) {
+    result = _create_incr_entity_id_op(entity_id_int32, ops_out, &ops_created);
+    if (!result.success)
       goto cleanup;
-    }
-    if (!_create_ent_mapping_ops(entity_id_str, entity_id_int32, ops_out,
-                                 &ops_created)) {
+
+    result = _create_ent_mapping_ops(entity_id_str, entity_id_int32, ops_out,
+                                     &ops_created);
+    if (!result.success)
       goto cleanup;
-    }
   }
 
-  if (!_create_incr_event_id_op(container_name, event_id, ops_out,
-                                &ops_created))
-    goto cleanup;
-  if (!_create_event_to_entity_op(container_name, event_id, entity_id_int32,
-                                  ops_out, &ops_created))
-    goto cleanup;
-  if (!_create_write_to_event_index_ops(container_name, event_id, msg, ops_out,
-                                        &ops_created)) {
-    goto cleanup;
-  }
-  if (num_counter_tags &&
-      !_create_tag_counter_ops(container_name, entity_id_int32, msg,
-                               tag_counters, ops_out, &ops_created))
+  result =
+      _create_incr_event_id_op(container_name, event_id, ops_out, &ops_created);
+  if (!result.success)
     goto cleanup;
 
-  success = true;
+  result = _create_event_to_entity_op(container_name, event_id, entity_id_int32,
+                                      ops_out, &ops_created);
+  if (!result.success)
+    goto cleanup;
+
+  result = _create_write_to_event_index_ops(container_name, event_id, msg,
+                                            ops_out, &ops_created);
+  if (!result.success)
+    goto cleanup;
+
+  if (num_counter_tags) {
+    result = _create_tag_counter_ops(container_name, entity_id_int32, msg,
+                                     tag_counters, ops_out, &ops_created);
+    if (!result.success)
+      goto cleanup;
+  }
+
+  return WORKER_OPS_SUCCESS();
 
 cleanup:
-  if (!success) {
-    if (ops_out->ops) {
-      for (int i = 0; i < ops_created; i++) {
-        op_queue_msg_free(ops_out->ops[i], true);
-      }
-      free(ops_out->ops);
-      ops_out->ops = NULL;
-      ops_out->num_ops = 0;
+  if (ops_out->ops) {
+    for (int i = 0; i < ops_created; i++) {
+      op_queue_msg_free(ops_out->ops[i]);
     }
+    free(ops_out->ops);
+    ops_out->ops = NULL;
+    ops_out->num_ops = 0;
   }
-  return success;
+  return result;
 }
 
-bool worker_create_ops(cmd_queue_msg_t *msg, char *container_name,
-                       char *entity_id_str, uint32_t entity_id_int32,
-                       bool is_new_entity, uint32_t event_id,
-                       worker_entity_tag_counter_t *tag_counters,
-                       worker_ops_t *ops_out) {
+worker_ops_result_t worker_create_ops(cmd_queue_msg_t *msg,
+                                      char *container_name, char *entity_id_str,
+                                      uint32_t entity_id_int32,
+                                      bool is_new_entity, uint32_t event_id,
+                                      worker_entity_tag_counter_t *tag_counters,
+                                      worker_ops_t *ops_out) {
   if (!msg || !container_name || !entity_id_str || !ops_out) {
-    return false;
+    return WORKER_OPS_ERROR("Invalid arguments", "worker_create_ops");
   }
 
   memset(ops_out, 0, sizeof(worker_ops_t));
 
   return _create_ops(msg, container_name, entity_id_str, entity_id_int32,
                      is_new_entity, event_id, tag_counters, ops_out);
-  // If this returns false, ops_out is already cleaned up internally
 }

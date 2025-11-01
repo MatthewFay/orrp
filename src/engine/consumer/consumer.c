@@ -29,7 +29,7 @@ LOG_INIT(consumer);
 #define CONSUMER_SPIN_LIMIT 100
 #define CONSUMER_MAX_SLEEP_MS 64
 
-#define MAX_BATCH_SIZE_PER_OP_Queue 128
+#define MAX_BATCH_SIZE_PER_OP_QUEUE 128
 #define MIN_RECLAIM_BATCH_SIZE 100
 // TODO: writer enqueue re-tries
 #define MAX_WRITER_ENQUEUE_ATTEMPTS 3
@@ -644,18 +644,19 @@ static void _flush_dirty(consumer_t *c) {
       LOG_ACTION_ERROR(ACT_FLUSH_FAILED,
                        "context=\"enqueue\" entries_prepared=%u",
                        fr.entries_prepared);
+      /* Failed to enqueue - free the message we prepared */
+      consumer_flush_clear_result(fr);
     } else {
       LOG_ACTION_INFO(ACT_PERF_FLUSH_COMPLETE,
                       "entries_flushed=%u entries_skipped=%u",
                       fr.entries_prepared, fr.entries_skipped);
+      /* enqueued - ownership transferred to writer; do not free */
     }
   } else {
     LOG_ACTION_WARN(ACT_FLUSH_FAILED,
                     "context=\"no_entries\" entries_skipped=%u",
                     fr.entries_skipped);
   }
-
-  consumer_flush_clear_result(fr);
   consumer_cache_clear_dirty_list(&c->cache);
 }
 
@@ -695,9 +696,15 @@ static void _consumer_thread_func(void *arg) {
   uint64_t total_cycles = 0;
   uint64_t active_cycles = 0;
 
+  const uint32_t max_msgs =
+      MAX_BATCH_SIZE_PER_OP_QUEUE * config->op_queue_consume_count;
+  op_queue_msg_t *op_msgs[max_msgs];
+  uint32_t op_msg_count = 0;
+
   while (!consumer->should_stop) {
     batched_any = false;
     msgs_batched = 0;
+    op_msg_count = 0; // Reset message tracking for this cycle
     cycle++;
     total_cycles++;
 
@@ -705,10 +712,14 @@ static void _consumer_thread_func(void *arg) {
       uint32_t op_queue_idx = consumer->config.op_queue_consume_start + i;
       op_queue_t *queue = &consumer->config.op_queues[op_queue_idx];
 
-      for (int j = 0; j < MAX_BATCH_SIZE_PER_OP_Queue; j++) {
+      for (int j = 0; j < MAX_BATCH_SIZE_PER_OP_QUEUE; j++) {
         if (!op_queue_dequeue(queue, &msg)) {
           break; // No more messages in this shard
         }
+
+        // Track this message for cleanup
+        op_msgs[op_msg_count++] = msg;
+
         schema_validation_result_t result = consumer_schema_validate_msg(msg);
         if (!result.valid) {
           const char *msg_key =
@@ -739,6 +750,7 @@ static void _consumer_thread_func(void *arg) {
       container_table = NULL;
     } else {
       consumer_batch_free_table(container_table);
+      container_table = NULL;
 
       if (spin_count < CONSUMER_SPIN_LIMIT) {
         sched_yield();
@@ -748,6 +760,10 @@ static void _consumer_thread_func(void *arg) {
         backoff = backoff < CONSUMER_MAX_SLEEP_MS ? backoff * 2
                                                   : CONSUMER_MAX_SLEEP_MS;
       }
+    }
+
+    for (uint32_t i = 0; i < op_msg_count; i++) {
+      op_queue_msg_free(op_msgs[i]);
     }
 
     if (cycle == config->flush_every_n) {

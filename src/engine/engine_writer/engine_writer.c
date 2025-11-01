@@ -35,7 +35,7 @@ typedef struct write_batch_s {
   uint32_t count;
 } write_batch_t;
 
-// Free batch hash structure (not inner data)
+// Free batch hash structure (not inner entry data)
 static void _free_batch_hash(write_batch_t *batch_hash) {
   if (!batch_hash)
     return;
@@ -181,11 +181,9 @@ static bool _write_to_db(eng_container_t *c, MDB_txn *txn,
   if (!db_put(target_db, txn, &entry->db_key.db_key, val, val_size, false)) {
     LOG_ACTION_ERROR(ACT_DB_WRITE_FAILED, "container=\"%s\" size_bytes=%zu",
                      c->name, val_size);
-    free(val);
     return false;
   }
 
-  free(val);
   return true;
 }
 
@@ -297,6 +295,11 @@ static void _eng_writer_thread_func(void *arg) {
   uint64_t total_messages = 0;
   uint64_t total_entries = 0;
 
+  write_batch_t *batch_hash = NULL;
+  eng_writer_msg_t *msg = NULL;
+  eng_writer_msg_t *msgs[MAX_DEQUEUE_MSG_COUNT] = {0};
+  uint32_t dequeued = 0;
+
   log_init_writer();
   if (!LOG_CATEGORY) {
     fprintf(stderr, "FATAL: Failed to initialize logging for writer thread\n");
@@ -309,11 +312,10 @@ static void _eng_writer_thread_func(void *arg) {
 
   while (!writer->should_stop) {
     have_work = false;
+    batch_hash = NULL;
+    msg = NULL;
+    dequeued = 0;
     total_cycles++;
-
-    write_batch_t *batch_hash = NULL;
-    eng_writer_msg_t *msg;
-    uint32_t dequeued = 0;
 
     for (int i = 0; i < MAX_DEQUEUE_MSG_COUNT; i++) {
       bool dq = _deque(writer, &msg);
@@ -321,17 +323,16 @@ static void _eng_writer_thread_func(void *arg) {
         break;
 
       have_work = true;
-      dequeued++;
+
+      msgs[dequeued++] = msg;
       total_messages++;
       total_entries += msg->count;
 
       if (!_group_dirty_copies_by_container(&batch_hash, msg)) {
         LOG_ACTION_ERROR(ACT_BATCH_GROUPING_FAILED,
                          "entries=%u action=discarding", msg->count);
-        eng_writer_queue_free_msg(msg);
         break;
       }
-      eng_writer_queue_free_msg(msg);
     }
 
     if (have_work) {
@@ -357,6 +358,10 @@ static void _eng_writer_thread_func(void *arg) {
         backoff = backoff < ENG_WRITER_MAX_SLEEP_MS ? backoff * 2
                                                     : ENG_WRITER_MAX_SLEEP_MS;
       }
+    }
+
+    for (uint32_t i = 0; i < dequeued; i++) {
+      eng_writer_queue_free_msg(msgs[i]);
     }
 
     // Periodic stats

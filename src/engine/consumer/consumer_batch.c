@@ -3,24 +3,25 @@
 void consumer_batch_free_table(consumer_batch_container_t *container_table) {
   if (!container_table)
     return;
-  consumer_batch_container_t *b, *tmp;
-  consumer_batch_db_key_t *k, *tmp_k;
-  consumer_batch_msg_node_t *b_entry, *b_entry_tmp;
-  HASH_ITER(hh, container_table, b, tmp) {
-    consumer_batch_db_key_t *keys = b->db_keys;
-    HASH_ITER(hh, keys, k, tmp_k) {
-      b_entry = k->head;
-      while (b_entry) {
-        b_entry_tmp = b_entry->next;
-        op_queue_msg_free(b_entry->msg, true);
-        free(b_entry);
-        b_entry = b_entry_tmp;
+  consumer_batch_container_t *batch, *batch_tmp;
+  consumer_batch_db_key_t *key, *key_tmp;
+  consumer_batch_msg_node_t *b_node, *b_node_tmp;
+  HASH_ITER(hh, container_table, batch, batch_tmp) {
+    consumer_batch_db_key_t *keys = batch->db_keys;
+    HASH_ITER(hh, keys, key, key_tmp) {
+      b_node = key->head;
+      while (b_node) {
+        b_node_tmp = b_node->next;
+        free(b_node);
+        b_node = b_node_tmp;
       }
-      HASH_DEL(keys, k);
-      free(k);
+      HASH_DEL(keys, key);
+      free(key->ser_db_key);
+      free(key);
     }
-    HASH_DEL(container_table, b);
-    free(b);
+    HASH_DEL(container_table, batch);
+    free(batch->container_name);
+    free(batch);
   }
 }
 
@@ -31,7 +32,7 @@ static consumer_batch_container_t *_create_batch(const char *container_name,
   if (!batch) {
     return NULL;
   }
-  batch->container_name = container_name;
+  batch->container_name = strdup(container_name);
   batch->container_type = container_type;
   batch->db_keys = NULL;
   return batch;
@@ -58,7 +59,7 @@ static bool _add_msg_to_batch(consumer_batch_container_t *batch,
     if (!key) {
       return false;
     }
-    key->ser_db_key = msg->ser_db_key;
+    key->ser_db_key = strdup(msg->ser_db_key);
     key->head = NULL;
     key->tail = NULL;
     HASH_ADD_KEYPTR(hh, batch->db_keys, msg->ser_db_key,

@@ -12,7 +12,6 @@ void eng_writer_queue_free_msg_entry(eng_writer_entry_t *e) {
   }
   container_free_db_key_contents(&e->db_key);
   // Don't free `flush_version_ptr` as consumer owns this
-  free(e);
 }
 
 void eng_writer_queue_free_msg(eng_writer_msg_t *msg) {

@@ -39,8 +39,7 @@ static uint32_t _get_next_entity_id() {
 }
 
 static bool _get_entity_mapping_by_str(worker_t *worker, eng_container_t *sys_c,
-                                       MDB_txn *sys_txn,
-                                       const char *entity_id_str,
+                                       MDB_txn *sys_txn, char *entity_id_str,
                                        worker_entity_mapping_t **mapping_out,
                                        bool *is_new_ent_out) {
   worker_entity_mapping_t *em = NULL;
@@ -77,7 +76,7 @@ static bool _get_entity_mapping_by_str(worker_t *worker, eng_container_t *sys_c,
   db_get_result_t r = {0};
   db_key_t db_key;
   db_key.type = DB_KEY_STRING;
-  db_key.key.s = (char *)entity_id_str;
+  db_key.key.s = entity_id_str;
 
   if (!db_get(sys_c->data.sys->sys_dc_metadata_db, sys_txn, &db_key, &r)) {
     LOG_ACTION_ERROR(
@@ -173,6 +172,7 @@ static bool _get_user_dc(worker_t *worker, const char *container_name,
     container_release(dc);
     return false;
   }
+
   user_dc->container_name = strdup(container_name);
   if (!user_dc->container_name) {
     LOG_ACTION_ERROR(ACT_MEMORY_ALLOC_FAILED,
@@ -184,8 +184,13 @@ static bool _get_user_dc(worker_t *worker, const char *container_name,
     return false;
   }
 
+  user_dc->dc = dc;
+  user_dc->txn = txn;
+
   HASH_ADD_KEYPTR(hh, worker->user_dcs, user_dc->container_name,
                   strlen(user_dc->container_name), user_dc);
+
+  *user_dc_out = user_dc;
   return true;
 }
 
@@ -332,7 +337,7 @@ static bool _queue_up_ops(worker_t *worker, worker_ops_t *ops) {
                        ops->num_ops, queue_idx);
       // Failed to enqueue - clean up remaining ops
       for (uint32_t j = i; j < ops->num_ops; j++) {
-        op_queue_msg_free(ops->ops[j], true);
+        op_queue_msg_free(ops->ops[j]);
       }
       return false;
     }
@@ -460,12 +465,16 @@ static bool _process_msg(worker_t *worker, cmd_queue_msg_t *msg,
   }
 
   worker_ops_t ops = {0};
+  worker_ops_result_t ops_result = worker_create_ops(
+      msg, container_name, em->ent_str_id, em->ent_int_id, is_new_ent, event_id,
+      worker->entity_tag_counters, &ops);
 
-  if (!worker_create_ops(msg, container_name, em->ent_str_id, em->ent_int_id,
-                         is_new_ent, event_id, worker->entity_tag_counters,
-                         &ops)) {
-    LOG_ACTION_ERROR(ACT_OP_CREATE_FAILED, "entity_id=\"%s\" container=\"%s\"",
-                     entity_id_str, container_name);
+  if (!ops_result.success) {
+    LOG_ACTION_ERROR(
+        ACT_OP_CREATE_FAILED,
+        "entity_id=\"%s\" container=\"%s\", err=\"%s\" context=\"%s\"",
+        entity_id_str, container_name, ops_result.error_msg,
+        ops_result.context);
     return false;
   }
 
@@ -589,6 +598,7 @@ static void _worker_thread_func(void *arg) {
           free(user_dc->container_name);
           free(user_dc);
         }
+        worker->user_dcs = NULL;
       }
 
       if (spin_count < WORKER_SPIN_LIMIT) {

@@ -201,6 +201,13 @@ void eng_shutdown(void) {
   LOG_ACTION_INFO(ACT_THREAD_POOL_STOPPING,
                   "thread_type=worker status=complete");
 
+  // Stop engine writer before consumers
+  LOG_ACTION_INFO(ACT_THREAD_STOPPING, "thread_type=writer");
+  if (!eng_writer_stop(&g_eng_writer)) {
+    LOG_ACTION_ERROR(ACT_THREAD_STOP_FAILED, "thread_type=writer");
+  }
+  LOG_ACTION_INFO(ACT_THREAD_STOPPED, "thread_type=writer");
+
   // Stop consumer threads
   LOG_ACTION_INFO(ACT_THREAD_POOL_STOPPING, "thread_type=consumer count=%d",
                   NUM_CONSUMERS);
@@ -212,13 +219,6 @@ void eng_shutdown(void) {
   }
   LOG_ACTION_INFO(ACT_THREAD_POOL_STOPPING,
                   "thread_type=consumer status=complete");
-
-  // Stop engine writer
-  LOG_ACTION_INFO(ACT_THREAD_STOPPING, "thread_type=writer");
-  if (!eng_writer_stop(&g_eng_writer)) {
-    LOG_ACTION_ERROR(ACT_THREAD_STOP_FAILED, "thread_type=writer");
-  }
-  LOG_ACTION_INFO(ACT_THREAD_STOPPED, "thread_type=writer");
 
   // Shutdown container subsystem (closes all containers)
   LOG_ACTION_INFO(ACT_SUBSYSTEM_SHUTDOWN, "subsystem=container");

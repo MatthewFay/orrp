@@ -155,6 +155,12 @@ static inline void log_global_shutdown(void) { zlog_fini(); }
 #define ACT_CMD_CTX_BUILD_FAILED "cmd_ctx_build_failed"
 #define ACT_CMD_ENQUEUE_FAILED "cmd_enqueue_failed"
 
+// Key formatting operations
+#define ACT_KEY_FORMAT_FAILED "key_format_failed"
+
+// Tag counter operations
+#define ACT_TAG_COUNTER_NOT_FOUND "tag_counter_not_found"
+
 // Parsing operations
 #define ACT_TOKENIZATION_FAILED "tokenization_failed"
 #define ACT_PARSE_FAILED "parse_failed"

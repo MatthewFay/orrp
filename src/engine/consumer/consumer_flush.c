@@ -36,7 +36,9 @@ static bool _consumer_flush_prepare_entry(consumer_cache_entry_t *cache_entry,
     if (!cc_str || !cc_str->str)
       return false;
     writer_entry->val_type = ENG_WRITER_VAL_STR;
-    writer_entry->val.str_copy = cc_str->str;
+    writer_entry->val.str_copy = strdup(cc_str->str);
+    if (!writer_entry->val.str_copy)
+      return false;
     break;
   default:
     return false;
@@ -86,7 +88,7 @@ consumer_flush_prepare(consumer_cache_entry_t *dirty_head,
         .success = false, .err_msg = "Failed to allocate writer message"};
   }
 
-  msg->entries = malloc(sizeof(eng_writer_entry_t) * num_dirty_entries);
+  msg->entries = calloc(num_dirty_entries, sizeof(eng_writer_entry_t));
   if (!msg->entries) {
     free(msg);
     return (consumer_flush_result_t){
