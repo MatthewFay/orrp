@@ -307,6 +307,8 @@ int main(void) {
 
   int result = UNITY_END();
 
+  // Give background tasks time to finish before teardown (1 second)
+  sleep(1);
   // Suite teardown - runs ONCE after all tests
   suiteTearDown(result);
 

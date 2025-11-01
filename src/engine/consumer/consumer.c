@@ -395,12 +395,12 @@ static void _process_bitmap_ops(consumer_t *consumer,
                                 bool was_cached) {
   op_queue_msg_t *msg;
   consumer_cache_bitmap_t *cc_bm = atomic_load(&cache_entry->val.cc_bitmap);
-  bitmap_t *bm_copy = NULL;
+  bitmap_t *bm = cc_bm->bitmap;
 
   if (was_cached) {
     // if cached, create a copy because other threads could be using it
-    bm_copy = bitmap_copy(cc_bm->bitmap);
-    if (!bm_copy) {
+    bm = bitmap_copy(cc_bm->bitmap);
+    if (!bm) {
       LOG_ACTION_ERROR(ACT_BITMAP_COPY_FAILED, "key=\"%s\"",
                        batch_db_key->ser_db_key);
       return _fail_all_batch_db_key_msgs(result, batch_db_key);
@@ -420,7 +420,7 @@ static void _process_bitmap_ops(consumer_t *consumer,
       msgs_processed++;
       break;
     case OP_TYPE_ADD_VALUE:
-      bitmap_add(bm_copy, msg->op->value.int32);
+      bitmap_add(bm, msg->op->value.int32);
       dirty = true;
       msgs_processed++;
       break;
@@ -437,10 +437,10 @@ static void _process_bitmap_ops(consumer_t *consumer,
   if (dirty) {
     new_cc_bm = calloc(1, sizeof(consumer_cache_bitmap_t));
     if (!new_cc_bm) {
-      bitmap_free(bm_copy);
+      bitmap_free(bm);
       return _fail_all_batch_db_key_msgs(result, batch_db_key);
     }
-    new_cc_bm->bitmap = bm_copy;
+    new_cc_bm->bitmap = bm;
     atomic_store(&cache_entry->val.cc_bitmap, new_cc_bm);
     cache_entry->version++;
 
@@ -455,7 +455,7 @@ static void _process_bitmap_ops(consumer_t *consumer,
     result->msgs_processed += msgs_processed;
     result->msgs_failed += msgs_failed;
   } else {
-    bitmap_free(bm_copy);
+    bitmap_free(bm);
   }
 
   if (dirty) {
