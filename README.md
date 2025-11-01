@@ -1,3 +1,7 @@
+<p align="center">
+    <img src="orrp.png" alt="orrp" />
+</p>
+
 # orrp
 orrp is a high-performance database.
 
