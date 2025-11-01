@@ -24,7 +24,7 @@ typedef struct {
   ast_node_t *ast;
 } cmd_ctx_t;
 
-// Takes ownership of AST - used by Engine
+// takes ownership of AST if it succeeds and returns a valid cmd_ctx_t*
 cmd_ctx_t *build_cmd_context(ast_node_t *ast);
 
 void cmd_context_free(cmd_ctx_t *command);

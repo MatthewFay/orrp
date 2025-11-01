@@ -69,6 +69,7 @@ void cmd_context_free(cmd_ctx_t *command) {
 
   // Free the entire AST, which this context now owns.
   ast_free(command->ast);
+  command->ast = NULL;
 
   // The other pointers (in_tag_value, etc.) are inside the AST,
   // so they are freed by the call above. We only need to free the context

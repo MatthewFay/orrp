@@ -8,6 +8,7 @@ typedef struct cmd_queue_msg_s {
   cmd_ctx_t *command;
 } cmd_queue_msg_t;
 
+// Takes ownership of `command`
 cmd_queue_msg_t *cmd_queue_create_msg(cmd_ctx_t *command);
 
 void cmd_queue_free_msg(cmd_queue_msg_t *msg);

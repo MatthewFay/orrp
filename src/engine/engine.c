@@ -239,10 +239,12 @@ void eng_shutdown(void) {
   LOG_ACTION_INFO(ACT_SYSTEM_SHUTDOWN, "component=engine status=complete");
 }
 
+// Takes ownership of `cmd_ctx` (and its contained AST)
 static bool _eng_enqueue_cmd(cmd_ctx_t *command) {
   cmd_queue_msg_t *msg = cmd_queue_create_msg(command);
   if (!msg) {
     LOG_ACTION_ERROR(ACT_MSG_CREATE_FAILED, "msg_type=cmd");
+    cmd_context_free(command);
     return false;
   }
 
@@ -276,17 +278,19 @@ static bool _eng_enqueue_cmd(cmd_ctx_t *command) {
   return true;
 }
 
+// Takes ownership of `ast`
 void eng_event(api_response_t *r, ast_node_t *ast) {
   cmd_ctx_t *cmd_ctx = build_cmd_context(ast);
   if (!cmd_ctx) {
     LOG_ACTION_ERROR(ACT_CMD_CTX_BUILD_FAILED, "context=api");
     r->err_msg = "Error generating command context";
+    ast_free(ast);
     return;
   }
 
   if (!_eng_enqueue_cmd(cmd_ctx)) {
     LOG_ACTION_WARN(ACT_CMD_ENQUEUE_FAILED, "reason=rate_limit");
-    r->err_msg = "Rate limit error, please try again later";
+    r->err_msg = "Rate limit error, please try again";
     return;
   }
 

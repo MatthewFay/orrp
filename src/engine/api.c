@@ -142,6 +142,9 @@ void free_api_response(api_response_t *r) {
 
 static api_response_t *_create_api_resp(enum api_op_type op_type) {
   api_response_t *r = malloc(sizeof(api_response_t));
+  if (!r) {
+    return NULL;
+  }
   r->is_ok = false; // Default to false
   r->data = NULL;
   r->err_msg = NULL;
@@ -158,8 +161,13 @@ static api_response_t *_api_event(ast_node_t *ast, api_response_t *r) {
 
 // The single entry point into the API/Engine layer.
 // Validates the AST before passing it into the core engine for execution.
+// `api_exec` takes ownership of `ast`.
 api_response_t *api_exec(ast_node_t *ast) {
   api_response_t *r = _create_api_resp(API_INVALID);
+  if (!r) {
+    ast_free(ast);
+    return NULL;
+  }
 
   custom_key *c_keys = NULL;
   bool v_r = _validate_ast(ast, &c_keys);
@@ -172,6 +180,7 @@ api_response_t *api_exec(ast_node_t *ast) {
   }
   if (!v_r) {
     r->err_msg = "Invalid AST";
+    ast_free(ast);
     return r;
   }
 
@@ -187,6 +196,8 @@ api_response_t *api_exec(ast_node_t *ast) {
   default:
     r->err_msg = "Unknown command type!";
     ;
+    ast_free(ast);
+
     break;
   }
 
