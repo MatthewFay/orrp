@@ -29,15 +29,6 @@
 consumer_cache_entry_val_type_t
 consumer_schema_get_value_type(const eng_container_db_key_t *db_key);
 
-/**
- * Convert operation value type to cache entry value type
- *
- * @param op_val_type The operation value type
- * @return The corresponding cache entry value type
- */
-consumer_cache_entry_val_type_t
-consumer_schema_op_to_cache_type(op_value_type_t op_val_type);
-
 // ============================================================================
 // Validation
 // ============================================================================

@@ -55,6 +55,141 @@ _get_user_db_value_type(eng_dc_user_db_type_t db_type) {
 }
 
 // ============================================================================
+// Internal Validation Helpers
+// ============================================================================
+
+// Validate operation type and value type combination
+static schema_validation_result_t
+_validate_op_value_combination(op_type_t op_type, op_value_type_t value_type,
+                               consumer_cache_entry_val_type_t expected_db_type,
+                               cond_put_type_t cond_type) {
+
+  if (op_type == OP_TYPE_NONE) {
+    return (schema_validation_result_t){
+        .valid = false, .error_msg = "Invalid operation type: OP_TYPE_NONE"};
+  }
+
+  if (value_type == OP_VALUE_NONE) {
+    return (schema_validation_result_t){
+        .valid = false, .error_msg = "Invalid value type: OP_VALUE_NONE"};
+  }
+
+  switch (op_type) {
+  case OP_TYPE_PUT:
+    // PUT operations must match the database's expected type
+    switch (expected_db_type) {
+    case CONSUMER_CACHE_ENTRY_VAL_BM:
+      if (value_type != OP_VALUE_BITMAP) {
+        return (schema_validation_result_t){
+            .valid = false,
+            .error_msg = "PUT to bitmap database requires bitmap value"};
+      }
+      break;
+    case CONSUMER_CACHE_ENTRY_VAL_INT32:
+      if (value_type != OP_VALUE_INT32) {
+        return (schema_validation_result_t){
+            .valid = false,
+            .error_msg = "PUT to int32 database requires int32 value"};
+      }
+      break;
+    case CONSUMER_CACHE_ENTRY_VAL_STR:
+      if (value_type != OP_VALUE_STRING) {
+        return (schema_validation_result_t){
+            .valid = false,
+            .error_msg = "PUT to string database requires string value"};
+      }
+      break;
+    default:
+      return (schema_validation_result_t){
+          .valid = false, .error_msg = "PUT to unknown database type"};
+    }
+    break;
+
+  case OP_TYPE_ADD_VALUE:
+    // ADD operations work differently based on target database type
+    switch (expected_db_type) {
+    case CONSUMER_CACHE_ENTRY_VAL_BM:
+      // Adding to a bitmap requires an int32 value (the element to add)
+      if (value_type != OP_VALUE_INT32) {
+        return (schema_validation_result_t){
+            .valid = false, .error_msg = "ADD to bitmap requires int32 value"};
+      }
+      break;
+    case CONSUMER_CACHE_ENTRY_VAL_INT32:
+      // Adding to an int32 requires an int32 value (increment amount)
+      if (value_type != OP_VALUE_INT32) {
+        return (schema_validation_result_t){
+            .valid = false, .error_msg = "ADD to int32 requires int32 value"};
+      }
+      break;
+    case CONSUMER_CACHE_ENTRY_VAL_STR:
+      return (schema_validation_result_t){
+          .valid = false,
+          .error_msg = "ADD operation not supported for string databases"};
+    default:
+      return (schema_validation_result_t){
+          .valid = false, .error_msg = "ADD to unknown database type"};
+    }
+    break;
+
+  case OP_TYPE_COND_PUT:
+    // Conditional puts only work with integers
+    if (expected_db_type != CONSUMER_CACHE_ENTRY_VAL_INT32) {
+      return (schema_validation_result_t){
+          .valid = false,
+          .error_msg = "Conditional put only supported for int32 databases"};
+    }
+    if (value_type != OP_VALUE_INT32) {
+      return (schema_validation_result_t){
+          .valid = false, .error_msg = "Conditional put requires int32 value"};
+    }
+    if (cond_type == COND_PUT_NONE) {
+      return (schema_validation_result_t){
+          .valid = false,
+          .error_msg = "Conditional put missing condition type"};
+    }
+    break;
+
+  case OP_TYPE_CACHE:
+    // Cache operations should match the database type
+    switch (expected_db_type) {
+    case CONSUMER_CACHE_ENTRY_VAL_BM:
+      if (value_type != OP_VALUE_BITMAP) {
+        return (schema_validation_result_t){
+            .valid = false,
+            .error_msg = "CACHE to bitmap database requires bitmap value"};
+      }
+      break;
+    case CONSUMER_CACHE_ENTRY_VAL_INT32:
+      if (value_type != OP_VALUE_INT32) {
+        return (schema_validation_result_t){
+            .valid = false,
+            .error_msg = "CACHE to int32 database requires int32 value"};
+      }
+      break;
+    case CONSUMER_CACHE_ENTRY_VAL_STR:
+      if (value_type != OP_VALUE_STRING) {
+        return (schema_validation_result_t){
+            .valid = false,
+            .error_msg = "CACHE to string database requires string value"};
+      }
+      break;
+    default:
+      return (schema_validation_result_t){
+          .valid = false, .error_msg = "CACHE to unknown database type"};
+    }
+    break;
+
+  case OP_TYPE_NONE:
+  default:
+    return (schema_validation_result_t){.valid = false,
+                                        .error_msg = "Unknown operation type"};
+  }
+
+  return (schema_validation_result_t){.valid = true, .error_msg = NULL};
+}
+
+// ============================================================================
 // Public API - Type Mapping
 // ============================================================================
 
@@ -76,21 +211,6 @@ consumer_schema_get_value_type(const eng_container_db_key_t *db_key) {
   }
 }
 
-consumer_cache_entry_val_type_t
-consumer_schema_op_to_cache_type(op_value_type_t op_val_type) {
-  switch (op_val_type) {
-  case OP_VALUE_BITMAP:
-    return CONSUMER_CACHE_ENTRY_VAL_BM;
-  case OP_VALUE_INT32:
-    return CONSUMER_CACHE_ENTRY_VAL_INT32;
-  case OP_VALUE_STRING:
-    return CONSUMER_CACHE_ENTRY_VAL_STR;
-  case OP_VALUE_NONE:
-  default:
-    return CONSUMER_CACHE_ENTRY_VAL_UNKNOWN;
-  }
-}
-
 // ============================================================================
 // Public API - Validation
 // ============================================================================
@@ -101,93 +221,16 @@ schema_validation_result_t consumer_schema_validate_op(const op_t *op) {
                                         .error_msg = "Operation is NULL"};
   }
 
-  consumer_cache_entry_val_type_t expected_type =
+  consumer_cache_entry_val_type_t expected_db_type =
       consumer_schema_get_value_type(&op->db_key);
 
-  consumer_cache_entry_val_type_t actual_type =
-      consumer_schema_op_to_cache_type(op->value_type);
-
-  if (expected_type == CONSUMER_CACHE_ENTRY_VAL_UNKNOWN ||
-      actual_type == CONSUMER_CACHE_ENTRY_VAL_UNKNOWN) {
+  if (expected_db_type == CONSUMER_CACHE_ENTRY_VAL_UNKNOWN) {
     return (schema_validation_result_t){
-        .valid = false, .error_msg = "Expected or actual type unknown"};
+        .valid = false, .error_msg = "Unknown database type for operation"};
   }
 
-  if (expected_type != actual_type) {
-    static char err_buf[256];
-    const char *expected_str = "unknown";
-    const char *actual_str = "unknown";
-
-    switch (expected_type) {
-    case CONSUMER_CACHE_ENTRY_VAL_BM:
-      expected_str = "bitmap";
-      break;
-    case CONSUMER_CACHE_ENTRY_VAL_INT32:
-      expected_str = "int32";
-      break;
-    case CONSUMER_CACHE_ENTRY_VAL_STR:
-      expected_str = "string";
-      break;
-    case CONSUMER_CACHE_ENTRY_VAL_UNKNOWN:
-      break;
-    }
-
-    switch (actual_type) {
-    case CONSUMER_CACHE_ENTRY_VAL_BM:
-      actual_str = "bitmap";
-      break;
-    case CONSUMER_CACHE_ENTRY_VAL_INT32:
-      actual_str = "int32";
-      break;
-    case CONSUMER_CACHE_ENTRY_VAL_STR:
-      actual_str = "string";
-      break;
-    case CONSUMER_CACHE_ENTRY_VAL_UNKNOWN:
-      break;
-    }
-
-    snprintf(err_buf, sizeof(err_buf),
-             "Value type mismatch: expected %s, got %s", expected_str,
-             actual_str);
-
-    return (schema_validation_result_t){.valid = false, .error_msg = err_buf};
-  }
-
-  switch (op->op_type) {
-  case OP_TYPE_NONE:
-    return (schema_validation_result_t){.valid = false,
-                                        .error_msg = "Invalid operation type"};
-
-  case OP_TYPE_COND_PUT:
-    if (op->cond_type == COND_PUT_NONE) {
-      return (schema_validation_result_t){
-          .valid = false,
-          .error_msg = "Conditional put missing condition type"};
-    }
-    // Conditional puts only work with integers
-    if (actual_type != CONSUMER_CACHE_ENTRY_VAL_INT32) {
-      return (schema_validation_result_t){
-          .valid = false,
-          .error_msg = "Conditional put only supports int32 values"};
-    }
-    break;
-
-  case OP_TYPE_ADD_VALUE:
-    // Add operations typically work with bitmaps or integers
-    if (actual_type == CONSUMER_CACHE_ENTRY_VAL_STR) {
-      return (schema_validation_result_t){
-          .valid = false,
-          .error_msg = "Add operation not supported for strings"};
-    }
-    break;
-
-  case OP_TYPE_PUT:
-  case OP_TYPE_CACHE:
-    // These are generally permissive
-    break;
-  }
-
-  return (schema_validation_result_t){.valid = true, .error_msg = NULL};
+  return _validate_op_value_combination(op->op_type, op->value_type,
+                                        expected_db_type, op->cond_type);
 }
 
 schema_validation_result_t
