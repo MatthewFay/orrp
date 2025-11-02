@@ -54,15 +54,15 @@ void test_tag_node_custom(void) {
 }
 
 void test_comparison_node(void) {
-  ast_node_t *key = ast_create_custom_tag_node("clicks", NULL, true);
-  ast_node_t *val = ast_create_number_literal_node(100);
-  ast_node_t *cmp = ast_create_comparison_node(OP_GT, key, val);
+  ast_node_t *left = ast_create_custom_tag_node("clicks", NULL, true);
+  ast_node_t *right = ast_create_number_literal_node(100);
+  ast_node_t *cmp = ast_create_comparison_node(OP_GT, left, right);
 
   TEST_ASSERT_NOT_NULL(cmp);
   TEST_ASSERT_EQUAL(COMPARISON_NODE, cmp->type);
   TEST_ASSERT_EQUAL(OP_GT, cmp->comparison.op);
-  TEST_ASSERT_EQUAL(key, cmp->comparison.key);
-  TEST_ASSERT_EQUAL(val, cmp->comparison.value);
+  TEST_ASSERT_EQUAL(left, cmp->comparison.left);
+  TEST_ASSERT_EQUAL(right, cmp->comparison.right);
   ast_free(cmp);
 }
 

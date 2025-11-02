@@ -175,6 +175,11 @@ Queue *tok_tokenize(char *input) {
         return NULL;
     }
 
+    else if (c == '!' && has_next_char && input[i + 1] == '=') {
+      if (!_enqueue(q, &num_tokens, TOKEN_OP_NEQ, &t, &i, 2, NULL, 0))
+        return NULL;
+    }
+
     else if (c == ':') {
       if (!_enqueue(q, &num_tokens, TOKEN_SYM_COLON, &t, &i, 1, NULL, 0))
         return NULL;

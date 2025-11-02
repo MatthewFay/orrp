@@ -282,8 +282,8 @@ void test_tokenize_quoted_strings(void) {
 
 // Test mix of all token types in one input
 void test_tokenize_all_token_types(void) {
-  char input[] =
-      "event in id ( ) : + \"str\" 42 and or not query >= > <= < = identifier";
+  char input[] = "event in id ( ) : + \"str\" 42 and or not query >= > <= < = "
+                 "!= identifier";
   Queue *tokens = tok_tokenize(input);
   TEST_ASSERT_NOT_NULL(tokens);
   assert_next_token(tokens, TOKEN_CMD_EVENT, NULL, 0);
@@ -304,6 +304,7 @@ void test_tokenize_all_token_types(void) {
   assert_next_token(tokens, TOKEN_OP_LTE, NULL, 0);
   assert_next_token(tokens, TOKEN_OP_LT, NULL, 0);
   assert_next_token(tokens, TOKEN_OP_EQ, NULL, 0);
+  assert_next_token(tokens, TOKEN_OP_NEQ, NULL, 0);
   assert_next_token(tokens, TOKEN_IDENTIFER, "identifier", 0);
   tok_clear_all(tokens);
   q_destroy(tokens);

@@ -35,6 +35,7 @@ typedef enum {
   TOKEN_OP_GT,
   TOKEN_OP_GTE,
   TOKEN_OP_EQ,
+  TOKEN_OP_NEQ,
   TOKEN_OP_LTE,
   TOKEN_OP_LT,
   TOKEN_SYM_COLON,

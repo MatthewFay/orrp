@@ -33,8 +33,8 @@ void ast_free(ast_node_t *node) {
     }
     break;
   case COMPARISON_NODE:
-    ast_free(node->comparison.key);
-    ast_free(node->comparison.value);
+    ast_free(node->comparison.left);
+    ast_free(node->comparison.right);
     break;
   case LOGICAL_NODE:
     ast_free(node->logical.left_operand);
@@ -159,8 +159,8 @@ ast_node_t *ast_create_number_literal_node(uint32_t value) {
   return node;
 }
 
-ast_node_t *ast_create_comparison_node(ast_comparison_op_t op, ast_node_t *key,
-                                       ast_node_t *value) {
+ast_node_t *ast_create_comparison_node(ast_comparison_op_t op, ast_node_t *left,
+                                       ast_node_t *right) {
   ast_node_t *node = malloc(sizeof(ast_node_t));
   if (!node) {
     return NULL;
@@ -169,8 +169,8 @@ ast_node_t *ast_create_comparison_node(ast_comparison_op_t op, ast_node_t *key,
   node->type = COMPARISON_NODE;
   node->next = NULL;
   node->comparison.op = op;
-  node->comparison.key = key;
-  node->comparison.value = value;
+  node->comparison.left = left;
+  node->comparison.right = right;
   return node;
 }
 

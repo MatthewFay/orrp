@@ -48,15 +48,23 @@ typedef struct {
   };
 } ast_literal_node_t;
 
-typedef enum { OP_GT, OP_LT, OP_GTE, OP_LTE, OP_EQ } ast_comparison_op_t;
+typedef enum {
+  OP_GT,
+  OP_LT,
+  OP_GTE,
+  OP_LTE,
+  OP_EQ,
+  OP_NEQ
+} ast_comparison_op_t;
 
 typedef struct {
   ast_comparison_op_t op;
-  // This node's type tells the engine what to query.
+
+  // The node's type tells the engine what to query.
   // If its type is NODE_TAG, it's a full tag comparison
   // Future version: If its type is NODE_LITERAL, it's a key-only comparison
-  ast_node_t *key;
-  ast_node_t *value; // The number being compared against (e.g., 3)
+  ast_node_t *left;  // Left operand (e.g., tag or number)
+  ast_node_t *right; // Right operand (e.g., number or tag)
 } ast_comparison_node_t;
 
 typedef struct ast_not_node_s {

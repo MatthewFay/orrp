@@ -68,7 +68,7 @@ static bool _apply_operator(c_stack_t *value_stack, c_stack_t *op_stack) {
     }
     new_node = ast_create_not_node(operand);
   } else {
-    // Binary operator logic (AND, OR)
+    // Binary operator logic (AND, OR, comparisons)
     ast_node_t *right_node = stack_pop(value_stack);
     if (!right_node) {
       tok_free(op_token);
@@ -80,8 +80,44 @@ static bool _apply_operator(c_stack_t *value_stack, c_stack_t *op_stack) {
       ast_free(right_node);
       return false;
     }
-    new_node = ast_create_logical_node(
-        op_token->type == TOKEN_OP_AND ? AND : OR, left_node, right_node);
+
+    // Handle logical operators
+    if (op_token->type == TOKEN_OP_AND || op_token->type == TOKEN_OP_OR) {
+      new_node = ast_create_logical_node(
+          op_token->type == TOKEN_OP_AND ? AND : OR, left_node, right_node);
+    }
+    // Handle comparison operators
+    else if (op_token->type == TOKEN_OP_EQ || op_token->type == TOKEN_OP_NEQ ||
+             op_token->type == TOKEN_OP_GT || op_token->type == TOKEN_OP_GTE ||
+             op_token->type == TOKEN_OP_LT || op_token->type == TOKEN_OP_LTE) {
+
+      ast_comparison_op_t comp_op;
+      switch (op_token->type) {
+      case TOKEN_OP_EQ:
+        comp_op = OP_EQ;
+        break;
+      case TOKEN_OP_NEQ:
+        comp_op = OP_NEQ;
+        break;
+      case TOKEN_OP_GT:
+        comp_op = OP_GT;
+        break;
+      case TOKEN_OP_GTE:
+        comp_op = OP_GTE;
+        break;
+      case TOKEN_OP_LT:
+        comp_op = OP_LT;
+        break;
+      case TOKEN_OP_LTE:
+        comp_op = OP_LTE;
+        break;
+      default:
+        comp_op = OP_EQ;
+        break; // fallback
+      }
+
+      new_node = ast_create_comparison_node(comp_op, left_node, right_node);
+    }
 
     if (!new_node) {
       ast_free(right_node);
@@ -107,7 +143,14 @@ static bool _apply_operator(c_stack_t *value_stack, c_stack_t *op_stack) {
 static int _get_precedence(token_type type) {
   switch (type) {
   case TOKEN_OP_NOT:
-    return 3; // Highest precedence
+    return 4; // Highest precedence
+  case TOKEN_OP_EQ:
+  case TOKEN_OP_NEQ:
+  case TOKEN_OP_GT:
+  case TOKEN_OP_GTE:
+  case TOKEN_OP_LT:
+  case TOKEN_OP_LTE:
+    return 3;
   case TOKEN_OP_AND:
     return 2;
   case TOKEN_OP_OR:
@@ -167,12 +210,18 @@ static ast_node_t *_parse_exp(Queue *tokens, parse_result_t *r) {
     token_t *token = q_peek(tokens);
 
     if (expect_operand) {
-      if (token->type == TOKEN_IDENTIFER) {
-        token_t *id_to_push = q_dequeue(tokens);
+      if (token->type == TOKEN_IDENTIFER ||
+          token->type == TOKEN_LITERAL_NUMBER) {
+        token_t *val_token = q_dequeue(tokens);
 
-        ast_node_t *node =
-            ast_create_string_literal_node(id_to_push->text_value);
-        tok_free(id_to_push);
+        ast_node_t *node;
+        if (val_token->type == TOKEN_IDENTIFER) {
+          node = ast_create_string_literal_node(val_token->text_value);
+        } else {
+          node = ast_create_number_literal_node(val_token->number_value);
+        }
+
+        tok_free(val_token);
         if (!node || !stack_push(value_stack, node)) {
           ast_free(node);
           return cleanup_stacks_and_return_null(value_stack, op_stack);
@@ -193,7 +242,10 @@ static ast_node_t *_parse_exp(Queue *tokens, parse_result_t *r) {
         return cleanup_stacks_and_return_null(value_stack, op_stack);
       }
     } else { // We expect a binary operator or a right parenthesis
-      if (token->type == TOKEN_OP_AND || token->type == TOKEN_OP_OR) {
+      if (token->type == TOKEN_OP_AND || token->type == TOKEN_OP_OR ||
+          token->type == TOKEN_OP_EQ || token->type == TOKEN_OP_NEQ ||
+          token->type == TOKEN_OP_GT || token->type == TOKEN_OP_GTE ||
+          token->type == TOKEN_OP_LT || token->type == TOKEN_OP_LTE) {
         token_t *op1 = token;
         while (!stack_is_empty(op_stack)) {
           token_t *op2 = stack_peek(op_stack);
