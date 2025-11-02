@@ -10,7 +10,10 @@ typedef enum {
   COMMAND_NODE,
   TAG_NODE,
   LITERAL_NODE,
+  // Comparison nodes (>, <, =, etc.) operate on comparable values and produce
+  // booleans
   COMPARISON_NODE,
+  // Logical nodes (AND, OR, NOT) operate on boolean values
   LOGICAL_NODE,
   NOT_NODE,
 } ast_node_type;

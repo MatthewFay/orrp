@@ -243,6 +243,31 @@ void test_exp_not_operator(void) {
   parse_free_result(result);
 }
 
+void test_exp_comparison(void) {
+  parse_result_t *result = _parse_string(
+      "QUERY in:analytics_2025_01 exp:(loc:ca AND (action:login > 3))");
+  _assert_success(result);
+
+  ast_node_t *exp = _find_tag_by_key(result->ast, KEY_EXP)->tag.value;
+  TEST_ASSERT_EQUAL(LOGICAL_NODE, exp->type);
+  TEST_ASSERT_EQUAL(AND, exp->logical.op); // AND is at the top level
+
+  TEST_ASSERT_EQUAL(TAG_NODE, exp->logical.left_operand->type);
+
+  TEST_ASSERT_EQUAL(COMPARISON_NODE, exp->logical.right_operand->type);
+  TEST_ASSERT_EQUAL(OP_GT, exp->logical.right_operand->comparison.op);
+  TEST_ASSERT_EQUAL(TAG_NODE,
+                    exp->logical.right_operand->comparison.left->type);
+  TEST_ASSERT_EQUAL(LITERAL_NODE,
+                    exp->logical.right_operand->comparison.right->type);
+  TEST_ASSERT_EQUAL(LITERAL_NUMBER,
+                    exp->logical.right_operand->comparison.right->literal.type);
+  TEST_ASSERT_EQUAL(
+      3, exp->logical.right_operand->comparison.right->literal.number_value);
+
+  parse_free_result(result);
+}
+
 void test_exp_fails_mismatched_parens(void) {
   parse_result_t *result = _parse_string("query in:\"abc\" exp:((a or b)");
   _assert_error(result);
