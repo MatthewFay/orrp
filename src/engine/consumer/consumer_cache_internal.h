@@ -38,7 +38,8 @@ bool consumer_cache_destroy(consumer_cache_t *consumer_cache);
 
 bool consumer_cache_get_entry(consumer_cache_t *consumer_cache,
                               const char *ser_db_key,
-                              consumer_cache_entry_t **entry_out);
+                              consumer_cache_entry_t **entry_out,
+                            bool move_to_front_of_lru);
 
 bool consumer_cache_add_entry(consumer_cache_t *consumer_cache,
                               const char *ser_db_key,

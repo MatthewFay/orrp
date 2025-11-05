@@ -15,4 +15,7 @@ void eng_shutdown(void);
 // Write an event
 void eng_event(api_response_t *r, ast_node_t *ast);
 
+// Query
+void eng_query(api_response_t *r, ast_node_t *ast);
+
 #endif

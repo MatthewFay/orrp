@@ -338,6 +338,9 @@ static inline void log_global_shutdown(void) { zlog_fini(); }
 // Worker statistics
 #define ACT_WORKER_STATS "worker_stats"
 
+// Query
+#define ACT_QUERY_ERROR "query_error"
+
 // =============================================================================
 // == COMMON FIELD NAMES (for consistency)                                    ==
 // =============================================================================

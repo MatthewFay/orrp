@@ -5,11 +5,13 @@
 #include "engine/api.h"
 #include "engine/cmd_queue/cmd_queue.h"
 #include "engine/consumer/consumer.h"
+#include "engine/eng_query/eng_query.h"
 #include "engine/op_queue/op_queue.h"
 #include "engine/worker/worker.h"
 #include "engine_writer/engine_writer.h"
 #include "log/log.h"
 #include "query/ast.h"
+#include <stdatomic.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -295,4 +297,25 @@ void eng_event(api_response_t *r, ast_node_t *ast) {
   }
 
   r->is_ok = true;
+}
+
+// Takes ownership of `ast`
+void eng_query(api_response_t *r, ast_node_t *ast) {
+  cmd_ctx_t *cmd_ctx = build_cmd_context(ast);
+  if (!cmd_ctx) {
+    LOG_ACTION_ERROR(ACT_CMD_CTX_BUILD_FAILED, "context=api");
+    r->err_msg = "Error generating command context";
+    ast_free(ast);
+    return;
+  }
+
+  eng_query_result_t query_r = eng_query_exec(cmd_ctx);
+  if (!query_r.success) {
+    LOG_ACTION_ERROR(ACT_QUERY_ERROR, "err=\"%s\"", query_r.err_msg);
+  }
+
+  cmd_context_free(cmd_ctx);
+
+  r->is_ok = query_r.success;
+  r->err_msg = query_r.err_msg;
 }

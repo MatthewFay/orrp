@@ -143,7 +143,7 @@ _get_or_Create_cache_entry(eng_container_t *dc, consumer_cache_t *cache,
 
   *was_cached_out = false;
 
-  if (consumer_cache_get_entry(cache, key->ser_db_key, &cached_entry)) {
+  if (consumer_cache_get_entry(cache, key->ser_db_key, &cached_entry, true)) {
     *was_cached_out = true;
     LOG_ACTION_DEBUG(ACT_CACHE_HIT, "key=\"%s\"", key->ser_db_key);
     return cached_entry;

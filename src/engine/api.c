@@ -159,6 +159,13 @@ static api_response_t *_api_event(ast_node_t *ast, api_response_t *r) {
   return r;
 }
 
+static api_response_t *_api_query(ast_node_t *ast, api_response_t *r) {
+  r->op_type = API_QUERY;
+
+  eng_query(r, ast);
+  return r;
+}
+
 // The single entry point into the API/Engine layer.
 // Validates the AST before passing it into the core engine for execution.
 // `api_exec` takes ownership of `ast`.
@@ -190,7 +197,9 @@ api_response_t *api_exec(ast_node_t *ast) {
     _api_event(ast, r);
     break;
 
-  case CMD_QUERY:;
+  case CMD_QUERY:
+    _api_query(ast, r);
+
     break;
 
   default:
