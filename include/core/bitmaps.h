@@ -21,6 +21,26 @@ void bitmap_remove(bitmap_t *bm, uint32_t value);
 // Function to check if a value exists in the bitmap
 bool bitmap_contains(bitmap_t *bm, uint32_t value);
 
+// returns NULL on error
+bitmap_t *bitmap_and(const bitmap_t *bm1, const bitmap_t *bm2);
+
+// returns NULL on error
+bitmap_t *bitmap_or(const bitmap_t *bm1, const bitmap_t *bm2);
+
+// returns NULL on error
+bitmap_t *bitmap_xor(const bitmap_t *bm1, const bitmap_t *bm2);
+
+// returns NULL on error
+bitmap_t *bitmap_not(const bitmap_t *bm1, const bitmap_t *bm2);
+
+void bitmap_and_inplace(bitmap_t *bm1, const bitmap_t *bm2);
+
+void bitmap_or_inplace(bitmap_t *bm1, const bitmap_t *bm2);
+
+void bitmap_xor_inplace(bitmap_t *bm1, const bitmap_t *bm2);
+
+void bitmap_not_inplace(bitmap_t *bm1, const bitmap_t *bm2);
+
 // Function to free the bitmap
 void bitmap_free(bitmap_t *bm);
 

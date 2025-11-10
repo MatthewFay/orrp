@@ -28,7 +28,8 @@ worker_ops_result_t worker_create_ops(cmd_queue_msg_t *msg,
                                       uint32_t entity_id_int32,
                                       bool is_new_entity, uint32_t event_id,
                                       worker_entity_tag_counter_t *tag_counters,
-                                      worker_ops_t *ops_out);
+                                      worker_ops_t *ops_out,
+                                    bool is_new_container_ent);
 
 // Free ops array
 void worker_ops_clear(worker_ops_t *ops);

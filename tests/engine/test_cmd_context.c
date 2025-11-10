@@ -32,7 +32,7 @@ void tearDown(void) {
 
 void test_build_cmd_context_simple_event(void) {
   // AST: EVENT in:"metrics" entity:"user1"
-  g_cmd_ast = ast_create_command_node(CMD_EVENT, NULL);
+  g_cmd_ast = ast_create_command_node(AST_CMD_EVENT, NULL);
   ast_node_t *in_tag = ast_create_tag_node(
       KEY_IN, ast_create_string_literal_node("metrics"), false);
   ast_node_t *entity_tag = ast_create_tag_node(
@@ -57,7 +57,7 @@ void test_build_cmd_context_simple_event(void) {
 
 void test_build_cmd_context_with_custom_tags(void) {
   // AST: EVENT in:"logs" entity:"req-abc" region:"us-east" status:"ok"
-  g_cmd_ast = ast_create_command_node(CMD_EVENT, NULL);
+  g_cmd_ast = ast_create_command_node(AST_CMD_EVENT, NULL);
   ast_append_node(&g_cmd_ast->command.tags,
                   ast_create_tag_node(
                       KEY_IN, ast_create_string_literal_node("logs"), false));
@@ -98,7 +98,7 @@ void test_build_cmd_context_with_custom_tags(void) {
 
 void test_build_cmd_context_with_counter(void) {
   // AST: EVENT in:"stats" entity:"page-view" path:"/home" +count:1
-  g_cmd_ast = ast_create_command_node(CMD_EVENT, NULL);
+  g_cmd_ast = ast_create_command_node(AST_CMD_EVENT, NULL);
   ast_append_node(&g_cmd_ast->command.tags,
                   ast_create_tag_node(
                       KEY_IN, ast_create_string_literal_node("stats"), false));
@@ -122,7 +122,7 @@ void test_build_cmd_context_with_counter(void) {
 
 void test_build_cmd_context_query(void) {
   // AST: QUERY in:"errors" exp:"type:segfault" take:50 cursor:"abc"
-  g_cmd_ast = ast_create_command_node(CMD_QUERY, NULL);
+  g_cmd_ast = ast_create_command_node(AST_CMD_QUERY, NULL);
   ast_append_node(&g_cmd_ast->command.tags,
                   ast_create_tag_node(
                       KEY_IN, ast_create_string_literal_node("errors"), false));
@@ -157,7 +157,7 @@ void test_build_cmd_context_query(void) {
 
 void test_build_cmd_context_mixed_tags(void) {
   // AST: EVENT in:"mixed" entity:"test" +c1:1 t2:"v2" +c3:1
-  g_cmd_ast = ast_create_command_node(CMD_EVENT, NULL);
+  g_cmd_ast = ast_create_command_node(AST_CMD_EVENT, NULL);
   ast_append_node(&g_cmd_ast->command.tags,
                   ast_create_tag_node(
                       KEY_IN, ast_create_string_literal_node("mixed"), false));

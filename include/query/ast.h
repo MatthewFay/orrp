@@ -74,7 +74,7 @@ typedef struct ast_not_node_s {
   ast_node_t *operand;
 } ast_not_node_t;
 
-typedef enum { AND, OR } ast_logical_node_op_t;
+typedef enum { LOGIC_NODE_AND, LOGIC_NODE_OR } ast_logical_node_op_t;
 
 typedef struct ast_logical_node_s {
   ast_logical_node_op_t op;
@@ -82,7 +82,7 @@ typedef struct ast_logical_node_s {
   ast_node_t *right_operand;
 } ast_logical_node_t;
 
-typedef enum { CMD_EVENT, CMD_QUERY } ast_command_type_t;
+typedef enum { AST_CMD_EVENT, AST_CMD_QUERY } ast_command_type_t;
 
 // The root of the AST. It contains a pointer to the head of a linked list of
 // tags.

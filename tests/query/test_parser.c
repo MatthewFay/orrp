@@ -206,11 +206,11 @@ void test_exp_precedence(void) {
 
   ast_node_t *exp = _find_tag_by_key(result->ast, KEY_EXP)->tag.value;
   TEST_ASSERT_EQUAL(LOGICAL_NODE, exp->type);
-  TEST_ASSERT_EQUAL(OR, exp->logical.op); // OR is at the top level
+  TEST_ASSERT_EQUAL(LOGIC_NODE_OR, exp->logical.op); // OR is at the top level
   TEST_ASSERT_EQUAL(LITERAL_NODE, exp->logical.left_operand->type);
   TEST_ASSERT_EQUAL(LOGICAL_NODE,
                     exp->logical.right_operand->type); // AND is nested
-  TEST_ASSERT_EQUAL(AND, exp->logical.right_operand->logical.op);
+  TEST_ASSERT_EQUAL(LOGIC_NODE_AND, exp->logical.right_operand->logical.op);
 
   parse_free_result(result);
 }
@@ -222,9 +222,9 @@ void test_exp_parentheses_override(void) {
 
   ast_node_t *exp = _find_tag_by_key(result->ast, KEY_EXP)->tag.value;
   TEST_ASSERT_EQUAL(LOGICAL_NODE, exp->type);
-  TEST_ASSERT_EQUAL(AND, exp->logical.op); // AND is at the top level
+  TEST_ASSERT_EQUAL(LOGIC_NODE_AND, exp->logical.op); // AND is at the top level
   TEST_ASSERT_EQUAL(LOGICAL_NODE, exp->logical.left_operand->type);
-  TEST_ASSERT_EQUAL(OR, exp->logical.left_operand->logical.op);
+  TEST_ASSERT_EQUAL(LOGIC_NODE_OR, exp->logical.left_operand->logical.op);
   TEST_ASSERT_EQUAL(LITERAL_NODE, exp->logical.right_operand->type);
 
   parse_free_result(result);
@@ -236,7 +236,7 @@ void test_exp_not_operator(void) {
 
   ast_node_t *exp = _find_tag_by_key(result->ast, KEY_EXP)->tag.value;
   TEST_ASSERT_EQUAL(LOGICAL_NODE, exp->type);
-  TEST_ASSERT_EQUAL(AND, exp->logical.op);
+  TEST_ASSERT_EQUAL(LOGIC_NODE_AND, exp->logical.op);
   TEST_ASSERT_EQUAL(NOT_NODE, exp->logical.left_operand->type);
   TEST_ASSERT_EQUAL(NOT_NODE, exp->logical.right_operand->type);
 
@@ -250,7 +250,7 @@ void test_exp_comparison(void) {
 
   ast_node_t *exp = _find_tag_by_key(result->ast, KEY_EXP)->tag.value;
   TEST_ASSERT_EQUAL(LOGICAL_NODE, exp->type);
-  TEST_ASSERT_EQUAL(AND, exp->logical.op); // AND is at the top level
+  TEST_ASSERT_EQUAL(LOGIC_NODE_AND, exp->logical.op); // AND is at the top level
 
   TEST_ASSERT_EQUAL(TAG_NODE, exp->logical.left_operand->type);
 

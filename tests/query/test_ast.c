@@ -69,11 +69,11 @@ void test_comparison_node(void) {
 void test_logical_node(void) {
   ast_node_t *left = ast_create_string_literal_node("left");
   ast_node_t *right = ast_create_string_literal_node("right");
-  ast_node_t *logical = ast_create_logical_node(AND, left, right);
+  ast_node_t *logical = ast_create_logical_node(LOGIC_NODE_AND, left, right);
 
   TEST_ASSERT_NOT_NULL(logical);
   TEST_ASSERT_EQUAL(LOGICAL_NODE, logical->type);
-  TEST_ASSERT_EQUAL(AND, logical->logical.op);
+  TEST_ASSERT_EQUAL(LOGIC_NODE_AND, logical->logical.op);
   TEST_ASSERT_EQUAL(left, logical->logical.left_operand);
   TEST_ASSERT_EQUAL(right, logical->logical.right_operand);
   ast_free(logical); // should free all children
@@ -126,10 +126,10 @@ void test_command_node(void) {
   ast_append_node(&tags_list, tag2);
 
   // Create the command node
-  ast_node_t *cmd = ast_create_command_node(CMD_QUERY, tags_list);
+  ast_node_t *cmd = ast_create_command_node(AST_CMD_QUERY, tags_list);
   TEST_ASSERT_NOT_NULL(cmd);
   TEST_ASSERT_EQUAL(COMMAND_NODE, cmd->type);
-  TEST_ASSERT_EQUAL(CMD_QUERY, cmd->command.type);
+  TEST_ASSERT_EQUAL(AST_CMD_QUERY, cmd->command.type);
   TEST_ASSERT_EQUAL(tags_list, cmd->command.tags);
 
   // Check the tags list within the command
@@ -149,12 +149,12 @@ void test_free_deep_tree(void) {
   // This test primarily checks that ast_free doesn't crash on a nested
   // structure. Running this with a memory checker (like Valgrind) would confirm
   // no leaks.
-  ast_node_t *root =
-      ast_create_logical_node(AND,
-                              ast_create_not_node(ast_create_logical_node(
-                                  OR, ast_create_string_literal_node("a"),
-                                  ast_create_string_literal_node("b"))),
-                              ast_create_string_literal_node("c"));
+  ast_node_t *root = ast_create_logical_node(
+      LOGIC_NODE_AND,
+      ast_create_not_node(ast_create_logical_node(
+          LOGIC_NODE_OR, ast_create_string_literal_node("a"),
+          ast_create_string_literal_node("b"))),
+      ast_create_string_literal_node("c"));
 
   TEST_ASSERT_NOT_NULL(root);
   ast_free(root);

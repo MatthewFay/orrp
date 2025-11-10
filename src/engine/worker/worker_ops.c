@@ -278,8 +278,8 @@ static worker_ops_result_t _create_tag_counter_ops(
     char *container_name, uint32_t entity_id, cmd_queue_msg_t *msg,
     worker_entity_tag_counter_t *tag_counters, worker_ops_t *ops, int *i) {
   char tag_buffer[512];
-  char tag_counter_key[512];
   char counter_store_key[512];
+  char count_index_key[512];
   char ser_db_key[512];
 
   eng_container_db_key_t db_key;
@@ -292,19 +292,19 @@ static worker_ops_result_t _create_tag_counter_ops(
       continue;
 
     if (!(custom_tag_into(tag_buffer, sizeof(tag_buffer), custom_tag) &&
-          tag_str_entity_id_into(tag_counter_key, sizeof(tag_counter_key),
+          tag_str_entity_id_into(counter_store_key, sizeof(counter_store_key),
                                  tag_buffer, entity_id))) {
       return WORKER_OPS_ERROR("Key formatting failed", "tag_counter_key");
     }
 
-    HASH_FIND_STR(tag_counters, tag_counter_key, tag_counter);
+    HASH_FIND_STR(tag_counters, counter_store_key, tag_counter);
     if (!tag_counter) {
       // Skip this counter, not an error
       continue;
     }
 
-    if (!tag_count_into(counter_store_key, sizeof(counter_store_key),
-                        tag_buffer, tag_counter->count)) {
+    if (!tag_count_into(count_index_key, sizeof(count_index_key), tag_buffer,
+                        tag_counter->count)) {
       return WORKER_OPS_ERROR("Key formatting failed", "counter_store_key");
     }
 
@@ -318,7 +318,7 @@ static worker_ops_result_t _create_tag_counter_ops(
     db_key.user_db_type = USER_DB_COUNTER_STORE;
     db_key.db_key.type = DB_KEY_STRING;
 
-    db_key.db_key.key.s = strdup(tag_counter_key);
+    db_key.db_key.key.s = strdup(counter_store_key);
     if (!db_key.db_key.key.s) {
       free(db_key.container_name);
       return WORKER_OPS_ERROR("Memory allocation failed",
@@ -357,7 +357,7 @@ static worker_ops_result_t _create_tag_counter_ops(
     db_key.user_db_type = USER_DB_COUNT_INDEX;
     db_key.db_key.type = DB_KEY_STRING;
 
-    db_key.db_key.key.s = strdup(counter_store_key);
+    db_key.db_key.key.s = strdup(count_index_key);
     if (!db_key.db_key.key.s) {
       free(db_key.container_name);
       return WORKER_OPS_ERROR("Memory allocation failed",
@@ -389,10 +389,57 @@ static worker_ops_result_t _create_tag_counter_ops(
   return WORKER_OPS_SUCCESS();
 }
 
+static worker_ops_result_t _create_container_entity_op(char *container_name,
+                                                       uint32_t entity_id_int32,
+                                                       worker_ops_t *ops,
+                                                       int *i) {
+  char key_buffer[512] = {0};
+
+  eng_container_db_key_t db_key;
+  db_key.dc_type = CONTAINER_TYPE_USER;
+
+  db_key.container_name = strdup(container_name);
+  if (!db_key.container_name) {
+    return WORKER_OPS_ERROR("Memory allocation failed", "container_name_dup");
+  }
+
+  db_key.user_db_type = USER_DB_METADATA;
+  db_key.db_key.type = DB_KEY_STRING;
+  db_key.db_key.key.s = strdup(USR_ENTITIES_KEY);
+  if (!db_key.db_key.key.s) {
+    return WORKER_OPS_ERROR("Memory allocation failed", "db_key_dup");
+  }
+  if (!db_key_into(key_buffer, sizeof(key_buffer), &db_key)) {
+    free(db_key.container_name);
+    free(db_key.db_key.key.s);
+    return WORKER_OPS_ERROR("Key formatting failed", "db_key_into");
+  }
+
+  op_t *container_entity_op = op_create_int32_val(
+      &db_key, OP_TYPE_ADD_VALUE, COND_PUT_NONE, entity_id_int32);
+
+  if (!container_entity_op) {
+    free(db_key.container_name);
+    free(db_key.db_key.key.s);
+    return WORKER_OPS_ERROR("Operation creation failed", "op_create");
+  }
+
+  if (!_append_op(ops, key_buffer, container_entity_op, i)) {
+    op_destroy(container_entity_op);
+    free(db_key.container_name);
+    free(db_key.db_key.key.s);
+
+    return WORKER_OPS_ERROR("Failed to append operation", "append_op");
+  }
+
+  return WORKER_OPS_SUCCESS();
+}
+
 static worker_ops_result_t
 _create_ops(cmd_queue_msg_t *msg, char *container_name, char *entity_id_str,
             uint32_t entity_id_int32, bool is_new_entity, uint32_t event_id,
-            worker_entity_tag_counter_t *tag_counters, worker_ops_t *ops_out) {
+            worker_entity_tag_counter_t *tag_counters, worker_ops_t *ops_out,
+            bool is_new_container_ent) {
   worker_ops_result_t result;
   int ops_created = 0;
   uint32_t num_custom_tags = msg->command->num_custom_tags;
@@ -404,7 +451,18 @@ _create_ops(cmd_queue_msg_t *msg, char *container_name, char *entity_id_str,
   }
 
   uint32_t num_ops =
-      (is_new_entity ? 3 : 0) + 2 + num_custom_tags + (num_counter_tags * 2);
+      // _create_incr_entity_id_op        = 1 op
+      // _create_ent_mapping_ops          = 2 ops
+      (is_new_entity ? 3 : 0)
+      // _create_incr_event_id_op         = 1 op
+      // _create_event_to_entity_op       = 1 op
+      + 2
+      // _create_container_entity_op      = 1 op
+      + (is_new_container_ent ? 1 : 0)
+      // _create_write_to_event_index_ops = `num_custom_tags` ops
+      + num_custom_tags
+      // _create_tag_counter_ops          = (`num_counter_tags` * 2) ops
+      + (num_counter_tags * 2);
 
   ops_out->ops = malloc(num_ops * sizeof(op_queue_msg_t *));
   if (!ops_out->ops) {
@@ -432,6 +490,13 @@ _create_ops(cmd_queue_msg_t *msg, char *container_name, char *entity_id_str,
                                       ops_out, &ops_created);
   if (!result.success)
     goto cleanup;
+
+  if (is_new_container_ent) {
+    result = _create_container_entity_op(container_name, entity_id_int32,
+                                         ops_out, &ops_created);
+    if (!result.success)
+      goto cleanup;
+  }
 
   result = _create_write_to_event_index_ops(container_name, event_id, msg,
                                             ops_out, &ops_created);
@@ -464,7 +529,8 @@ worker_ops_result_t worker_create_ops(cmd_queue_msg_t *msg,
                                       uint32_t entity_id_int32,
                                       bool is_new_entity, uint32_t event_id,
                                       worker_entity_tag_counter_t *tag_counters,
-                                      worker_ops_t *ops_out) {
+                                      worker_ops_t *ops_out,
+                                      bool is_new_container_ent) {
   if (!msg || !container_name || !entity_id_str || !ops_out) {
     return WORKER_OPS_ERROR("Invalid arguments", "worker_create_ops");
   }
@@ -472,5 +538,6 @@ worker_ops_result_t worker_create_ops(cmd_queue_msg_t *msg,
   memset(ops_out, 0, sizeof(worker_ops_t));
 
   return _create_ops(msg, container_name, entity_id_str, entity_id_int32,
-                     is_new_entity, event_id, tag_counters, ops_out);
+                     is_new_entity, event_id, tag_counters, ops_out,
+                     is_new_container_ent);
 }

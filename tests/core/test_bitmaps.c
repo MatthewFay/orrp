@@ -407,6 +407,163 @@ void test_bitmap_free_valid_bitmap(void) {
   TEST_ASSERT_TRUE(true); // If we reach here, it didn't crash
 }
 
+// --- Bitmap operation tests ---
+
+void test_bitmap_and_basic(void) {
+  bitmap_t *bm1 = bitmap_create();
+  bitmap_t *bm2 = bitmap_create();
+  bitmap_add(bm1, 1);
+  bitmap_add(bm1, 2);
+  bitmap_add(bm2, 2);
+  bitmap_add(bm2, 3);
+  bitmap_t *result = bitmap_and(bm1, bm2);
+  TEST_ASSERT_NOT_NULL(result);
+  TEST_ASSERT_FALSE(bitmap_contains(result, 1));
+  TEST_ASSERT_TRUE(bitmap_contains(result, 2));
+  TEST_ASSERT_FALSE(bitmap_contains(result, 3));
+  bitmap_free(bm1);
+  bitmap_free(bm2);
+  bitmap_free(result);
+}
+
+void test_bitmap_or_basic(void) {
+  bitmap_t *bm1 = bitmap_create();
+  bitmap_t *bm2 = bitmap_create();
+  bitmap_add(bm1, 1);
+  bitmap_add(bm2, 2);
+  bitmap_t *result = bitmap_or(bm1, bm2);
+  TEST_ASSERT_NOT_NULL(result);
+  TEST_ASSERT_TRUE(bitmap_contains(result, 1));
+  TEST_ASSERT_TRUE(bitmap_contains(result, 2));
+  bitmap_free(bm1);
+  bitmap_free(bm2);
+  bitmap_free(result);
+}
+
+void test_bitmap_xor_basic(void) {
+  bitmap_t *bm1 = bitmap_create();
+  bitmap_t *bm2 = bitmap_create();
+  bitmap_add(bm1, 1);
+  bitmap_add(bm1, 2);
+  bitmap_add(bm2, 2);
+  bitmap_add(bm2, 3);
+  bitmap_t *result = bitmap_xor(bm1, bm2);
+  TEST_ASSERT_NOT_NULL(result);
+  TEST_ASSERT_TRUE(bitmap_contains(result, 1));
+  TEST_ASSERT_FALSE(bitmap_contains(result, 2));
+  TEST_ASSERT_TRUE(bitmap_contains(result, 3));
+  bitmap_free(bm1);
+  bitmap_free(bm2);
+  bitmap_free(result);
+}
+
+void test_bitmap_not_basic(void) {
+  bitmap_t *bm1 = bitmap_create();
+  bitmap_t *bm2 = bitmap_create();
+  bitmap_add(bm1, 1);
+  bitmap_add(bm1, 2);
+  bitmap_add(bm1, 3);
+  bitmap_add(bm2, 2);
+  bitmap_add(bm2, 4);
+  bitmap_t *result = bitmap_not(bm1, bm2);
+  TEST_ASSERT_NOT_NULL(result);
+  TEST_ASSERT_TRUE(bitmap_contains(result, 1));
+  TEST_ASSERT_FALSE(bitmap_contains(result, 2));
+  TEST_ASSERT_TRUE(bitmap_contains(result, 3));
+  TEST_ASSERT_FALSE(bitmap_contains(result, 4));
+  bitmap_free(bm1);
+  bitmap_free(bm2);
+  bitmap_free(result);
+}
+
+void test_bitmap_and_inplace(void) {
+  bitmap_t *bm1 = bitmap_create();
+  bitmap_t *bm2 = bitmap_create();
+  bitmap_add(bm1, 1);
+  bitmap_add(bm1, 2);
+  bitmap_add(bm2, 2);
+  bitmap_add(bm2, 3);
+  bitmap_and_inplace(bm1, bm2);
+  TEST_ASSERT_FALSE(bitmap_contains(bm1, 1));
+  TEST_ASSERT_TRUE(bitmap_contains(bm1, 2));
+  TEST_ASSERT_FALSE(bitmap_contains(bm1, 3));
+  bitmap_free(bm1);
+  bitmap_free(bm2);
+}
+
+void test_bitmap_or_inplace(void) {
+  bitmap_t *bm1 = bitmap_create();
+  bitmap_t *bm2 = bitmap_create();
+  bitmap_add(bm1, 1);
+  bitmap_add(bm2, 2);
+  bitmap_or_inplace(bm1, bm2);
+  TEST_ASSERT_TRUE(bitmap_contains(bm1, 1));
+  TEST_ASSERT_TRUE(bitmap_contains(bm1, 2));
+  bitmap_free(bm1);
+  bitmap_free(bm2);
+}
+
+void test_bitmap_xor_inplace(void) {
+  bitmap_t *bm1 = bitmap_create();
+  bitmap_t *bm2 = bitmap_create();
+  bitmap_add(bm1, 1);
+  bitmap_add(bm1, 2);
+  bitmap_add(bm2, 2);
+  bitmap_add(bm2, 3);
+  bitmap_xor_inplace(bm1, bm2);
+  TEST_ASSERT_TRUE(bitmap_contains(bm1, 1));
+  TEST_ASSERT_FALSE(bitmap_contains(bm1, 2));
+  TEST_ASSERT_TRUE(bitmap_contains(bm1, 3));
+  bitmap_free(bm1);
+  bitmap_free(bm2);
+}
+
+void test_bitmap_not_inplace(void) {
+  bitmap_t *bm1 = bitmap_create();
+  bitmap_t *bm2 = bitmap_create();
+  bitmap_add(bm1, 1);
+  bitmap_add(bm1, 2);
+  bitmap_add(bm1, 3);
+  bitmap_add(bm2, 2);
+  bitmap_add(bm2, 4);
+  bitmap_not_inplace(bm1, bm2);
+  TEST_ASSERT_TRUE(bitmap_contains(bm1, 1));
+  TEST_ASSERT_FALSE(bitmap_contains(bm1, 2));
+  TEST_ASSERT_TRUE(bitmap_contains(bm1, 3));
+  TEST_ASSERT_FALSE(bitmap_contains(bm1, 4));
+  bitmap_free(bm1);
+  bitmap_free(bm2);
+}
+
+void test_bitmap_op_null_inputs(void) {
+  // All ops should return NULL or do nothing if any input is NULL
+  TEST_ASSERT_NULL(bitmap_and(NULL, NULL));
+  TEST_ASSERT_NULL(bitmap_or(NULL, NULL));
+  TEST_ASSERT_NULL(bitmap_xor(NULL, NULL));
+  TEST_ASSERT_NULL(bitmap_not(NULL, NULL));
+
+  bitmap_t *bm = bitmap_create();
+  TEST_ASSERT_NULL(bitmap_and(bm, NULL));
+  TEST_ASSERT_NULL(bitmap_or(bm, NULL));
+  TEST_ASSERT_NULL(bitmap_xor(bm, NULL));
+  TEST_ASSERT_NULL(bitmap_not(bm, NULL));
+  TEST_ASSERT_NULL(bitmap_and(NULL, bm));
+  TEST_ASSERT_NULL(bitmap_or(NULL, bm));
+  TEST_ASSERT_NULL(bitmap_xor(NULL, bm));
+  TEST_ASSERT_NULL(bitmap_not(NULL, bm));
+
+  // Inplace ops should not crash
+  bitmap_and_inplace(NULL, bm);
+  bitmap_or_inplace(NULL, bm);
+  bitmap_xor_inplace(NULL, bm);
+  bitmap_not_inplace(NULL, bm);
+  bitmap_and_inplace(bm, NULL);
+  bitmap_or_inplace(bm, NULL);
+  bitmap_xor_inplace(bm, NULL);
+  bitmap_not_inplace(bm, NULL);
+  bitmap_free(bm);
+}
+
 // Main test runner
 int main(void) {
   UNITY_BEGIN();
@@ -455,6 +612,17 @@ int main(void) {
   // bitmap_free tests
   RUN_TEST(test_bitmap_free_null_bitmap);
   RUN_TEST(test_bitmap_free_valid_bitmap);
+
+  // bitmap operation tests
+  RUN_TEST(test_bitmap_and_basic);
+  RUN_TEST(test_bitmap_or_basic);
+  RUN_TEST(test_bitmap_xor_basic);
+  RUN_TEST(test_bitmap_not_basic);
+  RUN_TEST(test_bitmap_and_inplace);
+  RUN_TEST(test_bitmap_or_inplace);
+  RUN_TEST(test_bitmap_xor_inplace);
+  RUN_TEST(test_bitmap_not_inplace);
+  RUN_TEST(test_bitmap_op_null_inputs);
 
   return UNITY_END();
 }

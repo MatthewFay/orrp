@@ -1,5 +1,6 @@
 #include "core/bitmaps.h"
 #include "roaring.h"
+#include <stdbool.h>
 #include <stdint.h>
 
 bitmap_t *bitmap_create() {
@@ -32,6 +33,69 @@ bool bitmap_contains(bitmap_t *bm, uint32_t value) {
   }
   // TODO: Should not return false on error condition
   return false;
+}
+
+typedef roaring_bitmap_t *(*bitmap_op_fn)(const roaring_bitmap_t *,
+                                          const roaring_bitmap_t *);
+
+static bitmap_t *_apply_bitmap_op(const bitmap_t *bm1, const bitmap_t *bm2,
+                                  bitmap_op_fn bm_op_fn) {
+  if (!(bm1 && bm1->rb && bm2 && bm2->rb)) {
+    return NULL;
+  }
+  bitmap_t *r = malloc(sizeof(bitmap_t));
+  if (!r) {
+    return NULL;
+  }
+  r->rb = bm_op_fn(bm1->rb, bm2->rb);
+  if (!r->rb) {
+    free(r);
+    return NULL;
+  }
+  return r;
+}
+
+bitmap_t *bitmap_and(const bitmap_t *bm1, const bitmap_t *bm2) {
+  return _apply_bitmap_op(bm1, bm2, roaring_bitmap_and);
+}
+
+bitmap_t *bitmap_or(const bitmap_t *bm1, const bitmap_t *bm2) {
+  return _apply_bitmap_op(bm1, bm2, roaring_bitmap_or);
+}
+
+bitmap_t *bitmap_xor(const bitmap_t *bm1, const bitmap_t *bm2) {
+  return _apply_bitmap_op(bm1, bm2, roaring_bitmap_xor);
+}
+
+bitmap_t *bitmap_not(const bitmap_t *bm1, const bitmap_t *bm2) {
+  return _apply_bitmap_op(bm1, bm2, roaring_bitmap_andnot);
+}
+
+typedef void (*bitmap_inplace_op_fn)(roaring_bitmap_t *,
+                                     const roaring_bitmap_t *);
+
+static void _apply_bitmap_inplace_op(bitmap_t *bm1, const bitmap_t *bm2,
+                                     bitmap_inplace_op_fn bm_inplace_op_fn) {
+  if (!(bm1 && bm1->rb && bm2 && bm2->rb)) {
+    return;
+  }
+  bm_inplace_op_fn(bm1->rb, bm2->rb);
+}
+
+void bitmap_and_inplace(bitmap_t *bm1, const bitmap_t *bm2) {
+  return _apply_bitmap_inplace_op(bm1, bm2, roaring_bitmap_and_inplace);
+}
+
+void bitmap_or_inplace(bitmap_t *bm1, const bitmap_t *bm2) {
+  return _apply_bitmap_inplace_op(bm1, bm2, roaring_bitmap_or_inplace);
+}
+
+void bitmap_xor_inplace(bitmap_t *bm1, const bitmap_t *bm2) {
+  return _apply_bitmap_inplace_op(bm1, bm2, roaring_bitmap_xor_inplace);
+}
+
+void bitmap_not_inplace(bitmap_t *bm1, const bitmap_t *bm2) {
+  return _apply_bitmap_inplace_op(bm1, bm2, roaring_bitmap_andnot_inplace);
 }
 
 void bitmap_free(bitmap_t *bm) {

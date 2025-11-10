@@ -83,7 +83,7 @@ static bool _validate_ast(ast_node_t *ast, custom_key **c_keys) {
         seen_id = true;
         break;
       case KEY_EXP:
-        if (seen_exp || cmd_type != CMD_QUERY)
+        if (seen_exp || cmd_type != AST_CMD_QUERY)
           return false;
         seen_exp = true;
         break;
@@ -122,15 +122,15 @@ static bool _validate_ast(ast_node_t *ast, custom_key **c_keys) {
   if (!seen_in) {
     return false;
   }
-  if (cmd_type == CMD_EVENT && !seen_entity) {
+  if (cmd_type == AST_CMD_EVENT && !seen_entity) {
     return false;
   }
-  if (cmd_type == CMD_EVENT && seen_exp)
+  if (cmd_type == AST_CMD_EVENT && seen_exp)
     return false;
-  if (cmd_type == CMD_QUERY && !seen_exp) {
+  if (cmd_type == AST_CMD_QUERY && !seen_exp) {
     return false;
   }
-  if (cmd_type == CMD_QUERY && seen_entity)
+  if (cmd_type == AST_CMD_QUERY && seen_entity)
     return false;
   return true;
 }
@@ -193,11 +193,11 @@ api_response_t *api_exec(ast_node_t *ast) {
 
   // Dispatch based on the command type in the AST root.
   switch (ast->type) {
-  case CMD_EVENT:
+  case AST_CMD_EVENT:
     _api_event(ast, r);
     break;
 
-  case CMD_QUERY:
+  case AST_CMD_QUERY:
     _api_query(ast, r);
 
     break;

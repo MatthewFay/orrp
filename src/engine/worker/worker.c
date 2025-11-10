@@ -1,4 +1,5 @@
 #include "worker.h"
+#include "core/bitmaps.h"
 #include "core/db.h"
 #include "core/hash.h"
 #include "core/lock_striped_ht.h"
@@ -191,6 +192,92 @@ static bool _get_user_dc(worker_t *worker, const char *container_name,
                   strlen(user_dc->container_name), user_dc);
 
   *user_dc_out = user_dc;
+  return true;
+}
+
+static bool _is_new_container_entity(worker_t *worker, char *container_name,
+                                     uint32_t ent_id,
+                                     bool *is_new_container_ent_out) {
+  worker_container_entities_t *entities = NULL;
+  *is_new_container_ent_out = false;
+
+  HASH_FIND_STR(worker->container_entities, container_name, entities);
+  if (entities) {
+    *is_new_container_ent_out = !bitmap_contains(entities->entities, ent_id);
+    if (*is_new_container_ent_out) {
+      bitmap_add(entities->entities, ent_id);
+    }
+    return true;
+  }
+
+  worker_user_dc_t *dc = NULL;
+  if (!_get_user_dc(worker, container_name, &dc)) {
+    LOG_ACTION_ERROR(ACT_CONTAINER_OPEN_FAILED,
+                     "context=container_entity entity_id=%d", ent_id);
+    return false;
+  }
+
+  db_get_result_t r = {0};
+  db_key_t db_key;
+  db_key.type = DB_KEY_STRING;
+  db_key.key.s = strdup(USR_ENTITIES_KEY);
+
+  if (!db_get(dc->dc->data.usr->user_dc_metadata_db, dc->txn, &db_key, &r)) {
+    LOG_ACTION_ERROR(ACT_DB_READ_FAILED,
+                     "context=container_entity entity_id=%d", ent_id);
+    return false;
+  }
+
+  entities = malloc(sizeof(worker_container_entities_t));
+  if (!entities) {
+    LOG_ACTION_ERROR(
+        ACT_MEMORY_ALLOC_FAILED,
+        "context=container_entity entity_id=%d size_bytes=%zu err=\"%s\"",
+        ent_id, sizeof(worker_entity_mapping_t), strerror(errno));
+    db_get_result_clear(&r);
+    return false;
+  }
+
+  entities->container_name = strdup(container_name);
+  if (!entities->container_name) {
+    LOG_ACTION_ERROR(ACT_MEMORY_ALLOC_FAILED,
+                     "context=container_entity_name entity_id=%d err=\"%s\"",
+                     ent_id, strerror(errno));
+    free(entities);
+    db_get_result_clear(&r);
+    return false;
+  }
+
+  if (r.status == DB_GET_OK) {
+    entities->entities = bitmap_deserialize(r.value, r.value_len);
+    if (!entities->entities) {
+      LOG_ACTION_ERROR(ACT_DESERIALIZATION_FAILED,
+                       "context=container_entity_name container_name=\"%s\"",
+                       container_name);
+      free(entities);
+      db_get_result_clear(&r);
+      return false;
+    }
+    *is_new_container_ent_out = !bitmap_contains(entities->entities, ent_id);
+    if (*is_new_container_ent_out) {
+      bitmap_add(entities->entities, ent_id);
+    }
+  } else {
+    entities->entities = bitmap_create();
+    if (!entities->entities) {
+      free(entities);
+      db_get_result_clear(&r);
+      return false;
+    }
+    bitmap_add(entities->entities, ent_id);
+    *is_new_container_ent_out = true;
+  }
+
+  db_get_result_clear(&r);
+
+  HASH_ADD_KEYPTR(hh, worker->container_entities, container_name,
+                  strlen(container_name), entities);
+
   return true;
 }
 
@@ -463,11 +550,18 @@ static bool _process_msg(worker_t *worker, cmd_queue_msg_t *msg,
                      em->ent_int_id, container_name);
     return false;
   }
+  bool is_new_container_ent;
+  if (!_is_new_container_entity(worker, container_name, em->ent_int_id,
+                                &is_new_container_ent)) {
+    LOG_ACTION_ERROR(ACT_COUNTER_ENTITY_FAILED, "entity_id=%u container=\"%s\"",
+                     em->ent_int_id, container_name);
+    return false;
+  }
 
   worker_ops_t ops = {0};
   worker_ops_result_t ops_result = worker_create_ops(
       msg, container_name, em->ent_str_id, em->ent_int_id, is_new_ent, event_id,
-      worker->entity_tag_counters, &ops);
+      worker->entity_tag_counters, &ops, is_new_container_ent);
 
   if (!ops_result.success) {
     LOG_ACTION_ERROR(
@@ -535,6 +629,15 @@ static void _worker_cleanup(worker_t *worker) {
     freed_count++;
   }
   worker->entity_mappings = NULL;
+
+  worker_container_entities_t *ce, *ce_tmp;
+
+  HASH_ITER(hh, worker->container_entities, ce, ce_tmp) {
+    HASH_DEL(worker->container_entities, ce);
+    free(ce->container_name);
+    bitmap_free(ce->entities);
+  }
+  worker->container_entities = NULL;
 
   worker_entity_tag_counter_t *wetc_current, *wetc_tmp;
   size_t freed_wetc_count = 0;
@@ -628,6 +731,7 @@ worker_result_t worker_start(worker_t *worker, const worker_config_t *config) {
   worker->should_stop = false;
   worker->messages_processed = 0;
   worker->entity_mappings = NULL;
+  worker->container_entities = NULL;
 
   if (uv_thread_create(&worker->thread, _worker_thread_func, worker) != 0) {
     return (worker_result_t){.success = false,

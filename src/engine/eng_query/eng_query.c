@@ -1,60 +1,59 @@
 #include "eng_query.h"
-#include "core/stack.h"
+#include "core/db.h"
 #include "engine/cmd_context/cmd_context.h"
-#include "query/ast.h"
+#include "engine/consumer/consumer_cache.h"
+#include "engine/container/container.h"
+#include "engine/container/container_types.h"
+#include "engine/eng_eval/eng_eval.h"
+#include "lmdb.h"
 
-static eng_query_result_t *_invalid_ast(eng_query_result_t *r) {
-  r->success = false;
-  r->err_msg = "Invalid AST";
-  return r;
-}
-
-eng_query_result_t execute_query(cmd_ctx_t *cmd_ctx, ast_node_t *ast) {
-  if (!cmd_ctx || !ast) {
-    return (eng_query_result_t){.success = false, .err_msg = "Invalid args"};
+eng_query_result_t eng_query_exec(cmd_ctx_t *cmd_ctx) {
+  if (!cmd_ctx) {
+    return (eng_query_result_t){.success = false, .err_msg = "Invalid cmd_ctx"};
   }
   eng_query_result_t r = {0};
-
-  c_stack_t *stack = stack_create();
-  if (!stack) {
+  container_result_t scr = container_get_system();
+  if (!scr.success) {
     return (eng_query_result_t){.success = false,
-                                .err_msg = "Cannot create stack"};
+                                .err_msg = "Unable to get sys container"};
+  }
+  MDB_txn *sys_txn = db_create_txn(scr.container->env, true);
+  if (!sys_txn) {
+    return (eng_query_result_t){.success = false,
+                                .err_msg = "Unable to get sys txn"};
+  }
+  container_result_t cr =
+      container_get_or_create_user(cmd_ctx->in_tag_value->literal.string_value);
+  if (!cr.success) {
+    db_abort_txn(sys_txn);
+    return (eng_query_result_t){.success = false,
+                                .err_msg = "Unable to get user container"};
+  }
+  MDB_txn *user_txn = db_create_txn(cr.container->env, true);
+  if (!user_txn) {
+    db_abort_txn(sys_txn);
+
+    container_release(cr.container);
+    return (eng_query_result_t){.success = false,
+                                .err_msg = "Unable to create user txn"};
   }
 
-  stack_push(stack, ast);
+  consumer_cache_query_begin();
 
-  while (!stack_is_empty(stack)) {
-    ast_node_t *node = stack_pop(stack);
-    if (!node) {
-      return *_invalid_ast(&r);
-    }
-    switch (node->type) {
-    case TAG_NODE:
-      if (node->tag.key_type != TAG_KEY_CUSTOM) {
-        return *_invalid_ast(&r);
-      }
-      // ast_free(node->tag.value);
-      break;
-    case LITERAL_NODE:
-      // if (node->literal.type == LITERAL_STRING) {
-      //   free(node->literal.string_value); // Free string copied for literal
-      // }
-      break;
-    case COMPARISON_NODE:
-      // ast_free(node->comparison.left);
-      // ast_free(node->comparison.right);
-      break;
-    case LOGICAL_NODE:
-      // ast_free(node->logical.left_operand);
-      // ast_free(node->logical.right_operand);
-      break;
-    case NOT_NODE:
-      // ast_free(node->not_op.operand);
-      break;
-    default:
-      return *_invalid_ast(&r);
-    }
+  eng_eval_result_t eval_result = eng_eval_resolve_exp_to_entities(
+      cmd_ctx->exp_tag_value, cr.container, user_txn, sys_txn);
+
+  consumer_cache_query_end();
+
+  r.success = eval_result.success;
+  if (!r.success) {
+    r.err_msg = eval_result.err_msg;
   }
+  r.entities = eval_result.entities;
+
+  container_release(cr.container);
+  db_abort_txn(user_txn);
+  db_abort_txn(sys_txn);
 
   return r;
 }

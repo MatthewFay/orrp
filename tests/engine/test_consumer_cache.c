@@ -167,7 +167,7 @@ void test_get_existing_entry_returns_true(void) {
   consumer_cache_add_entry(&cache, "key1", entry);
 
   consumer_cache_entry_t *retrieved = NULL;
-  TEST_ASSERT_TRUE(consumer_cache_get_entry(&cache, "key1", &retrieved));
+  TEST_ASSERT_TRUE(consumer_cache_get_entry(&cache, "key1", &retrieved, true));
   TEST_ASSERT_EQUAL_PTR(entry, retrieved);
 
   free_test_entry(entry);
@@ -176,7 +176,7 @@ void test_get_existing_entry_returns_true(void) {
 void test_get_nonexistent_entry_returns_false(void) {
   consumer_cache_entry_t *retrieved = NULL;
   TEST_ASSERT_FALSE(
-      consumer_cache_get_entry(&cache, "nonexistent", &retrieved));
+      consumer_cache_get_entry(&cache, "nonexistent", &retrieved, true));
   TEST_ASSERT_NULL(retrieved);
 }
 
@@ -192,7 +192,7 @@ void test_add_multiple_entries_increments_count(void) {
   TEST_ASSERT_EQUAL_UINT32(3, cache.n_entries);
 
   consumer_cache_entry_t *retrieved = NULL;
-  TEST_ASSERT_TRUE(consumer_cache_get_entry(&cache, "key2", &retrieved));
+  TEST_ASSERT_TRUE(consumer_cache_get_entry(&cache, "key2", &retrieved, true));
   TEST_ASSERT_EQUAL_PTR(e2, retrieved);
   TEST_ASSERT_EQUAL_UINT32(CONSUMER_CACHE_ENTRY_VAL_INT32, retrieved->val_type);
 
@@ -248,7 +248,7 @@ void test_get_moves_entry_to_lru_head(void) {
 
   // Access e1 (tail)
   consumer_cache_entry_t *retrieved = NULL;
-  consumer_cache_get_entry(&cache, "key1", &retrieved);
+  consumer_cache_get_entry(&cache, "key1", &retrieved, true);
 
   // e1 should now be head
   TEST_ASSERT_EQUAL_PTR(e1, cache.lru_head);
@@ -269,7 +269,7 @@ void test_get_already_head_entry_stays_head(void) {
   TEST_ASSERT_EQUAL_PTR(e2, cache.lru_head);
 
   consumer_cache_entry_t *retrieved = NULL;
-  consumer_cache_get_entry(&cache, "key2", &retrieved);
+  consumer_cache_get_entry(&cache, "key2", &retrieved, true);
 
   TEST_ASSERT_EQUAL_PTR(e2, cache.lru_head);
 
@@ -288,7 +288,7 @@ void test_lru_list_linkage_after_multiple_ops(void) {
 
   // Access middle entry
   consumer_cache_entry_t *retrieved = NULL;
-  consumer_cache_get_entry(&cache, "key2", &retrieved);
+  consumer_cache_get_entry(&cache, "key2", &retrieved, true);
 
   // Verify linkage: e2 -> e3 -> e1
   TEST_ASSERT_EQUAL_PTR(e2, cache.lru_head);
@@ -495,14 +495,14 @@ void test_add_get_evict_workflow(void) {
 
   // Get e1 to make it MRU
   consumer_cache_entry_t *retrieved = NULL;
-  consumer_cache_get_entry(&cache, "key1", &retrieved);
+  consumer_cache_get_entry(&cache, "key1", &retrieved, true);
 
   // e2 is now LRU, should be evicted
   consumer_cache_entry_t *evicted = consumer_cache_evict_lru(&cache);
   TEST_ASSERT_EQUAL_PTR(e2, evicted);
 
   // e1 should still be retrievable
-  TEST_ASSERT_TRUE(consumer_cache_get_entry(&cache, "key1", &retrieved));
+  TEST_ASSERT_TRUE(consumer_cache_get_entry(&cache, "key1", &retrieved, true));
 
   free_test_entry(e1);
   free_test_entry(e2);
@@ -543,14 +543,14 @@ void test_mixed_value_types_in_cache(void) {
   // Verify each type
   consumer_cache_entry_t *retrieved = NULL;
 
-  consumer_cache_get_entry(&cache, "bitmap_key", &retrieved);
+  consumer_cache_get_entry(&cache, "bitmap_key", &retrieved, true);
   TEST_ASSERT_EQUAL_UINT32(CONSUMER_CACHE_ENTRY_VAL_BM, retrieved->val_type);
 
-  consumer_cache_get_entry(&cache, "int_key", &retrieved);
+  consumer_cache_get_entry(&cache, "int_key", &retrieved, true);
   TEST_ASSERT_EQUAL_UINT32(CONSUMER_CACHE_ENTRY_VAL_INT32, retrieved->val_type);
   TEST_ASSERT_EQUAL_UINT32(42, atomic_load(&retrieved->val.int32));
 
-  consumer_cache_get_entry(&cache, "str_key", &retrieved);
+  consumer_cache_get_entry(&cache, "str_key", &retrieved, true);
   TEST_ASSERT_EQUAL_UINT32(CONSUMER_CACHE_ENTRY_VAL_STR, retrieved->val_type);
   consumer_cache_str_t *cc_str = atomic_load(&retrieved->val.cc_str);
   TEST_ASSERT_EQUAL_STRING("hello", cc_str->str);

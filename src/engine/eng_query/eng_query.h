@@ -11,9 +11,7 @@ typedef struct eng_query_result_s {
 } eng_query_result_t;
 
 /**
- * @brief Executes the full query logic based on the command context.
- * * This function handles transaction management, expression evaluation,
- * and final ID resolution.
+ * @brief Executes a query based on the command context.
  *
  * @param cmd_ctx The validated command context.
  * @return eng_query_result_t The results of the query.

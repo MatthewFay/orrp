@@ -26,15 +26,15 @@ void eng_event(api_response_t *resp, ast_node_t *ast) {
   resp->op_type = API_EVENT;
 }
 
-bool eng_init(void) {
-  return true; 
-}
+void eng_query(api_response_t *r, ast_node_t *ast) {}
+
+bool eng_init(void) { return true; }
 
 void eng_shutdown(void) {}
 
 // Helper to create a minimal valid EVENT AST
 static ast_node_t *make_event_ast(const char *container, const char *entity) {
-  ast_node_t *cmd = ast_create_command_node(CMD_EVENT, NULL);
+  ast_node_t *cmd = ast_create_command_node(AST_CMD_EVENT, NULL);
   ast_node_t *in_tag = ast_create_tag_node(
       KEY_IN, ast_create_string_literal_node(container), false);
   ast_node_t *entity_tag = ast_create_tag_node(
@@ -66,7 +66,7 @@ void test_api_event_success(void) {
 
 void test_api_event_invalid_ast_missing_in(void) {
   // Missing 'in' tag
-  ast_node_t *cmd = ast_create_command_node(CMD_EVENT, NULL);
+  ast_node_t *cmd = ast_create_command_node(AST_CMD_EVENT, NULL);
   ast_node_t *entity_tag = ast_create_tag_node(
       KEY_ENTITY, ast_create_string_literal_node("user-1"), false);
   ast_append_node(&cmd->command.tags, entity_tag);
@@ -80,7 +80,7 @@ void test_api_event_invalid_ast_missing_in(void) {
 
 void test_api_event_invalid_ast_missing_entity(void) {
   // Missing 'entity' tag
-  ast_node_t *cmd = ast_create_command_node(CMD_EVENT, NULL);
+  ast_node_t *cmd = ast_create_command_node(AST_CMD_EVENT, NULL);
   ast_node_t *in_tag = ast_create_tag_node(
       KEY_IN, ast_create_string_literal_node("metrics"), false);
   ast_append_node(&cmd->command.tags, in_tag);
@@ -94,7 +94,7 @@ void test_api_event_invalid_ast_missing_entity(void) {
 
 void test_api_event_invalid_ast_duplicate_custom_tag(void) {
   // Duplicate custom tag
-  ast_node_t *cmd = ast_create_command_node(CMD_EVENT, NULL);
+  ast_node_t *cmd = ast_create_command_node(AST_CMD_EVENT, NULL);
   ast_node_t *in_tag = ast_create_tag_node(
       KEY_IN, ast_create_string_literal_node("metrics"), false);
   ast_node_t *entity_tag = ast_create_tag_node(
@@ -117,7 +117,7 @@ void test_api_event_invalid_ast_duplicate_custom_tag(void) {
 
 void test_api_event_invalid_ast_invalid_container_name(void) {
   // Invalid container name (special char)
-  ast_node_t *cmd = ast_create_command_node(CMD_EVENT, NULL);
+  ast_node_t *cmd = ast_create_command_node(AST_CMD_EVENT, NULL);
   ast_node_t *in_tag = ast_create_tag_node(
       KEY_IN, ast_create_string_literal_node("./db"), false);
   ast_node_t *entity_tag = ast_create_tag_node(
@@ -134,7 +134,7 @@ void test_api_event_invalid_ast_invalid_container_name(void) {
 
 void test_api_event_invalid_ast_duplicate_reserved_tag(void) {
   // Duplicate reserved tag (e.g., two 'in' tags)
-  ast_node_t *cmd = ast_create_command_node(CMD_EVENT, NULL);
+  ast_node_t *cmd = ast_create_command_node(AST_CMD_EVENT, NULL);
   ast_node_t *in_tag1 = ast_create_tag_node(
       KEY_IN, ast_create_string_literal_node("metrics"), false);
   ast_node_t *in_tag2 = ast_create_tag_node(
@@ -154,7 +154,7 @@ void test_api_event_invalid_ast_duplicate_reserved_tag(void) {
 
 void test_api_event_invalid_ast_counter_twice(void) {
   // Two counter tags
-  ast_node_t *cmd = ast_create_command_node(CMD_EVENT, NULL);
+  ast_node_t *cmd = ast_create_command_node(AST_CMD_EVENT, NULL);
   ast_node_t *in_tag = ast_create_tag_node(
       KEY_IN, ast_create_string_literal_node("metrics"), false);
   ast_node_t *entity_tag = ast_create_tag_node(
@@ -177,7 +177,7 @@ void test_api_event_invalid_ast_counter_twice(void) {
 
 void test_api_event_invalid_ast_exp_tag(void) {
   // EVENT should not allow exp tag
-  ast_node_t *cmd = ast_create_command_node(CMD_EVENT, NULL);
+  ast_node_t *cmd = ast_create_command_node(AST_CMD_EVENT, NULL);
   ast_node_t *in_tag = ast_create_tag_node(
       KEY_IN, ast_create_string_literal_node("metrics"), false);
   ast_node_t *entity_tag = ast_create_tag_node(

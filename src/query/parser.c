@@ -36,7 +36,7 @@ static bool _parse_tags(Queue *tokens, ast_node_t *cmd_node,
 }
 
 static void _parse_event(Queue *tokens, parse_result_t *r) {
-  ast_command_type_t cmd_type = CMD_EVENT;
+  ast_command_type_t cmd_type = AST_CMD_EVENT;
   ast_node_t *cmd_node = ast_create_command_node(cmd_type, NULL);
   if (!cmd_node) {
     r->error_message = "Failed to allocate command node";
@@ -84,7 +84,8 @@ static bool _apply_operator(c_stack_t *value_stack, c_stack_t *op_stack) {
     // Handle logical operators
     if (op_token->type == TOKEN_OP_AND || op_token->type == TOKEN_OP_OR) {
       new_node = ast_create_logical_node(
-          op_token->type == TOKEN_OP_AND ? AND : OR, left_node, right_node);
+          op_token->type == TOKEN_OP_AND ? LOGIC_NODE_AND : LOGIC_NODE_OR,
+          left_node, right_node);
     }
     // Handle comparison operators
     else if (op_token->type == TOKEN_OP_EQ || op_token->type == TOKEN_OP_NEQ ||
@@ -320,7 +321,7 @@ static ast_node_t *_parse_exp(Queue *tokens, parse_result_t *r) {
 }
 
 static void _parse_query(Queue *tokens, parse_result_t *r) {
-  ast_command_type_t cmd_type = CMD_QUERY;
+  ast_command_type_t cmd_type = AST_CMD_QUERY;
   ast_node_t *cmd_node = ast_create_command_node(cmd_type, NULL);
   if (!cmd_node) {
     r->error_message = "Failed to allocate command node";

@@ -67,7 +67,9 @@ APP_SRCS = \
 			 src/engine/container/container_cache.c \
 			 src/engine/container/container_db.c \
 			 src/engine/container/container.c \
+			 src/engine/eng_eval/eng_eval.c \
 			 src/engine/eng_key_format/eng_key_format.c \
+			 src/engine/eng_query/eng_query.c \
 			 src/engine/engine_writer/engine_writer_queue_msg.c \
 			 src/engine/engine_writer/engine_writer_queue.c \
 			 src/engine/engine_writer/engine_writer.c \

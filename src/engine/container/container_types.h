@@ -41,6 +41,7 @@
 
 #define USR_NEXT_EVENT_ID_KEY "next_event_id"
 #define USR_NEXT_EVENT_ID_INIT_VAL 1
+#define USR_ENTITIES_KEY "entities"
 
 #define MAX_CONTAINER_PATH_LENGTH 256
 
@@ -100,7 +101,9 @@ typedef struct {
   // Value: The global `entity_id` (`uint32_t`) associated with the event
   MDB_dbi event_to_entity_db;
 
-  // Contains atomic counter for generating new event integer IDs
+  // Metadata:
+  // Contains atomic counter for generating new event integer IDs,
+  // and bitmap of all entity ids present in this container.
   MDB_dbi user_dc_metadata_db;
 
   // Stores the raw counts for countable tags
