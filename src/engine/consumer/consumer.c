@@ -788,6 +788,12 @@ static void _consumer_thread_func(void *arg) {
                   total_cycles);
 }
 
+consumer_cache_t *consumer_get_cache(consumer_t *consumer) {
+  if (!consumer)
+    return NULL;
+  return &consumer->cache;
+}
+
 consumer_result_t consumer_start(consumer_t *consumer,
                                  const consumer_config_t *config) {
   if (!consumer || !config) {

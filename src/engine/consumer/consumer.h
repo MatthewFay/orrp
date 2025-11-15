@@ -44,4 +44,6 @@ consumer_result_t consumer_start(consumer_t *consumer,
 consumer_result_t consumer_stop(consumer_t *consumer);
 bool consumer_get_stats(consumer_t *consumer, uint64_t *processed_out);
 
+consumer_cache_t *consumer_get_cache(consumer_t *consumer);
+
 #endif

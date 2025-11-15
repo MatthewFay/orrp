@@ -7,7 +7,9 @@
 #include "engine/eng_eval/eng_eval.h"
 #include "lmdb.h"
 
-eng_query_result_t eng_query_exec(cmd_ctx_t *cmd_ctx) {
+eng_query_result_t eng_query_exec(cmd_ctx_t *cmd_ctx, consumer_t *consumers,
+                                  uint32_t op_queue_total_count,
+                                  uint32_t op_queues_per_consumer) {
   if (!cmd_ctx) {
     return (eng_query_result_t){.success = false, .err_msg = "Invalid cmd_ctx"};
   }
@@ -38,12 +40,26 @@ eng_query_result_t eng_query_exec(cmd_ctx_t *cmd_ctx) {
                                 .err_msg = "Unable to create user txn"};
   }
 
+  // Setup config (immutable)
+  eval_config_t config = {.container = cr.container,
+                          .sys_txn = sys_txn,
+                          .user_txn = user_txn,
+                          .consumers = consumers,
+                          .op_queue_total_count = op_queue_total_count,
+                          .op_queues_per_consumer = op_queues_per_consumer};
+
+  // Initialize state (mutable)
+  eval_state_t state = {.cache_head = NULL, .intermediate_bitmaps_count = 0};
+
+  eval_ctx_t ctx = {.config = &config, .state = &state};
   consumer_cache_query_begin();
 
-  eng_eval_result_t eval_result = eng_eval_resolve_exp_to_entities(
-      cmd_ctx->exp_tag_value, cr.container, user_txn, sys_txn);
+  eng_eval_result_t eval_result =
+      eng_eval_resolve_exp_to_entities(cmd_ctx->exp_tag_value, &ctx);
 
   consumer_cache_query_end();
+
+  eng_eval_cleanup_state(&state);
 
   r.success = eval_result.success;
   if (!r.success) {

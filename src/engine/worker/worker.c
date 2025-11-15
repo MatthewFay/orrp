@@ -1,7 +1,6 @@
 #include "worker.h"
 #include "core/bitmaps.h"
 #include "core/db.h"
-#include "core/hash.h"
 #include "core/lock_striped_ht.h"
 #include "engine/cmd_queue/cmd_queue.h"
 #include "engine/cmd_queue/cmd_queue_msg.h"
@@ -10,6 +9,7 @@
 #include "engine/eng_key_format/eng_key_format.h"
 #include "engine/op_queue/op_queue.h"
 #include "engine/op_queue/op_queue_msg.h"
+#include "engine/routing/routing.h"
 #include "engine/worker/worker_ops.h"
 #include "lmdb.h"
 #include "log/log.h"
@@ -28,8 +28,6 @@ LOG_INIT(worker);
 // spin count before sleeping
 #define WORKER_SPIN_LIMIT 100
 #define WORKER_MAX_SLEEP_MS 64
-
-#define OP_QUEUE_HASH_SEED 0
 
 atomic_uint_fast32_t g_next_entity_id = ATOMIC_VAR_INIT(0);
 
@@ -413,9 +411,8 @@ worker_init_result_t worker_init_global(void) {
 static bool _queue_up_ops(worker_t *worker, worker_ops_t *ops) {
   for (uint32_t i = 0; i < ops->num_ops; i++) {
     op_queue_msg_t *msg = ops->ops[i];
-    unsigned long hash =
-        xxhash64(msg->ser_db_key, strlen(msg->ser_db_key), OP_QUEUE_HASH_SEED);
-    int queue_idx = hash & (worker->config.op_queue_total_count - 1);
+    int queue_idx = route_key_to_queue(msg->ser_db_key,
+                                       worker->config.op_queue_total_count);
     op_queue_t *queue = &worker->config.op_queues[queue_idx];
 
     if (!op_queue_enqueue(queue, msg)) {

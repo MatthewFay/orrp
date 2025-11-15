@@ -257,6 +257,17 @@ bool container_get_system_db_handle(eng_container_t *c,
   return cdb_get_system_db_handle(c, db_type, db_out);
 }
 
+bool container_get_db_handle(eng_container_t *c, eng_container_db_key_t *db_key,
+                             MDB_dbi *db_out) {
+  if (!c || !db_key || !db_out) {
+    return false;
+  }
+  if (db_key->dc_type == CONTAINER_TYPE_SYSTEM) {
+    return cdb_get_system_db_handle(c, db_key->sys_db_type, db_out);
+  }
+  return cdb_get_user_db_handle(c, db_key->user_db_type, db_out);
+}
+
 void container_free_db_key_contents(eng_container_db_key_t *db_key) {
   cdb_free_db_key_contents(db_key);
 }

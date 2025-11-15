@@ -309,7 +309,8 @@ void eng_query(api_response_t *r, ast_node_t *ast) {
     return;
   }
 
-  eng_query_result_t query_r = eng_query_exec(cmd_ctx);
+  eng_query_result_t query_r = eng_query_exec(
+      cmd_ctx, g_consumers, NUM_OP_QUEUES, OP_QUEUES_PER_CONSUMER);
   if (!query_r.success) {
     LOG_ACTION_ERROR(ACT_QUERY_ERROR, "err=\"%s\"", query_r.err_msg);
   }

@@ -65,6 +65,12 @@ bool container_get_system_db_handle(eng_container_t *c,
                                     MDB_dbi *db_out);
 
 /**
+ * Get a database handle from a container
+ */
+bool container_get_db_handle(eng_container_t *c, eng_container_db_key_t *db_key,
+                             MDB_dbi *db_out);
+
+/**
  * Free the contents of a database key
  */
 void container_free_db_key_contents(eng_container_db_key_t *db_key);
