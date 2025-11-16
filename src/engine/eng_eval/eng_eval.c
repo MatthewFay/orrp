@@ -8,6 +8,7 @@
 #include "engine/container/container_types.h"
 #include "engine/eng_key_format/eng_key_format.h"
 #include "engine/routing/routing.h"
+#include "khash.h"
 #include "lmdb.h"
 #include "query/ast.h"
 #include "uthash.h"
@@ -120,7 +121,21 @@ static eval_bitmap_t *_store_intermediate_bitmap(eval_ctx_t *ctx, bitmap_t *bm,
 }
 
 static eval_bitmap_t *_tag(ast_node_t *tag_node, eval_ctx_t *ctx,
-                           eng_eval_result_t *result) {}
+                           eng_eval_result_t *result) {
+  // get bitmap for tag with event ids:
+  //      The Event Index:
+  //      Key: The tag (e.g., `loc:ca`)
+  //      Value: A Roaring Bitmap of all local `event_id`s that have this tag
+  // MDB_dbi inverted_event_index_db;
+
+  // TODO: look into this: Why can't we pre-compute this at write time?
+  // I don't want to do a loop for a million events at query time
+  // convert into bitmap with entity ids associated with event ids (loop)
+  //. // Event-to-Entity Map
+  // Key: The local `event_id` (`uint32_t`)
+  // Value: The global `entity_id` (`uint32_t`) associated with the event
+  // MDB_dbi event_to_entity_db;
+}
 
 static eval_bitmap_t *_comp(ast_node_t *comp_node, eval_ctx_t *ctx,
                             eng_eval_result_t *result) {}

@@ -26,6 +26,7 @@ CFLAGS = -Iinclude \
 	 -Ilib/lmdb \
 	 -Ilib/libuv/include \
 	 -Ilib/uthash \
+	 -Ilib/khash \
 	 -Ilib/ck/include \
 	 -Wall -Wextra -std=c11 \
 	 $(BUILD_CFLAGS) \
@@ -76,6 +77,7 @@ APP_SRCS = \
 			 src/engine/op/op.c \
 			 src/engine/op_queue/op_queue_msg.c \
 			 src/engine/op_queue/op_queue.c \
+			 src/engine/routing/routing.c \
 			 src/engine/worker/worker_ops.c \
 			 src/engine/worker/worker.c \
 			 src/engine/api.c \
