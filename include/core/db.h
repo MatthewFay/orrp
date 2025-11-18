@@ -15,11 +15,20 @@ typedef struct {
 } db_key_t;
 
 typedef enum { DB_GET_OK, DB_GET_NOT_FOUND, DB_GET_ERROR } db_get_status_t;
+
 typedef struct db_get_result_s {
   db_get_status_t status;
   void *value;      // pointer to the value if found, NULL otherwise
   size_t value_len; // length of the value (if found)
 } db_get_result_t;
+
+// Cursor iteration result
+typedef struct db_cursor_entry_s {
+  void *key;
+  size_t key_len;
+  void *value;
+  size_t value_len;
+} db_cursor_entry_t;
 
 // --- Transactions --- //
 MDB_txn *db_create_txn(MDB_env *env, bool is_read_only);
@@ -51,5 +60,28 @@ void db_get_result_clear(db_get_result_t *res);
 void db_close(MDB_env *env, MDB_dbi db);
 
 void db_env_close(MDB_env *env);
+
+// --- Cursor Operations --- //
+
+// Create a cursor for iterating over database entries
+// Returns NULL on failure
+MDB_cursor *db_cursor_open(MDB_txn *txn, MDB_dbi db);
+
+// Close and free the cursor
+void db_cursor_close(MDB_cursor *cursor);
+
+// Get the next entry from cursor
+// Returns true if entry found, false if no more entries or error
+// entry_out is only valid if function returns true
+// Note: key and value pointers are valid only until next cursor operation or
+// txn end
+bool db_cursor_next(MDB_cursor *cursor, db_cursor_entry_t *entry_out);
+
+// Iterate over all entries in database and call callback for each
+// callback should return true to continue iteration, false to stop
+// Returns true if iteration completed successfully, false on error
+typedef bool (*db_foreach_cb)(const db_cursor_entry_t *entry, void *user_data);
+bool db_foreach(MDB_txn *txn, MDB_dbi db, db_foreach_cb callback,
+                void *user_data);
 
 #endif // CORE_DB_H

@@ -243,3 +243,103 @@ bool db_commit_txn(MDB_txn *txn) {
   }
   return true;
 }
+
+MDB_cursor *db_cursor_open(MDB_txn *txn, MDB_dbi db) {
+  if (!txn)
+    return NULL;
+
+  MDB_cursor *cursor;
+  int rc = mdb_cursor_open(txn, db, &cursor);
+  if (rc != 0) {
+    fprintf(stderr, "db_cursor_open: mdb_cursor_open failed: %s\n",
+            mdb_strerror(rc));
+    return NULL;
+  }
+
+  return cursor;
+}
+
+void db_cursor_close(MDB_cursor *cursor) {
+  if (cursor) {
+    mdb_cursor_close(cursor);
+  }
+}
+
+bool db_cursor_next(MDB_cursor *cursor, db_cursor_entry_t *entry_out) {
+  if (!cursor || !entry_out)
+    return false;
+
+  MDB_val key, value;
+  int rc = mdb_cursor_get(cursor, &key, &value, MDB_NEXT);
+
+  if (rc == MDB_NOTFOUND) {
+    return false; // End of iteration
+  }
+
+  if (rc != 0) {
+    fprintf(stderr, "db_cursor_next: mdb_cursor_get failed: %s\n",
+            mdb_strerror(rc));
+    return false;
+  }
+
+  // Note: These pointers are only valid until next cursor op or txn end
+  entry_out->key = key.mv_data;
+  entry_out->key_len = key.mv_size;
+  entry_out->value = value.mv_data;
+  entry_out->value_len = value.mv_size;
+
+  return true;
+}
+
+bool db_foreach(MDB_txn *txn, MDB_dbi db, db_foreach_cb callback,
+                void *user_data) {
+  if (!txn || !callback)
+    return false;
+
+  MDB_cursor *cursor = db_cursor_open(txn, db);
+  if (!cursor)
+    return false;
+
+  db_cursor_entry_t entry;
+  bool success = true;
+
+  // Position cursor at first entry
+  MDB_val key, value;
+  int rc = mdb_cursor_get(cursor, &key, &value, MDB_FIRST);
+
+  if (rc == MDB_NOTFOUND) {
+    // Empty database, not an error
+    db_cursor_close(cursor);
+    return true;
+  }
+
+  if (rc != 0) {
+    fprintf(stderr, "db_foreach: mdb_cursor_get failed: %s\n",
+            mdb_strerror(rc));
+    db_cursor_close(cursor);
+    return false;
+  }
+
+  // Process first entry
+  entry.key = key.mv_data;
+  entry.key_len = key.mv_size;
+  entry.value = value.mv_data;
+  entry.value_len = value.mv_size;
+
+  if (!callback(&entry, user_data)) {
+    // Callback requested early termination
+    db_cursor_close(cursor);
+    return true;
+  }
+
+  // Process remaining entries
+  while (db_cursor_next(cursor, &entry)) {
+    if (!callback(&entry, user_data)) {
+      // Callback requested early termination
+      break;
+    }
+  }
+
+  db_cursor_close(cursor);
+  return success;
+}
