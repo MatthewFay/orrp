@@ -179,13 +179,13 @@ static eval_bitmap_t *_eval(ast_node_t *node, eval_ctx_t *ctx,
   eval_bitmap_t *operand1 = NULL;
   eval_bitmap_t *operand2 = NULL;
   switch (node->type) {
-  case NOT_NODE:
+  case AST_NOT_NODE:
     operand1 = _eval(node->not_op.operand, ctx, result);
     if (!operand1) {
       return NULL;
     }
     return _not(operand1, ctx, result);
-  case LOGICAL_NODE:
+  case AST_LOGICAL_NODE:
     operand1 = _eval(node->logical.left_operand, ctx, result);
     if (!operand1)
       return NULL;
@@ -193,13 +193,13 @@ static eval_bitmap_t *_eval(ast_node_t *node, eval_ctx_t *ctx,
     if (!operand2)
       return NULL;
 
-    if (node->logical.op == LOGIC_NODE_AND) {
+    if (node->logical.op == AST_LOGIC_NODE_AND) {
       return _and(operand1, operand2, ctx, result);
     }
     return _or(operand1, operand2, ctx, result);
-  case TAG_NODE:
+  case AST_TAG_NODE:
     return _tag(node, ctx, result);
-  case COMPARISON_NODE:
+  case AST_COMPARISON_NODE:
     return _comp(node, ctx, result);
   default:
     result->err_msg = "Invalid node type";
@@ -211,15 +211,15 @@ static void _cleanup_intermediate(eval_state_t *state,
                                   eng_eval_result_t *result) {
   for (uint i = 0; i < state->intermediate_bitmaps_count; i++) {
     if (state->intermediate_bitmaps[i].own &&
-        state->intermediate_bitmaps[i].bm != result->entities) {
+        state->intermediate_bitmaps[i].bm != result->events) {
       bitmap_free(state->intermediate_bitmaps[i].bm);
     }
   }
   state->intermediate_bitmaps_count = 0;
 }
 
-eng_eval_result_t eng_eval_resolve_exp_to_entities(ast_node_t *exp,
-                                                   eval_ctx_t *ctx) {
+eng_eval_result_t eng_eval_resolve_exp_to_events(ast_node_t *exp,
+                                                 eval_ctx_t *ctx) {
   if (!exp || !ctx || !ctx->config || !ctx->config->consumers ||
       !ctx->config->container || !ctx->config->sys_txn ||
       !ctx->config->user_txn || !ctx->state) {
@@ -232,7 +232,7 @@ eng_eval_result_t eng_eval_resolve_exp_to_entities(ast_node_t *exp,
 
   if (ebm) {
     result.success = true;
-    result.entities = ebm->bm;
+    result.events = ebm->bm;
   } else if (!result.err_msg)
     result.err_msg = "Unknown error";
 

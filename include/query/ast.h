@@ -7,28 +7,28 @@
 typedef struct ast_node_s ast_node_t;
 
 typedef enum {
-  COMMAND_NODE,
-  TAG_NODE,
-  LITERAL_NODE,
+  AST_COMMAND_NODE,
+  AST_TAG_NODE,
+  AST_LITERAL_NODE,
   // Comparison nodes (>, <, =, etc.) operate on comparable values and produce
   // booleans
-  COMPARISON_NODE,
+  AST_COMPARISON_NODE,
   // Logical nodes (AND, OR, NOT) operate on boolean values
-  LOGICAL_NODE,
-  NOT_NODE,
+  AST_LOGICAL_NODE,
+  AST_NOT_NODE,
 } ast_node_type;
 
 // An enum for all known, special-purpose tag keys
 typedef enum {
-  KEY_IN,
-  KEY_ENTITY,
-  KEY_EXP,
-  KEY_TAKE,
-  KEY_CURSOR,
-  KEY_ID, // event id, for idempotency
+  AST_KEY_IN,
+  AST_KEY_ENTITY,
+  AST_KEY_WHERE,
+  AST_KEY_TAKE,
+  AST_KEY_CURSOR,
+  AST_KEY_ID, // event id, for idempotency
 } ast_reserved_key_t;
 
-typedef enum { TAG_KEY_RESERVED, TAG_KEY_CUSTOM } ast_tag_key_type_t;
+typedef enum { AST_TAG_KEY_RESERVED, AST_TAG_KEY_CUSTOM } ast_tag_key_type_t;
 
 typedef struct {
   ast_tag_key_type_t key_type;
@@ -41,7 +41,7 @@ typedef struct {
 } ast_tag_node_t;
 
 // Represents a string or number value.
-typedef enum { LITERAL_STRING, LITERAL_NUMBER } ast_literal_type_t;
+typedef enum { AST_LITERAL_STRING, AST_LITERAL_NUMBER } ast_literal_type_t;
 
 typedef struct {
   ast_literal_type_t type;
@@ -52,12 +52,12 @@ typedef struct {
 } ast_literal_node_t;
 
 typedef enum {
-  OP_GT,
-  OP_LT,
-  OP_GTE,
-  OP_LTE,
-  OP_EQ,
-  OP_NEQ
+  AST_OP_GT,
+  AST_OP_LT,
+  AST_OP_GTE,
+  AST_OP_LTE,
+  AST_OP_EQ,
+  AST_OP_NEQ
 } ast_comparison_op_t;
 
 typedef struct {
@@ -74,7 +74,7 @@ typedef struct ast_not_node_s {
   ast_node_t *operand;
 } ast_not_node_t;
 
-typedef enum { LOGIC_NODE_AND, LOGIC_NODE_OR } ast_logical_node_op_t;
+typedef enum { AST_LOGIC_NODE_AND, AST_LOGIC_NODE_OR } ast_logical_node_op_t;
 
 typedef struct ast_logical_node_s {
   ast_logical_node_op_t op;

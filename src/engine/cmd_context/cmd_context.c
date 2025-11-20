@@ -14,27 +14,27 @@ cmd_ctx_t *build_cmd_context(ast_node_t *ast) {
 
   for (ast_node_t *tag_node = cmd->tags; tag_node != NULL;
        tag_node = tag_node->next) {
-    if (tag_node->type == TAG_NODE) {
+    if (tag_node->type == AST_TAG_NODE) {
       ast_tag_node_t *tag = &tag_node->tag;
 
-      if (tag->key_type == TAG_KEY_RESERVED) {
+      if (tag->key_type == AST_TAG_KEY_RESERVED) {
         switch (tag->reserved_key) {
-        case KEY_IN:
+        case AST_KEY_IN:
           ctx->in_tag_value = tag->value;
           break;
-        case KEY_ENTITY:
+        case AST_KEY_ENTITY:
           ctx->entity_tag_value = tag->value;
           break;
-        case KEY_EXP:
-          ctx->exp_tag_value = tag->value;
+        case AST_KEY_WHERE:
+          ctx->where_tag_value = tag->value;
           break;
-        case KEY_TAKE:
+        case AST_KEY_TAKE:
           ctx->take_tag_value = tag->value;
           break;
-        case KEY_CURSOR:
+        case AST_KEY_CURSOR:
           ctx->cursor_tag_value = tag->value;
           break;
-        case KEY_ID:
+        case AST_KEY_ID:
           break;
         }
       } else {

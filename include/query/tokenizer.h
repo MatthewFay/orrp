@@ -20,7 +20,7 @@ typedef enum {
   TOKEN_KW_ENTITY,
   TOKEN_KW_TAKE,
   TOKEN_KW_CURSOR,
-  TOKEN_KW_EXP,
+  TOKEN_KW_WHERE,
 
   TOKEN_IDENTIFER, // unquoted text
 

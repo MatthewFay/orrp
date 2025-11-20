@@ -74,8 +74,8 @@ EVENT in:analytics_2025_08 id:user123 loc:ca action:login+ day:2025_08_16
 #### QUERY
 
 ```
-QUERY in:analytics_2025_01 exp:(loc:ca AND (action:login > 3))
+QUERY in:analytics_2025_01 where:(loc:ca AND action:login)
 
-QUERY in:analytics_2025_08 exp:(view:product_123 > 3 AND NOT purchase:product_123 AND day:2025_08_03) take:100
+QUERY in:analytics_2025_08 where:(view:product_123 AND NOT purchase:product_123 AND day:2025_08_03) take:100
 ```
 

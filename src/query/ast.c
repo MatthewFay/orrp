@@ -18,29 +18,29 @@ void ast_free(ast_node_t *node) {
 
   // Free the specific data within the node based on its type
   switch (node->type) {
-  case COMMAND_NODE:
+  case AST_COMMAND_NODE:
     ast_free(node->command.tags); // Free the linked list of tags
     break;
-  case TAG_NODE:
-    if (node->tag.key_type == TAG_KEY_CUSTOM) {
+  case AST_TAG_NODE:
+    if (node->tag.key_type == AST_TAG_KEY_CUSTOM) {
       free(node->tag.custom_key); // Free string copied for custom key
     }
     ast_free(node->tag.value);
     break;
-  case LITERAL_NODE:
-    if (node->literal.type == LITERAL_STRING) {
+  case AST_LITERAL_NODE:
+    if (node->literal.type == AST_LITERAL_STRING) {
       free(node->literal.string_value); // Free string copied for literal
     }
     break;
-  case COMPARISON_NODE:
+  case AST_COMPARISON_NODE:
     ast_free(node->comparison.left);
     ast_free(node->comparison.right);
     break;
-  case LOGICAL_NODE:
+  case AST_LOGICAL_NODE:
     ast_free(node->logical.left_operand);
     ast_free(node->logical.right_operand);
     break;
-  case NOT_NODE:
+  case AST_NOT_NODE:
     ast_free(node->not_op.operand);
     break;
   }
@@ -86,7 +86,7 @@ ast_node_t *ast_create_command_node(ast_command_type_t type, ast_node_t *tags) {
     return NULL;
   }
 
-  node->type = COMMAND_NODE;
+  node->type = AST_COMMAND_NODE;
   node->next = NULL;
   node->command.type = type;
   node->command.tags = tags;
@@ -100,9 +100,9 @@ ast_node_t *ast_create_tag_node(ast_reserved_key_t key, ast_node_t *value,
     return NULL;
   }
 
-  node->type = TAG_NODE;
+  node->type = AST_TAG_NODE;
   node->next = NULL;
-  node->tag.key_type = TAG_KEY_RESERVED;
+  node->tag.key_type = AST_TAG_KEY_RESERVED;
   node->tag.reserved_key = key;
   node->tag.value = value;
   node->tag.is_counter = is_counter;
@@ -116,9 +116,9 @@ ast_node_t *ast_create_custom_tag_node(const char *key, ast_node_t *value,
     return NULL;
   }
 
-  node->type = TAG_NODE;
+  node->type = AST_TAG_NODE;
   node->next = NULL;
-  node->tag.key_type = TAG_KEY_CUSTOM;
+  node->tag.key_type = AST_TAG_KEY_CUSTOM;
   node->tag.custom_key = strdup(key);
   if (!node->tag.custom_key) {
     free(node);
@@ -135,9 +135,9 @@ ast_node_t *ast_create_string_literal_node(const char *value) {
     return NULL;
   }
 
-  node->type = LITERAL_NODE;
+  node->type = AST_LITERAL_NODE;
   node->next = NULL;
-  node->literal.type = LITERAL_STRING;
+  node->literal.type = AST_LITERAL_STRING;
   node->literal.string_value = strdup(value);
   if (!node->literal.string_value) {
     free(node);
@@ -152,9 +152,9 @@ ast_node_t *ast_create_number_literal_node(uint32_t value) {
     return NULL;
   }
 
-  node->type = LITERAL_NODE;
+  node->type = AST_LITERAL_NODE;
   node->next = NULL;
-  node->literal.type = LITERAL_NUMBER;
+  node->literal.type = AST_LITERAL_NUMBER;
   node->literal.number_value = value;
   return node;
 }
@@ -166,7 +166,7 @@ ast_node_t *ast_create_comparison_node(ast_comparison_op_t op, ast_node_t *left,
     return NULL;
   }
 
-  node->type = COMPARISON_NODE;
+  node->type = AST_COMPARISON_NODE;
   node->next = NULL;
   node->comparison.op = op;
   node->comparison.left = left;
@@ -181,7 +181,7 @@ ast_node_t *ast_create_logical_node(ast_logical_node_op_t op, ast_node_t *left,
     return NULL;
   }
 
-  node->type = LOGICAL_NODE;
+  node->type = AST_LOGICAL_NODE;
   node->next = NULL;
   node->logical.op = op;
   node->logical.left_operand = left;
@@ -195,7 +195,7 @@ ast_node_t *ast_create_not_node(ast_node_t *operand) {
     return NULL;
   }
 
-  node->type = NOT_NODE;
+  node->type = AST_NOT_NODE;
   node->next = NULL;
   node->not_op.operand = operand;
   return node;

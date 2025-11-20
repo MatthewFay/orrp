@@ -24,7 +24,7 @@ static bool _parse_tags(Queue *tokens, ast_node_t *cmd_node,
     }
 
     ast_append_node(&cmd_node->command.tags, tag);
-    if (tag->tag.key_type == TAG_KEY_CUSTOM) {
+    if (tag->tag.key_type == AST_TAG_KEY_CUSTOM) {
       num_cus_tags++;
     }
     if (num_cus_tags > MAX_CUSTOM_TAGS) {
@@ -83,9 +83,10 @@ static bool _apply_operator(c_stack_t *value_stack, c_stack_t *op_stack) {
 
     // Handle logical operators
     if (op_token->type == TOKEN_OP_AND || op_token->type == TOKEN_OP_OR) {
-      new_node = ast_create_logical_node(
-          op_token->type == TOKEN_OP_AND ? LOGIC_NODE_AND : LOGIC_NODE_OR,
-          left_node, right_node);
+      new_node = ast_create_logical_node(op_token->type == TOKEN_OP_AND
+                                             ? AST_LOGIC_NODE_AND
+                                             : AST_LOGIC_NODE_OR,
+                                         left_node, right_node);
     }
     // Handle comparison operators
     else if (op_token->type == TOKEN_OP_EQ || op_token->type == TOKEN_OP_NEQ ||
@@ -95,25 +96,25 @@ static bool _apply_operator(c_stack_t *value_stack, c_stack_t *op_stack) {
       ast_comparison_op_t comp_op;
       switch (op_token->type) {
       case TOKEN_OP_EQ:
-        comp_op = OP_EQ;
+        comp_op = AST_OP_EQ;
         break;
       case TOKEN_OP_NEQ:
-        comp_op = OP_NEQ;
+        comp_op = AST_OP_NEQ;
         break;
       case TOKEN_OP_GT:
-        comp_op = OP_GT;
+        comp_op = AST_OP_GT;
         break;
       case TOKEN_OP_GTE:
-        comp_op = OP_GTE;
+        comp_op = AST_OP_GTE;
         break;
       case TOKEN_OP_LT:
-        comp_op = OP_LT;
+        comp_op = AST_OP_LT;
         break;
       case TOKEN_OP_LTE:
-        comp_op = OP_LTE;
+        comp_op = AST_OP_LTE;
         break;
       default:
-        comp_op = OP_EQ;
+        comp_op = AST_OP_EQ;
         break; // fallback
       }
 
@@ -404,7 +405,7 @@ static bool _is_token_kw(token_t *t) {
   case TOKEN_KW_IN:
   case TOKEN_KW_CURSOR:
   case TOKEN_KW_ENTITY:
-  case TOKEN_KW_EXP:
+  case TOKEN_KW_WHERE:
   case TOKEN_KW_TAKE:
     return true;
   default:
@@ -430,22 +431,22 @@ static ast_node_t *_parse_tag(Queue *tokens, parse_result_t *r) {
     ast_reserved_key_t kt;
     switch (k_type) {
     case TOKEN_KW_IN:
-      kt = KEY_IN;
+      kt = AST_KEY_IN;
       break;
     case TOKEN_KW_ID:
-      kt = KEY_ID;
+      kt = AST_KEY_ID;
       break;
     case TOKEN_KW_ENTITY:
-      kt = KEY_ENTITY;
+      kt = AST_KEY_ENTITY;
       break;
-    case TOKEN_KW_EXP:
-      kt = KEY_EXP;
+    case TOKEN_KW_WHERE:
+      kt = AST_KEY_WHERE;
       break;
     case TOKEN_KW_TAKE:
-      kt = KEY_TAKE;
+      kt = AST_KEY_TAKE;
       break;
     case TOKEN_KW_CURSOR:
-      kt = KEY_CURSOR;
+      kt = AST_KEY_CURSOR;
       break;
     default:
       free(key_token);
@@ -477,9 +478,9 @@ static ast_node_t *_parse_tag(Queue *tokens, parse_result_t *r) {
     ast_free(tag);
     return NULL;
   }
-  if (tag->tag.key_type == TAG_KEY_RESERVED) {
-    if (tag->tag.reserved_key == KEY_EXP) {
-      // exp: must be followed by a parenthesized expression
+  if (tag->tag.key_type == AST_TAG_KEY_RESERVED) {
+    if (tag->tag.reserved_key == AST_KEY_WHERE) {
+      // where: must be followed by a parenthesized expression
       if (first_val_token->type != TOKEN_SYM_LPAREN) {
         ast_free(tag);
         return NULL;

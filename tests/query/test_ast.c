@@ -9,8 +9,8 @@ void tearDown(void) {}
 void test_string_literal_node(void) {
   ast_node_t *lit = ast_create_string_literal_node("foo");
   TEST_ASSERT_NOT_NULL(lit);
-  TEST_ASSERT_EQUAL(LITERAL_NODE, lit->type);
-  TEST_ASSERT_EQUAL(LITERAL_STRING, lit->literal.type);
+  TEST_ASSERT_EQUAL(AST_LITERAL_NODE, lit->type);
+  TEST_ASSERT_EQUAL(AST_LITERAL_STRING, lit->literal.type);
   TEST_ASSERT_EQUAL_STRING("foo", lit->literal.string_value);
   TEST_ASSERT_NULL(lit->next);
   ast_free(lit);
@@ -19,8 +19,8 @@ void test_string_literal_node(void) {
 void test_number_literal_node(void) {
   ast_node_t *lit = ast_create_number_literal_node(42);
   TEST_ASSERT_NOT_NULL(lit);
-  TEST_ASSERT_EQUAL(LITERAL_NODE, lit->type);
-  TEST_ASSERT_EQUAL(LITERAL_NUMBER, lit->literal.type);
+  TEST_ASSERT_EQUAL(AST_LITERAL_NODE, lit->type);
+  TEST_ASSERT_EQUAL(AST_LITERAL_NUMBER, lit->literal.type);
   TEST_ASSERT_EQUAL_UINT32(42, lit->literal.number_value);
   TEST_ASSERT_NULL(lit->next);
   ast_free(lit);
@@ -28,12 +28,12 @@ void test_number_literal_node(void) {
 
 void test_tag_node_reserved(void) {
   ast_node_t *val = ast_create_string_literal_node("events");
-  ast_node_t *tag = ast_create_tag_node(KEY_IN, val, false);
+  ast_node_t *tag = ast_create_tag_node(AST_KEY_IN, val, false);
 
   TEST_ASSERT_NOT_NULL(tag);
-  TEST_ASSERT_EQUAL(TAG_NODE, tag->type);
-  TEST_ASSERT_EQUAL(TAG_KEY_RESERVED, tag->tag.key_type);
-  TEST_ASSERT_EQUAL(KEY_IN, tag->tag.reserved_key);
+  TEST_ASSERT_EQUAL(AST_TAG_NODE, tag->type);
+  TEST_ASSERT_EQUAL(AST_TAG_KEY_RESERVED, tag->tag.key_type);
+  TEST_ASSERT_EQUAL(AST_KEY_IN, tag->tag.reserved_key);
   TEST_ASSERT_EQUAL(val, tag->tag.value);
   TEST_ASSERT_FALSE(tag->tag.is_counter);
   TEST_ASSERT_NULL(tag->next);
@@ -45,8 +45,8 @@ void test_tag_node_custom(void) {
   ast_node_t *tag = ast_create_custom_tag_node("country", val, true);
 
   TEST_ASSERT_NOT_NULL(tag);
-  TEST_ASSERT_EQUAL(TAG_NODE, tag->type);
-  TEST_ASSERT_EQUAL(TAG_KEY_CUSTOM, tag->tag.key_type);
+  TEST_ASSERT_EQUAL(AST_TAG_NODE, tag->type);
+  TEST_ASSERT_EQUAL(AST_TAG_KEY_CUSTOM, tag->tag.key_type);
   TEST_ASSERT_EQUAL_STRING("country", tag->tag.custom_key);
   TEST_ASSERT_EQUAL(val, tag->tag.value);
   TEST_ASSERT_TRUE(tag->tag.is_counter);
@@ -56,11 +56,11 @@ void test_tag_node_custom(void) {
 void test_comparison_node(void) {
   ast_node_t *left = ast_create_custom_tag_node("clicks", NULL, true);
   ast_node_t *right = ast_create_number_literal_node(100);
-  ast_node_t *cmp = ast_create_comparison_node(OP_GT, left, right);
+  ast_node_t *cmp = ast_create_comparison_node(AST_OP_GT, left, right);
 
   TEST_ASSERT_NOT_NULL(cmp);
-  TEST_ASSERT_EQUAL(COMPARISON_NODE, cmp->type);
-  TEST_ASSERT_EQUAL(OP_GT, cmp->comparison.op);
+  TEST_ASSERT_EQUAL(AST_COMPARISON_NODE, cmp->type);
+  TEST_ASSERT_EQUAL(AST_OP_GT, cmp->comparison.op);
   TEST_ASSERT_EQUAL(left, cmp->comparison.left);
   TEST_ASSERT_EQUAL(right, cmp->comparison.right);
   ast_free(cmp);
@@ -69,11 +69,12 @@ void test_comparison_node(void) {
 void test_logical_node(void) {
   ast_node_t *left = ast_create_string_literal_node("left");
   ast_node_t *right = ast_create_string_literal_node("right");
-  ast_node_t *logical = ast_create_logical_node(LOGIC_NODE_AND, left, right);
+  ast_node_t *logical =
+      ast_create_logical_node(AST_LOGIC_NODE_AND, left, right);
 
   TEST_ASSERT_NOT_NULL(logical);
-  TEST_ASSERT_EQUAL(LOGICAL_NODE, logical->type);
-  TEST_ASSERT_EQUAL(LOGIC_NODE_AND, logical->logical.op);
+  TEST_ASSERT_EQUAL(AST_LOGICAL_NODE, logical->type);
+  TEST_ASSERT_EQUAL(AST_LOGIC_NODE_AND, logical->logical.op);
   TEST_ASSERT_EQUAL(left, logical->logical.left_operand);
   TEST_ASSERT_EQUAL(right, logical->logical.right_operand);
   ast_free(logical); // should free all children
@@ -84,7 +85,7 @@ void test_not_node(void) {
   ast_node_t *not_node = ast_create_not_node(operand);
 
   TEST_ASSERT_NOT_NULL(not_node);
-  TEST_ASSERT_EQUAL(NOT_NODE, not_node->type);
+  TEST_ASSERT_EQUAL(AST_NOT_NODE, not_node->type);
   TEST_ASSERT_EQUAL(operand, not_node->not_op.operand);
   ast_free(not_node);
 }
@@ -119,7 +120,7 @@ void test_command_node(void) {
   // Build a list of tags
   ast_node_t *tags_list = NULL;
   ast_node_t *tag1 = ast_create_tag_node(
-      KEY_IN, ast_create_string_literal_node("users"), false);
+      AST_KEY_IN, ast_create_string_literal_node("users"), false);
   ast_node_t *tag2 = ast_create_custom_tag_node(
       "country", ast_create_string_literal_node("US"), false);
   ast_append_node(&tags_list, tag1);
@@ -128,14 +129,14 @@ void test_command_node(void) {
   // Create the command node
   ast_node_t *cmd = ast_create_command_node(AST_CMD_QUERY, tags_list);
   TEST_ASSERT_NOT_NULL(cmd);
-  TEST_ASSERT_EQUAL(COMMAND_NODE, cmd->type);
+  TEST_ASSERT_EQUAL(AST_COMMAND_NODE, cmd->type);
   TEST_ASSERT_EQUAL(AST_CMD_QUERY, cmd->command.type);
   TEST_ASSERT_EQUAL(tags_list, cmd->command.tags);
 
   // Check the tags list within the command
   ast_node_t *current_tag = cmd->command.tags;
   TEST_ASSERT_EQUAL(tag1, current_tag);
-  TEST_ASSERT_EQUAL(TAG_KEY_RESERVED, current_tag->tag.key_type);
+  TEST_ASSERT_EQUAL(AST_TAG_KEY_RESERVED, current_tag->tag.key_type);
 
   current_tag = current_tag->next;
   TEST_ASSERT_EQUAL(tag2, current_tag);
@@ -150,9 +151,9 @@ void test_free_deep_tree(void) {
   // structure. Running this with a memory checker (like Valgrind) would confirm
   // no leaks.
   ast_node_t *root = ast_create_logical_node(
-      LOGIC_NODE_AND,
+      AST_LOGIC_NODE_AND,
       ast_create_not_node(ast_create_logical_node(
-          LOGIC_NODE_OR, ast_create_string_literal_node("a"),
+          AST_LOGIC_NODE_OR, ast_create_string_literal_node("a"),
           ast_create_string_literal_node("b"))),
       ast_create_string_literal_node("c"));
 

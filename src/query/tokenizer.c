@@ -115,7 +115,7 @@ struct {
     {"query", TOKEN_CMD_QUERY},  {"in", TOKEN_KW_IN},
     {"id", TOKEN_KW_ID},         {"entity", TOKEN_KW_ENTITY},
     {"cursor", TOKEN_KW_CURSOR}, {"take", TOKEN_KW_TAKE},
-    {"exp", TOKEN_KW_EXP},
+    {"where", TOKEN_KW_WHERE},
 };
 
 // Return tokens from input string.

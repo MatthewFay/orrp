@@ -9,7 +9,7 @@
 typedef struct eng_eval_result_s {
   bool success;
   const char *err_msg;
-  bitmap_t *entities;
+  bitmap_t *events;
 } eng_eval_result_t;
 
 typedef struct eval_bitmap_s {
@@ -50,8 +50,8 @@ typedef struct eval_ctx_s {
   eval_state_t *state;         // Mutable
 } eval_ctx_t;
 
-eng_eval_result_t eng_eval_resolve_exp_to_entities(ast_node_t *exp,
-                                                   eval_ctx_t *ctx);
+eng_eval_result_t eng_eval_resolve_exp_to_events(ast_node_t *exp,
+                                                 eval_ctx_t *ctx);
 
 // Call this when done with evaluations
 void eng_eval_cleanup_state(eval_state_t *state);

@@ -41,7 +41,8 @@ static ast_node_t *_find_tag_by_key(ast_node_t *ast, ast_reserved_key_t key) {
   TEST_ASSERT_NOT_NULL(ast);
   ast_node_t *tag = ast->command.tags;
   while (tag) {
-    if (tag->tag.key_type == TAG_KEY_RESERVED && tag->tag.reserved_key == key) {
+    if (tag->tag.key_type == AST_TAG_KEY_RESERVED &&
+        tag->tag.reserved_key == key) {
       return tag;
     }
     tag = tag->next;
@@ -55,7 +56,7 @@ static ast_node_t *_find_tag_by_custom_key(ast_node_t *ast,
   TEST_ASSERT_NOT_NULL(ast);
   ast_node_t *tag = ast->command.tags;
   while (tag) {
-    if (tag->tag.key_type == TAG_KEY_CUSTOM &&
+    if (tag->tag.key_type == AST_TAG_KEY_CUSTOM &&
         strcmp(tag->tag.custom_key, key_name) == 0) {
       return tag;
     }
@@ -72,11 +73,11 @@ void test_event_success_minimal(void) {
   _assert_success(result);
   TEST_ASSERT_EQUAL(OP_TYPE_WRITE, result->type);
 
-  ast_node_t *in_tag = _find_tag_by_key(result->ast, KEY_IN);
+  ast_node_t *in_tag = _find_tag_by_key(result->ast, AST_KEY_IN);
   TEST_ASSERT_NOT_NULL(in_tag);
   TEST_ASSERT_EQUAL_STRING("metrics", in_tag->tag.value->literal.string_value);
 
-  ast_node_t *entity_tag = _find_tag_by_key(result->ast, KEY_ENTITY);
+  ast_node_t *entity_tag = _find_tag_by_key(result->ast, AST_KEY_ENTITY);
   TEST_ASSERT_NOT_NULL(entity_tag);
   TEST_ASSERT_EQUAL_STRING("user-123",
                            entity_tag->tag.value->literal.string_value);
@@ -89,11 +90,11 @@ void test_event_success_minimal2(void) {
   _assert_success(result);
   TEST_ASSERT_EQUAL(OP_TYPE_WRITE, result->type);
 
-  ast_node_t *in_tag = _find_tag_by_key(result->ast, KEY_IN);
+  ast_node_t *in_tag = _find_tag_by_key(result->ast, AST_KEY_IN);
   TEST_ASSERT_NOT_NULL(in_tag);
   TEST_ASSERT_EQUAL_STRING("abc", in_tag->tag.value->literal.string_value);
 
-  ast_node_t *entity_tag = _find_tag_by_key(result->ast, KEY_ENTITY);
+  ast_node_t *entity_tag = _find_tag_by_key(result->ast, AST_KEY_ENTITY);
   TEST_ASSERT_NOT_NULL(entity_tag);
   TEST_ASSERT_EQUAL_STRING("fff", entity_tag->tag.value->literal.string_value);
 
@@ -110,9 +111,9 @@ void test_event_success_full_different_order(void) {
   TEST_ASSERT_TRUE(clicks_tag->tag.is_counter);
   TEST_ASSERT_EQUAL_STRING("one", clicks_tag->tag.value->literal.string_value);
 
-  TEST_ASSERT_NOT_NULL(_find_tag_by_key(result->ast, KEY_IN));
-  TEST_ASSERT_NOT_NULL(_find_tag_by_key(result->ast, KEY_ID));
-  TEST_ASSERT_NOT_NULL(_find_tag_by_key(result->ast, KEY_ENTITY));
+  TEST_ASSERT_NOT_NULL(_find_tag_by_key(result->ast, AST_KEY_IN));
+  TEST_ASSERT_NOT_NULL(_find_tag_by_key(result->ast, AST_KEY_ID));
+  TEST_ASSERT_NOT_NULL(_find_tag_by_key(result->ast, AST_KEY_ENTITY));
 
   parse_free_result(result);
 }
@@ -148,7 +149,8 @@ void test_event_fails_invalid_container_name(void) {
 
 void test_event_fails_with_query_only_tag(void) {
   // This is now a semantic error, not a parser error. Parser should succeed.
-  parse_result_t *result = _parse_string("event in:\"m\" entity:\"e\" exp:(a)");
+  parse_result_t *result =
+      _parse_string("event in:\"m\" entity:\"e\" where:(a)");
   _assert_success(result);
   parse_free_result(result);
 }
@@ -156,35 +158,35 @@ void test_event_fails_with_query_only_tag(void) {
 // --- QUERY Command Tests ---
 
 void test_query_success_minimal(void) {
-  parse_result_t *result = _parse_string("query in:\"logs\" exp:(a and b)");
+  parse_result_t *result = _parse_string("query in:\"logs\" where:(a and b)");
   _assert_success(result);
   TEST_ASSERT_EQUAL(OP_TYPE_READ, result->type);
 
-  ast_node_t *in_tag = _find_tag_by_key(result->ast, KEY_IN);
+  ast_node_t *in_tag = _find_tag_by_key(result->ast, AST_KEY_IN);
   TEST_ASSERT_NOT_NULL(in_tag);
   TEST_ASSERT_EQUAL_STRING("logs", in_tag->tag.value->literal.string_value);
 
-  ast_node_t *exp_tag = _find_tag_by_key(result->ast, KEY_EXP);
-  TEST_ASSERT_NOT_NULL(exp_tag);
-  TEST_ASSERT_EQUAL(LOGICAL_NODE, exp_tag->tag.value->type);
+  ast_node_t *where_tag = _find_tag_by_key(result->ast, AST_KEY_WHERE);
+  TEST_ASSERT_NOT_NULL(where_tag);
+  TEST_ASSERT_EQUAL(AST_LOGICAL_NODE, where_tag->tag.value->type);
 
   parse_free_result(result);
 }
 
 void test_query_success_full_different_order(void) {
   parse_result_t *result =
-      _parse_string("query exp:(a) cursor:\"xyz\" in:\"logs\" loc:\"us\"");
+      _parse_string("query where:(a) cursor:\"xyz\" in:\"logs\" loc:\"us\"");
   _assert_success(result);
 
-  TEST_ASSERT_NOT_NULL(_find_tag_by_key(result->ast, KEY_IN));
-  TEST_ASSERT_NOT_NULL(_find_tag_by_key(result->ast, KEY_EXP));
-  TEST_ASSERT_NOT_NULL(_find_tag_by_key(result->ast, KEY_CURSOR));
+  TEST_ASSERT_NOT_NULL(_find_tag_by_key(result->ast, AST_KEY_IN));
+  TEST_ASSERT_NOT_NULL(_find_tag_by_key(result->ast, AST_KEY_WHERE));
+  TEST_ASSERT_NOT_NULL(_find_tag_by_key(result->ast, AST_KEY_CURSOR));
   TEST_ASSERT_NOT_NULL(_find_tag_by_custom_key(result->ast, "loc"));
 
   parse_free_result(result);
 }
 
-void test_query_fails_missing_exp(void) {
+void test_query_fails_missing_where(void) {
   // This is now a semantic error, not a parser error. Parser should succeed.
   parse_result_t *result = _parse_string("query in:\"logs\"");
   _assert_success(result);
@@ -193,89 +195,96 @@ void test_query_fails_missing_exp(void) {
 
 void test_query_fails_duplicate_in(void) {
   // This is now a semantic error, not a parser error. Parser should succeed.
-  parse_result_t *result = _parse_string("query in:\"abc\" in:\"b\" exp:(c)");
+  parse_result_t *result = _parse_string("query in:\"abc\" in:\"b\" where:(c)");
   _assert_success(result);
   parse_free_result(result);
 }
 
 // --- Expression Parsing Tests ---
 
-void test_exp_precedence(void) {
-  parse_result_t *result = _parse_string("query in:\"abc\" exp:(a or b and c)");
-  _assert_success(result);
-
-  ast_node_t *exp = _find_tag_by_key(result->ast, KEY_EXP)->tag.value;
-  TEST_ASSERT_EQUAL(LOGICAL_NODE, exp->type);
-  TEST_ASSERT_EQUAL(LOGIC_NODE_OR, exp->logical.op); // OR is at the top level
-  TEST_ASSERT_EQUAL(LITERAL_NODE, exp->logical.left_operand->type);
-  TEST_ASSERT_EQUAL(LOGICAL_NODE,
-                    exp->logical.right_operand->type); // AND is nested
-  TEST_ASSERT_EQUAL(LOGIC_NODE_AND, exp->logical.right_operand->logical.op);
-
-  parse_free_result(result);
-}
-
-void test_exp_parentheses_override(void) {
+void test_where_precedence(void) {
   parse_result_t *result =
-      _parse_string("query in:\"abc\" exp:((a or b) and c)");
+      _parse_string("query in:\"abc\" where:(a or b and c)");
   _assert_success(result);
 
-  ast_node_t *exp = _find_tag_by_key(result->ast, KEY_EXP)->tag.value;
-  TEST_ASSERT_EQUAL(LOGICAL_NODE, exp->type);
-  TEST_ASSERT_EQUAL(LOGIC_NODE_AND, exp->logical.op); // AND is at the top level
-  TEST_ASSERT_EQUAL(LOGICAL_NODE, exp->logical.left_operand->type);
-  TEST_ASSERT_EQUAL(LOGIC_NODE_OR, exp->logical.left_operand->logical.op);
-  TEST_ASSERT_EQUAL(LITERAL_NODE, exp->logical.right_operand->type);
+  ast_node_t *where = _find_tag_by_key(result->ast, AST_KEY_WHERE)->tag.value;
+  TEST_ASSERT_EQUAL(AST_LOGICAL_NODE, where->type);
+  TEST_ASSERT_EQUAL(AST_LOGIC_NODE_OR,
+                    where->logical.op); // OR is at the top level
+  TEST_ASSERT_EQUAL(AST_LITERAL_NODE, where->logical.left_operand->type);
+  TEST_ASSERT_EQUAL(AST_LOGICAL_NODE,
+                    where->logical.right_operand->type); // AND is nested
+  TEST_ASSERT_EQUAL(AST_LOGIC_NODE_AND,
+                    where->logical.right_operand->logical.op);
 
   parse_free_result(result);
 }
 
-void test_exp_not_operator(void) {
-  parse_result_t *result = _parse_string("query in:abc exp:(not a and not b)");
+void test_where_parentheses_override(void) {
+  parse_result_t *result =
+      _parse_string("query in:\"abc\" where:((a or b) and c)");
   _assert_success(result);
 
-  ast_node_t *exp = _find_tag_by_key(result->ast, KEY_EXP)->tag.value;
-  TEST_ASSERT_EQUAL(LOGICAL_NODE, exp->type);
-  TEST_ASSERT_EQUAL(LOGIC_NODE_AND, exp->logical.op);
-  TEST_ASSERT_EQUAL(NOT_NODE, exp->logical.left_operand->type);
-  TEST_ASSERT_EQUAL(NOT_NODE, exp->logical.right_operand->type);
+  ast_node_t *where = _find_tag_by_key(result->ast, AST_KEY_WHERE)->tag.value;
+  TEST_ASSERT_EQUAL(AST_LOGICAL_NODE, where->type);
+  TEST_ASSERT_EQUAL(AST_LOGIC_NODE_AND,
+                    where->logical.op); // AND is at the top level
+  TEST_ASSERT_EQUAL(AST_LOGICAL_NODE, where->logical.left_operand->type);
+  TEST_ASSERT_EQUAL(AST_LOGIC_NODE_OR, where->logical.left_operand->logical.op);
+  TEST_ASSERT_EQUAL(AST_LITERAL_NODE, where->logical.right_operand->type);
 
   parse_free_result(result);
 }
 
-void test_exp_comparison(void) {
+void test_where_not_operator(void) {
+  parse_result_t *result =
+      _parse_string("query in:abc where:(not a and not b)");
+  _assert_success(result);
+
+  ast_node_t *where = _find_tag_by_key(result->ast, AST_KEY_WHERE)->tag.value;
+  TEST_ASSERT_EQUAL(AST_LOGICAL_NODE, where->type);
+  TEST_ASSERT_EQUAL(AST_LOGIC_NODE_AND, where->logical.op);
+  TEST_ASSERT_EQUAL(AST_NOT_NODE, where->logical.left_operand->type);
+  TEST_ASSERT_EQUAL(AST_NOT_NODE, where->logical.right_operand->type);
+
+  parse_free_result(result);
+}
+
+void test_where_comparison(void) {
   parse_result_t *result = _parse_string(
-      "QUERY in:analytics_2025_01 exp:(loc:ca AND (action:login > 3))");
+      "QUERY in:analytics_2025_01 where:(loc:ca AND (action:login > 3))");
   _assert_success(result);
 
-  ast_node_t *exp = _find_tag_by_key(result->ast, KEY_EXP)->tag.value;
-  TEST_ASSERT_EQUAL(LOGICAL_NODE, exp->type);
-  TEST_ASSERT_EQUAL(LOGIC_NODE_AND, exp->logical.op); // AND is at the top level
+  ast_node_t *where = _find_tag_by_key(result->ast, AST_KEY_WHERE)->tag.value;
+  TEST_ASSERT_EQUAL(AST_LOGICAL_NODE, where->type);
+  TEST_ASSERT_EQUAL(AST_LOGIC_NODE_AND,
+                    where->logical.op); // AND is at the top level
 
-  TEST_ASSERT_EQUAL(TAG_NODE, exp->logical.left_operand->type);
+  TEST_ASSERT_EQUAL(AST_TAG_NODE, where->logical.left_operand->type);
 
-  TEST_ASSERT_EQUAL(COMPARISON_NODE, exp->logical.right_operand->type);
-  TEST_ASSERT_EQUAL(OP_GT, exp->logical.right_operand->comparison.op);
-  TEST_ASSERT_EQUAL(TAG_NODE,
-                    exp->logical.right_operand->comparison.left->type);
-  TEST_ASSERT_EQUAL(LITERAL_NODE,
-                    exp->logical.right_operand->comparison.right->type);
-  TEST_ASSERT_EQUAL(LITERAL_NUMBER,
-                    exp->logical.right_operand->comparison.right->literal.type);
+  TEST_ASSERT_EQUAL(AST_COMPARISON_NODE, where->logical.right_operand->type);
+  TEST_ASSERT_EQUAL(AST_OP_GT, where->logical.right_operand->comparison.op);
+  TEST_ASSERT_EQUAL(AST_TAG_NODE,
+                    where->logical.right_operand->comparison.left->type);
+  TEST_ASSERT_EQUAL(AST_LITERAL_NODE,
+                    where->logical.right_operand->comparison.right->type);
   TEST_ASSERT_EQUAL(
-      3, exp->logical.right_operand->comparison.right->literal.number_value);
+      AST_LITERAL_NUMBER,
+      where->logical.right_operand->comparison.right->literal.type);
+  TEST_ASSERT_EQUAL(
+      3, where->logical.right_operand->comparison.right->literal.number_value);
 
   parse_free_result(result);
 }
 
-void test_exp_fails_mismatched_parens(void) {
-  parse_result_t *result = _parse_string("query in:\"abc\" exp:((a or b)");
+void test_where_fails_mismatched_parens(void) {
+  parse_result_t *result = _parse_string("query in:\"abc\" where:((a or b)");
   _assert_error(result);
   parse_free_result(result);
 }
 
-void test_exp_fails_invalid_syntax(void) {
-  parse_result_t *result = _parse_string("query in:\"abc\" exp:(a and or b)");
+void test_where_fails_invalid_syntax(void) {
+  parse_result_t *result = _parse_string("query in:\"abc\" where:(a and or b)");
   _assert_error(result);
   parse_free_result(result);
 }
@@ -313,8 +322,8 @@ void test_parser_fails_on_missing_tag_value(void) {
   parse_free_result(result);
 }
 
-void test_parser_fails_on_exp_missing_paren(void) {
-  parse_result_t *result = _parse_string("query in:\"abc\" exp:a and b");
+void test_parser_fails_on_where_missing_paren(void) {
+  parse_result_t *result = _parse_string("query in:\"abc\" where:a and b");
   _assert_error(result);
   parse_free_result(result);
 }
@@ -335,15 +344,15 @@ int main(void) {
   // QUERY command tests
   RUN_TEST(test_query_success_minimal);
   RUN_TEST(test_query_success_full_different_order);
-  RUN_TEST(test_query_fails_missing_exp);
+  RUN_TEST(test_query_fails_missing_where);
   RUN_TEST(test_query_fails_duplicate_in);
 
   // Expression parsing tests
-  RUN_TEST(test_exp_precedence);
-  RUN_TEST(test_exp_parentheses_override);
-  RUN_TEST(test_exp_not_operator);
-  RUN_TEST(test_exp_fails_mismatched_parens);
-  RUN_TEST(test_exp_fails_invalid_syntax);
+  RUN_TEST(test_where_precedence);
+  RUN_TEST(test_where_parentheses_override);
+  RUN_TEST(test_where_not_operator);
+  RUN_TEST(test_where_fails_mismatched_parens);
+  RUN_TEST(test_where_fails_invalid_syntax);
 
   // General/edge case tests
   RUN_TEST(test_parse_fails_on_empty_input);
@@ -353,7 +362,7 @@ int main(void) {
   // Parser edge case tests
   RUN_TEST(test_parser_fails_on_missing_colon);
   RUN_TEST(test_parser_fails_on_missing_tag_value);
-  RUN_TEST(test_parser_fails_on_exp_missing_paren);
+  RUN_TEST(test_parser_fails_on_where_missing_paren);
 
   return UNITY_END();
 }

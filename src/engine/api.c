@@ -46,15 +46,15 @@ static bool _validate_ast(ast_node_t *ast, custom_key **c_keys) {
     return false;
   bool seen_in = false;
   bool seen_id = false;
-  bool seen_exp = false;
+  bool seen_where = false;
   bool seen_entity = false;
   bool seen_take = false;
   bool seen_cursor = false;
   // in future- allow multiple tag counters
   bool seen_tag_counter = false;
 
-  if (ast->type != COMMAND_NODE || !ast->command.tags ||
-      ast->command.tags->type != TAG_NODE)
+  if (ast->type != AST_COMMAND_NODE || !ast->command.tags ||
+      ast->command.tags->type != AST_TAG_NODE)
     return false;
 
   ast_command_type_t cmd_type = ast->command.type;
@@ -69,35 +69,35 @@ static bool _validate_ast(ast_node_t *ast, custom_key **c_keys) {
         return false;
       seen_tag_counter = true;
     }
-    if (t_node.key_type == TAG_KEY_RESERVED) {
+    if (t_node.key_type == AST_TAG_KEY_RESERVED) {
       switch (t_node.reserved_key) {
-      case KEY_IN:
+      case AST_KEY_IN:
         if (seen_in ||
             !_is_valid_container_name(t_node.value->literal.string_value))
           return false;
         seen_in = true;
         break;
-      case KEY_ID:
+      case AST_KEY_ID:
         if (seen_id)
           return false;
         seen_id = true;
         break;
-      case KEY_EXP:
-        if (seen_exp || cmd_type != AST_CMD_QUERY)
+      case AST_KEY_WHERE:
+        if (seen_where || cmd_type != AST_CMD_QUERY)
           return false;
-        seen_exp = true;
+        seen_where = true;
         break;
-      case KEY_ENTITY:
+      case AST_KEY_ENTITY:
         if (seen_entity)
           return false;
         seen_entity = true;
         break;
-      case KEY_TAKE:
+      case AST_KEY_TAKE:
         if (seen_take)
           return false;
         seen_take = true;
         break;
-      case KEY_CURSOR:
+      case AST_KEY_CURSOR:
         if (seen_cursor)
           return false;
         seen_cursor = true;
@@ -125,9 +125,9 @@ static bool _validate_ast(ast_node_t *ast, custom_key **c_keys) {
   if (cmd_type == AST_CMD_EVENT && !seen_entity) {
     return false;
   }
-  if (cmd_type == AST_CMD_EVENT && seen_exp)
+  if (cmd_type == AST_CMD_EVENT && seen_where)
     return false;
-  if (cmd_type == AST_CMD_QUERY && !seen_exp) {
+  if (cmd_type == AST_CMD_QUERY && !seen_where) {
     return false;
   }
   if (cmd_type == AST_CMD_QUERY && seen_entity)

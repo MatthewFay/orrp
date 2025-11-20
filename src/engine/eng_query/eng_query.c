@@ -55,7 +55,7 @@ eng_query_result_t eng_query_exec(cmd_ctx_t *cmd_ctx, consumer_t *consumers,
   consumer_cache_query_begin();
 
   eng_eval_result_t eval_result =
-      eng_eval_resolve_exp_to_entities(cmd_ctx->exp_tag_value, &ctx);
+      eng_eval_resolve_exp_to_events(cmd_ctx->where_tag_value, &ctx);
 
   consumer_cache_query_end();
 
@@ -65,7 +65,7 @@ eng_query_result_t eng_query_exec(cmd_ctx_t *cmd_ctx, consumer_t *consumers,
   if (!r.success) {
     r.err_msg = eval_result.err_msg;
   }
-  r.entities = eval_result.entities;
+  r.entities = eval_result.events;
 
   container_release(cr.container);
   db_abort_txn(user_txn);

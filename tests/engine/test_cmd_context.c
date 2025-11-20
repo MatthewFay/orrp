@@ -34,9 +34,9 @@ void test_build_cmd_context_simple_event(void) {
   // AST: EVENT in:"metrics" entity:"user1"
   g_cmd_ast = ast_create_command_node(AST_CMD_EVENT, NULL);
   ast_node_t *in_tag = ast_create_tag_node(
-      KEY_IN, ast_create_string_literal_node("metrics"), false);
+      AST_KEY_IN, ast_create_string_literal_node("metrics"), false);
   ast_node_t *entity_tag = ast_create_tag_node(
-      KEY_ENTITY, ast_create_string_literal_node("user1"), false);
+      AST_KEY_ENTITY, ast_create_string_literal_node("user1"), false);
   ast_append_node(&g_cmd_ast->command.tags, in_tag);
   ast_append_node(&g_cmd_ast->command.tags, entity_tag);
 
@@ -49,7 +49,7 @@ void test_build_cmd_context_simple_event(void) {
   TEST_ASSERT_NOT_NULL(g_cmd_ctx->entity_tag_value);
   TEST_ASSERT_EQUAL_STRING("user1",
                            g_cmd_ctx->entity_tag_value->literal.string_value);
-  TEST_ASSERT_NULL(g_cmd_ctx->exp_tag_value);
+  TEST_ASSERT_NULL(g_cmd_ctx->where_tag_value);
   TEST_ASSERT_NULL(g_cmd_ctx->custom_tags_head);
   TEST_ASSERT_EQUAL_UINT32(0, g_cmd_ctx->num_custom_tags);
   TEST_ASSERT_EQUAL_UINT32(0, g_cmd_ctx->num_counter_tags);
@@ -59,10 +59,11 @@ void test_build_cmd_context_with_custom_tags(void) {
   // AST: EVENT in:"logs" entity:"req-abc" region:"us-east" status:"ok"
   g_cmd_ast = ast_create_command_node(AST_CMD_EVENT, NULL);
   ast_append_node(&g_cmd_ast->command.tags,
-                  ast_create_tag_node(
-                      KEY_IN, ast_create_string_literal_node("logs"), false));
+                  ast_create_tag_node(AST_KEY_IN,
+                                      ast_create_string_literal_node("logs"),
+                                      false));
   ast_append_node(&g_cmd_ast->command.tags,
-                  ast_create_tag_node(KEY_ENTITY,
+                  ast_create_tag_node(AST_KEY_ENTITY,
                                       ast_create_string_literal_node("req-abc"),
                                       false));
   ast_append_node(
@@ -100,11 +101,12 @@ void test_build_cmd_context_with_counter(void) {
   // AST: EVENT in:"stats" entity:"page-view" path:"/home" +count:1
   g_cmd_ast = ast_create_command_node(AST_CMD_EVENT, NULL);
   ast_append_node(&g_cmd_ast->command.tags,
-                  ast_create_tag_node(
-                      KEY_IN, ast_create_string_literal_node("stats"), false));
+                  ast_create_tag_node(AST_KEY_IN,
+                                      ast_create_string_literal_node("stats"),
+                                      false));
   ast_append_node(
       &g_cmd_ast->command.tags,
-      ast_create_tag_node(KEY_ENTITY,
+      ast_create_tag_node(AST_KEY_ENTITY,
                           ast_create_string_literal_node("page-view"), false));
   ast_append_node(&g_cmd_ast->command.tags,
                   ast_create_custom_tag_node(
@@ -121,20 +123,21 @@ void test_build_cmd_context_with_counter(void) {
 }
 
 void test_build_cmd_context_query(void) {
-  // AST: QUERY in:"errors" exp:"type:segfault" take:50 cursor:"abc"
+  // AST: QUERY in:"errors" where:"type:segfault" take:50 cursor:"abc"
   g_cmd_ast = ast_create_command_node(AST_CMD_QUERY, NULL);
   ast_append_node(&g_cmd_ast->command.tags,
-                  ast_create_tag_node(
-                      KEY_IN, ast_create_string_literal_node("errors"), false));
-  ast_append_node(
-      &g_cmd_ast->command.tags,
-      ast_create_tag_node(
-          KEY_EXP, ast_create_string_literal_node("type:segfault"), false));
-  ast_append_node(
-      &g_cmd_ast->command.tags,
-      ast_create_tag_node(KEY_TAKE, ast_create_number_literal_node(50), false));
+                  ast_create_tag_node(AST_KEY_IN,
+                                      ast_create_string_literal_node("errors"),
+                                      false));
   ast_append_node(&g_cmd_ast->command.tags,
-                  ast_create_tag_node(KEY_CURSOR,
+                  ast_create_tag_node(
+                      AST_KEY_WHERE,
+                      ast_create_string_literal_node("type:segfault"), false));
+  ast_append_node(&g_cmd_ast->command.tags,
+                  ast_create_tag_node(
+                      AST_KEY_TAKE, ast_create_number_literal_node(50), false));
+  ast_append_node(&g_cmd_ast->command.tags,
+                  ast_create_tag_node(AST_KEY_CURSOR,
                                       ast_create_string_literal_node("abc"),
                                       false));
 
@@ -142,12 +145,12 @@ void test_build_cmd_context_query(void) {
 
   TEST_ASSERT_NOT_NULL(g_cmd_ctx);
   TEST_ASSERT_NOT_NULL(g_cmd_ctx->in_tag_value);
-  TEST_ASSERT_NOT_NULL(g_cmd_ctx->exp_tag_value);
+  TEST_ASSERT_NOT_NULL(g_cmd_ctx->where_tag_value);
   TEST_ASSERT_NOT_NULL(g_cmd_ctx->take_tag_value);
   TEST_ASSERT_NOT_NULL(g_cmd_ctx->cursor_tag_value);
   TEST_ASSERT_NULL(g_cmd_ctx->entity_tag_value);
   TEST_ASSERT_EQUAL_STRING("type:segfault",
-                           g_cmd_ctx->exp_tag_value->literal.string_value);
+                           g_cmd_ctx->where_tag_value->literal.string_value);
   TEST_ASSERT_EQUAL_UINT32(50, g_cmd_ctx->take_tag_value->literal.number_value);
   TEST_ASSERT_EQUAL_STRING("abc",
                            g_cmd_ctx->cursor_tag_value->literal.string_value);
@@ -159,10 +162,11 @@ void test_build_cmd_context_mixed_tags(void) {
   // AST: EVENT in:"mixed" entity:"test" +c1:1 t2:"v2" +c3:1
   g_cmd_ast = ast_create_command_node(AST_CMD_EVENT, NULL);
   ast_append_node(&g_cmd_ast->command.tags,
-                  ast_create_tag_node(
-                      KEY_IN, ast_create_string_literal_node("mixed"), false));
+                  ast_create_tag_node(AST_KEY_IN,
+                                      ast_create_string_literal_node("mixed"),
+                                      false));
   ast_append_node(&g_cmd_ast->command.tags,
-                  ast_create_tag_node(KEY_ENTITY,
+                  ast_create_tag_node(AST_KEY_ENTITY,
                                       ast_create_string_literal_node("test"),
                                       false));
   ast_append_node(&g_cmd_ast->command.tags,

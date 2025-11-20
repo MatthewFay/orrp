@@ -8,13 +8,13 @@ bool custom_tag_into(char *out_buf, size_t size, ast_node_t *custom_tag) {
     return false;
   }
 
-  if (custom_tag->tag.value->type == LITERAL_NODE) {
+  if (custom_tag->tag.value->type == AST_LITERAL_NODE) {
     ast_literal_node_t *literal = &custom_tag->tag.value->literal;
     int r = -1;
-    if (literal->type == LITERAL_STRING) {
+    if (literal->type == AST_LITERAL_STRING) {
       r = snprintf(out_buf, size, "%s:%s", custom_tag->tag.custom_key,
                    literal->string_value);
-    } else if (literal->type == LITERAL_NUMBER) {
+    } else if (literal->type == AST_LITERAL_NUMBER) {
       r = snprintf(out_buf, size, "%s:%d", custom_tag->tag.custom_key,
                    (int)literal->number_value);
     }

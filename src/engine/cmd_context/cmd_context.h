@@ -11,7 +11,7 @@ typedef struct {
   // TODO: support multiple `in` tags, e.g, cross-container queries
   ast_node_t *in_tag_value;
   ast_node_t *entity_tag_value;
-  ast_node_t *exp_tag_value;
+  ast_node_t *where_tag_value;
   ast_node_t *take_tag_value;
   ast_node_t *cursor_tag_value;
 
