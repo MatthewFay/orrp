@@ -191,3 +191,19 @@ bitmap_t *bitmap_deserialize(void *buffer, size_t buffer_size) {
 
   return b;
 }
+
+bitmap_t *bitmap_flip(const bitmap_t *bm1, uint64_t range_start,
+                      uint64_t range_end) {
+  if (!bm1 || !bm1->rb)
+    return NULL;
+  bitmap_t *r = malloc(sizeof(bitmap_t));
+  if (!r)
+    return NULL;
+  roaring_bitmap_t *rb = roaring_bitmap_flip(bm1->rb, range_start, range_end);
+  if (!rb) {
+    free(r);
+    return NULL;
+  }
+  r->rb = rb;
+  return r;
+}

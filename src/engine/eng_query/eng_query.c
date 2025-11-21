@@ -49,7 +49,7 @@ eng_query_result_t eng_query_exec(cmd_ctx_t *cmd_ctx, consumer_t *consumers,
                           .op_queues_per_consumer = op_queues_per_consumer};
 
   // Initialize state (mutable)
-  eval_state_t state = {.cache_head = NULL, .intermediate_bitmaps_count = 0};
+  eval_state_t state = {0};
 
   eval_ctx_t ctx = {.config = &config, .state = &state};
   consumer_cache_query_begin();
@@ -65,7 +65,7 @@ eng_query_result_t eng_query_exec(cmd_ctx_t *cmd_ctx, consumer_t *consumers,
   if (!r.success) {
     r.err_msg = eval_result.err_msg;
   }
-  r.entities = eval_result.events;
+  r.events = eval_result.events;
 
   container_release(cr.container);
   db_abort_txn(user_txn);

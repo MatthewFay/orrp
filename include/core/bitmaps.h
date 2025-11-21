@@ -41,6 +41,9 @@ void bitmap_xor_inplace(bitmap_t *bm1, const bitmap_t *bm2);
 
 void bitmap_not_inplace(bitmap_t *bm1, const bitmap_t *bm2);
 
+bitmap_t *bitmap_flip(const bitmap_t *bm1, uint64_t range_start,
+                      uint64_t range_end);
+
 // Function to free the bitmap
 void bitmap_free(bitmap_t *bm);
 

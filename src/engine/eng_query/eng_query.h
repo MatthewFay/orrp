@@ -9,7 +9,7 @@
 typedef struct eng_query_result_s {
   bool success;
   const char *err_msg;
-  bitmap_t *entities;
+  bitmap_t *events;
 } eng_query_result_t;
 
 /**

@@ -223,6 +223,7 @@ test: bin/test_bitmaps \
 			bin/test_container_cache \
 			bin/test_container_db \
 			bin/test_container \
+			bin/test_eng_eval \
 			bin/test_eng_key_format \
 			bin/test_op \
 			bin/test_tokenizer \
@@ -256,6 +257,8 @@ test: bin/test_bitmaps \
 	./bin/test_container_db
 	@echo "--- Running container test ---"
 	./bin/test_container
+	@echo "--- Running eng_eval test ---"
+	./bin/test_eng_eval
 	@echo "--- Running eng_key_format test ---"
 	./bin/test_eng_key_format
 	@echo "--- Running op test ---"
@@ -286,6 +289,7 @@ test_build: bin/test_bitmaps \
 						bin/test_container_cache \
 						bin/test_container_db \
 						bin/test_container \
+						bin/test_eng_eval \
 						bin/test_eng_key_format \
 						bin/test_op \
 					  bin/test_ast \
@@ -388,6 +392,16 @@ bin/test_container: tests/engine/test_container.c \
 										$(wildcard lib/lmdb/*.c) \
 							${UNITY_SRC} | $(BIN_DIR) $(LIBUV_A)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBUV_A) $(LIBS)
+
+# Rule to build the eng_eval test executable
+bin/test_eng_eval: tests/engine/test_eng_eval.c \
+							src/engine/eng_eval/eng_eval.c \
+							src/query/ast.c \
+							src/core/bitmaps.c \
+							src/engine/eng_key_format/eng_key_format.c \
+							lib/roaring/roaring.c \
+							${UNITY_SRC} | $(BIN_DIR)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 # Rule to build the eng_key_format test executable
 bin/test_eng_key_format: tests/engine/test_eng_key_format.c \
