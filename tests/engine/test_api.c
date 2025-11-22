@@ -21,7 +21,6 @@ void eng_event(api_response_t *resp, ast_node_t *ast) {
   mock_state.last_ast = ast;
   // Simulate a successful event
   resp->is_ok = true;
-  resp->data = strdup("event-ok");
   resp->err_msg = NULL;
   resp->op_type = API_EVENT;
 }
@@ -57,7 +56,6 @@ void test_api_event_success(void) {
   api_response_t *resp = api_exec(ast);
   TEST_ASSERT_NOT_NULL(resp);
   TEST_ASSERT_TRUE(resp->is_ok);
-  TEST_ASSERT_EQUAL_STRING("event-ok", (char *)resp->data);
   TEST_ASSERT_EQUAL(API_EVENT, resp->op_type);
   TEST_ASSERT_EQUAL(1, mock_state.called);
   TEST_ASSERT_NOT_NULL(mock_state.last_ast);

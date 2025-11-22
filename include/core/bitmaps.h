@@ -46,6 +46,8 @@ bitmap_t *bitmap_flip(const bitmap_t *bm1, uint64_t range_start,
 
 uint32_t bitmap_get_cardinality(const bitmap_t *bm);
 
+void bitmap_to_uint32_array(const bitmap_t *bm, uint32_t *array);
+
 // Function to free the bitmap
 void bitmap_free(bitmap_t *bm);
 

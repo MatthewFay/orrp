@@ -136,18 +136,18 @@ static bool _validate_ast(ast_node_t *ast, custom_key **c_keys) {
 }
 
 void free_api_response(api_response_t *r) {
-  free(r->data);
+  if (r->resp_type == API_RESP_TYPE_LIST_U32) {
+    free(r->payload.list_u32.int32s);
+  }
   free(r);
 }
 
 static api_response_t *_create_api_resp(enum api_op_type op_type) {
-  api_response_t *r = malloc(sizeof(api_response_t));
+  // `is_ok` will default to false w/ calloc
+  api_response_t *r = calloc(1, sizeof(api_response_t));
   if (!r) {
     return NULL;
   }
-  r->is_ok = false; // Default to false
-  r->data = NULL;
-  r->err_msg = NULL;
   r->op_type = op_type;
   return r;
 }

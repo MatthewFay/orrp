@@ -1,6 +1,7 @@
 #include "engine.h"
 #include "cmd_context/cmd_context.h"
 #include "container/container.h"
+#include "core/bitmaps.h"
 #include "core/hash.h"
 #include "engine/api.h"
 #include "engine/cmd_queue/cmd_queue.h"
@@ -299,6 +300,33 @@ void eng_event(api_response_t *r, ast_node_t *ast) {
   r->is_ok = true;
 }
 
+static void _handle_query_result(eng_query_result_t *query_r,
+                                 api_response_t *r) {
+  r->is_ok = false;
+  r->err_msg = query_r->err_msg;
+
+  if (!(query_r->success && query_r->events)) {
+    LOG_ACTION_ERROR(ACT_QUERY_ERROR, "err=\"%s\"", query_r->err_msg);
+    return;
+  }
+  r->resp_type = API_RESP_TYPE_LIST_U32;
+  uint32_t count = bitmap_get_cardinality(query_r->events);
+
+  r->payload.list_u32.int32s = calloc(count, (sizeof(uint32_t)));
+  if (!r->payload.list_u32.int32s) {
+    r->err_msg = "OOM error handling query result";
+    bitmap_free(query_r->events);
+    return;
+  }
+  r->payload.list_u32.count = count;
+
+  bitmap_to_uint32_array(query_r->events, r->payload.list_u32.int32s);
+
+  r->is_ok = true;
+
+  bitmap_free(query_r->events);
+}
+
 // Takes ownership of `ast`
 void eng_query(api_response_t *r, ast_node_t *ast) {
   cmd_ctx_t *cmd_ctx = build_cmd_context(ast);
@@ -311,12 +339,8 @@ void eng_query(api_response_t *r, ast_node_t *ast) {
 
   eng_query_result_t query_r = eng_query_exec(
       cmd_ctx, g_consumers, NUM_OP_QUEUES, OP_QUEUES_PER_CONSUMER);
-  if (!query_r.success) {
-    LOG_ACTION_ERROR(ACT_QUERY_ERROR, "err=\"%s\"", query_r.err_msg);
-  }
+
+  _handle_query_result(&query_r, r);
 
   cmd_context_free(cmd_ctx);
-
-  r->is_ok = query_r.success;
-  r->err_msg = query_r.err_msg;
 }

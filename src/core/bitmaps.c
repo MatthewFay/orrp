@@ -213,3 +213,9 @@ uint32_t bitmap_get_cardinality(const bitmap_t *bm) {
     return 0;
   return roaring_bitmap_get_cardinality(bm->rb);
 }
+
+void bitmap_to_uint32_array(const bitmap_t *bm, uint32_t *array) {
+  if (!bm || !bm->rb)
+    return;
+  return roaring_bitmap_to_uint32_array(bm->rb, array);
+}
