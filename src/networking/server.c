@@ -13,6 +13,7 @@
 #include "core/queue.h"
 #include "engine/api.h"
 #include "log/log.h"
+#include "networking/translator.h"
 #include "query/parser.h"
 #include "query/tokenizer.h"
 #include "uv.h"
@@ -91,7 +92,7 @@ typedef struct {
  *
  * @param client The client to close.
  */
-static void close_client_connection(client_t *client) {
+static void _close_client_connection(client_t *client) {
   // Use uv_is_closing to prevent calling uv_close on a handle that is
   // already in the process of closing.
   if (client->connected && !uv_is_closing((uv_handle_t *)&client->handle)) {
@@ -110,7 +111,7 @@ static void close_client_connection(client_t *client) {
 void on_timeout(uv_timer_t *timer) {
   client_t *client = timer->data;
   LOG_ACTION_WARN(ACT_CLIENT_TIMEOUT, "client_id=%lld", client->client_id);
-  close_client_connection(client);
+  _close_client_connection(client);
 }
 
 /**
@@ -224,7 +225,7 @@ void on_write(uv_write_t *req, int status) {
 }
 
 /* Centralized cleanup logic for work contexts. */
-static void decrement_work_and_cleanup(client_t *client) {
+static void _decrement_work_and_cleanup(client_t *client) {
   client->work_refs--;
   if (client->open_handles == 0 && client->work_refs == 0) {
     LOG_ACTION_INFO(ACT_CLIENT_FREED, "client_id=%lld reason=\"work_complete\"",
@@ -238,7 +239,7 @@ static void decrement_work_and_cleanup(client_t *client) {
  * @brief Background worker: runs in libuv thread-pool
  * Handles tokenization, parsing, and command execution for all command types
  */
-static void work_cb(uv_work_t *req) {
+static void _work_cb(uv_work_t *req) {
   work_ctx_t *ctx = (work_ctx_t *)req;
 
   LOG_ACTION_DEBUG(ACT_CMD_PROCESSING, "client_id=%lld",
@@ -295,9 +296,10 @@ cleanup:
 
 /**
  * @brief after_work_cb: runs on the loop thread after work_cb completes
- * Sends the response back to the client
+ * Sends the response back to the client.
+ * IMPORTANT: the Main Loop (after_work_cb) must remain non-blocking
  */
-static void after_work_cb(uv_work_t *req, int status) {
+static void _after_work_cb(uv_work_t *req, int status) {
   work_ctx_t *ctx = (work_ctx_t *)req;
   client_t *client = ctx->client;
 
@@ -310,7 +312,6 @@ static void after_work_cb(uv_work_t *req, int status) {
     // Parse/tokenization error or api_exec returned NULL
     send_response(client, "ERROR: Invalid command or execution failed\n");
   } else if (ctx->result->is_ok) {
-    // Success
     send_response(client, "OK\n");
     LOG_ACTION_DEBUG(ACT_CMD_SUCCEEDED, "client_id=%lld", client->client_id);
   } else {
@@ -329,7 +330,7 @@ static void after_work_cb(uv_work_t *req, int status) {
     free_api_response(ctx->result);
   }
 
-  decrement_work_and_cleanup(client);
+  _decrement_work_and_cleanup(client);
   free(ctx);
 }
 
@@ -379,7 +380,7 @@ void process_one_command(client_t *client, char *command) {
   ctx->req.data = ctx;
   client->work_refs++; // This work context now holds a reference to the client.
 
-  int rc = uv_queue_work(loop, &ctx->req, work_cb, after_work_cb);
+  int rc = uv_queue_work(loop, &ctx->req, _work_cb, _after_work_cb);
   if (rc != 0) {
     LOG_ACTION_ERROR(ACT_WORK_QUEUE_FAILED, "client_id=%lld err=\"%s\"",
                      client->client_id, uv_strerror(rc));
@@ -423,7 +424,7 @@ void process_data_buffer(client_t *client) {
       LOG_ACTION_ERROR(ACT_CMD_TOO_LONG, "client_id=%lld max_len=%d",
                        client->client_id, MAX_COMMAND_LENGTH);
       send_response(client, "ERROR: Command too long\n");
-      close_client_connection(client);
+      _close_client_connection(client);
       return;
     }
 
@@ -450,7 +451,7 @@ void process_data_buffer(client_t *client) {
     LOG_ACTION_ERROR(ACT_BUFFER_OVERFLOW, "client_id=%lld buffer_size=%d",
                      client->client_id, READ_BUFFER_SIZE);
     send_response(client, "ERROR: Command buffer overflow\n");
-    close_client_connection(client);
+    _close_client_connection(client);
   }
 }
 
@@ -485,7 +486,7 @@ void on_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
       LOG_ACTION_INFO(ACT_CLIENT_DISCONNECTED, "client_id=%lld reason=EOF",
                       client->client_id);
     }
-    close_client_connection(client);
+    _close_client_connection(client);
   }
   // nread == 0 is possible and means nothing to read right now.
 }
@@ -565,7 +566,7 @@ void on_new_connection(uv_stream_t *server, int status) {
  * @param handle The handle to inspect.
  * @param arg User-provided argument (not used here).
  */
-static void close_walk_cb(uv_handle_t *handle, void *arg) {
+static void _close_walk_cb(uv_handle_t *handle, void *arg) {
   (void)arg;
   if (handle != (uv_handle_t *)&server_handle &&
       handle != (uv_handle_t *)&signal_handle) {
@@ -578,7 +579,7 @@ static void close_walk_cb(uv_handle_t *handle, void *arg) {
 }
 
 // A function to handle all shutdown logic.
-static void initiate_shutdown(void) {
+static void _initiate_shutdown(void) {
   // Use a static flag to ensure this only runs once.
   static bool shutting_down = false;
   if (shutting_down)
@@ -596,20 +597,20 @@ static void initiate_shutdown(void) {
   uv_close((uv_handle_t *)&server_handle, NULL);
 
   // Close all client-related handles.
-  uv_walk(loop, close_walk_cb, NULL);
+  uv_walk(loop, _close_walk_cb, NULL);
 }
 
 /**
  * @brief Callback for handling SIGINT (Ctrl+C) for graceful shutdown.
  */
-static void on_signal(uv_signal_t *handle, int signum) {
+static void _on_signal(uv_signal_t *handle, int signum) {
   (void)signum;
   LOG_ACTION_WARN(ACT_SIGNAL_RECEIVED,
                   "signal=SIGINT action=graceful_shutdown");
 
   // Stop the signal handler to prevent multiple shutdown signals
   uv_signal_stop(handle);
-  initiate_shutdown();
+  _initiate_shutdown();
 }
 
 /**
@@ -632,7 +633,7 @@ void start_server(const char *host, int port, uv_loop_t *loop) {
   }
 
   uv_signal_init(loop, &signal_handle);
-  uv_signal_start(&signal_handle, on_signal, SIGINT);
+  uv_signal_start(&signal_handle, _on_signal, SIGINT);
 
   struct sockaddr_in addr;
   uv_ip4_addr(host, port, &addr);

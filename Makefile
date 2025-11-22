@@ -83,6 +83,7 @@ APP_SRCS = \
 			 src/engine/api.c \
 			 src/engine/engine.c \
 		   src/networking/server.c \
+			 src/networking/translator.c \
 		   src/query/ast.c \
 			 src/query/parser.c \
 		   src/query/tokenizer.c \
