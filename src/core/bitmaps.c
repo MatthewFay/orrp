@@ -207,3 +207,9 @@ bitmap_t *bitmap_flip(const bitmap_t *bm1, uint64_t range_start,
   r->rb = rb;
   return r;
 }
+
+uint32_t bitmap_get_cardinality(const bitmap_t *bm) {
+  if (!bm || !bm->rb)
+    return 0;
+  return roaring_bitmap_get_cardinality(bm->rb);
+}
