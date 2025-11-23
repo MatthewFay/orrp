@@ -123,7 +123,7 @@ bitmap_t *bitmap_copy(bitmap_t *bm) {
 }
 
 typedef struct {
-  size_t roaring_bitmap_size;
+  uint64_t roaring_bitmap_size;
   uint64_t version;
 } bitmap_serialization_header_t;
 
@@ -164,29 +164,44 @@ bitmap_t *bitmap_deserialize(void *buffer, size_t buffer_size) {
     return NULL;
   }
 
+  // Initialize the pointer to NULL immediately so bitmap_free is safe
+  b->rb = NULL;
+
   const char *p = (const char *)buffer;
 
-  // use header to get sizes
-  const bitmap_serialization_header_t *header =
-      (const bitmap_serialization_header_t *)p;
-  p += sizeof(bitmap_serialization_header_t);
-
-  // Basic sanity check to prevent reading beyond the buffer
-  if (sizeof(bitmap_serialization_header_t) + header->roaring_bitmap_size >
-      buffer_size) {
+  if (buffer_size < sizeof(bitmap_serialization_header_t)) {
     bitmap_free(b);
     return NULL;
   }
 
-  if (header->roaring_bitmap_size > 0) {
-    b->rb = roaring_bitmap_portable_deserialize_safe(
-        p, header->roaring_bitmap_size);
+  // Use memcpy to read header (avoids alignment/padding issues)
+  bitmap_serialization_header_t header;
+  memcpy(&header, p, sizeof(header));
+
+  p += sizeof(bitmap_serialization_header_t);
+
+  size_t expected_total_size =
+      sizeof(bitmap_serialization_header_t) + header.roaring_bitmap_size;
+
+  if (expected_total_size > buffer_size) {
+    bitmap_free(b); // safe because b->rb is NULL
+    return NULL;
+  }
+
+  if (header.roaring_bitmap_size > 0) {
+    b->rb =
+        roaring_bitmap_portable_deserialize_safe(p, header.roaring_bitmap_size);
+
     if (!b->rb) {
       bitmap_free(b);
       return NULL;
     }
   } else {
-    b->rb = NULL;
+    b->rb = roaring_bitmap_create();
+    if (!b->rb) {
+      bitmap_free(b);
+      return NULL;
+    }
   }
 
   return b;
