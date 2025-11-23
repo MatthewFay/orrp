@@ -582,8 +582,8 @@ static bool _process_msg(worker_t *worker, cmd_queue_msg_t *msg,
 }
 
 // Returns num messages processed
-static int _do_work(worker_t *worker, eng_container_t *sys_c,
-                    MDB_txn *sys_txn) {
+static int _do_work(worker_t *worker, eng_container_t **sys_c,
+                    MDB_txn **sys_txn) {
   size_t prev_num_msgs = 0;
   size_t num_msgs_processed = 0;
   cmd_queue_msg_t *msg = NULL;
@@ -595,7 +595,7 @@ static int _do_work(worker_t *worker, eng_container_t *sys_c,
       cmd_queue_t *queue = &worker->config.cmd_queues[cmd_queue_idx];
 
       if (cmd_queue_dequeue(queue, &msg)) {
-        if (_process_msg(worker, msg, &sys_c, &sys_txn)) {
+        if (_process_msg(worker, msg, sys_c, sys_txn)) {
           num_msgs_processed++;
         } else {
           LOG_ACTION_WARN(ACT_MSG_PROCESS_FAILED, "queue_id=%u", cmd_queue_idx);
@@ -672,7 +672,7 @@ static void _worker_thread_func(void *arg) {
   worker->user_dcs = NULL;
 
   while (!worker->should_stop) {
-    int processed = _do_work(worker, sys_c, sys_txn);
+    int processed = _do_work(worker, &sys_c, &sys_txn);
     if (processed > 0) {
       total_processed += processed;
       backoff = 1;
@@ -686,6 +686,7 @@ static void _worker_thread_func(void *arg) {
       // `sys_txn` is created lazily
       if (sys_txn) {
         db_abort_txn(sys_txn);
+        sys_txn = NULL;
       }
 
       if (worker->user_dcs) {
@@ -710,6 +711,11 @@ static void _worker_thread_func(void *arg) {
             backoff < WORKER_MAX_SLEEP_MS ? backoff * 2 : WORKER_MAX_SLEEP_MS;
       }
     }
+  }
+
+  if (sys_txn) {
+    db_abort_txn(sys_txn);
+    sys_txn = NULL;
   }
 
   _worker_cleanup(worker);
