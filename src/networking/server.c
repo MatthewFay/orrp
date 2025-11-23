@@ -32,6 +32,8 @@ LOG_INIT(server);
 #define READ_BUFFER_SIZE 65536          // 64KB per-client read buffer
 #define SERVER_BACKLOG 511              // Listen backlog connections
 
+#define INTERNAL_SERVER_ERROR_MSG "Error: Internal server error\n"
+
 // --- Globals ---
 static uv_tcp_t server_handle;    // Main server handle
 static uv_signal_t signal_handle; // Signal handler for SIGINT
@@ -82,7 +84,9 @@ typedef struct {
   uv_work_t req;
   client_t *client;
   char *command;
-  api_response_t *result;
+  char *response;
+  // Points to the memory to free (NULL if static, same as response if heap)
+  char *response_to_free;
 } work_ctx_t;
 
 /**
@@ -245,15 +249,16 @@ static void _work_cb(uv_work_t *req) {
   LOG_ACTION_DEBUG(ACT_CMD_PROCESSING, "client_id=%lld",
                    ctx->client->client_id);
 
-  // All resources that need cleanup
   Queue *tokens = NULL;
   parse_result_t *parsed = NULL;
+  api_response_t *api_resp = NULL;
+  translator_result_t tr = {0};
 
   tokens = tok_tokenize(ctx->command);
   if (!tokens) {
     LOG_ACTION_DEBUG(ACT_TOKENIZATION_FAILED, "client_id=%lld",
                      ctx->client->client_id);
-    ctx->result = NULL;
+    ctx->response = "Error: Unrecognized character\n";
     goto cleanup;
   }
 
@@ -262,25 +267,35 @@ static void _work_cb(uv_work_t *req) {
     LOG_ACTION_DEBUG(ACT_PARSE_FAILED, "client_id=%lld err=\"%s\"",
                      ctx->client->client_id,
                      parsed->error_message ? parsed->error_message : "unknown");
-    ctx->result = NULL;
+    ctx->response = "Error: Syntax error\n";
     goto cleanup;
   }
 
-  ctx->result = api_exec(parsed->ast);
+  api_resp = api_exec(parsed->ast);
 
-  if (!ctx->result) {
+  if (!api_resp) {
     LOG_ACTION_ERROR(ACT_API_EXEC_FAILED,
                      "client_id=%lld err=\"returned_null\"",
                      ctx->client->client_id);
-  } else if (!ctx->result->is_ok) {
+    ctx->response = INTERNAL_SERVER_ERROR_MSG;
+  } else if (!api_resp->is_ok) {
+    const char *err =
+        api_resp->err_msg ? api_resp->err_msg : "Execution failed";
     LOG_ACTION_DEBUG(ACT_CMD_EXEC_FAILED, "client_id=%lld err=\"%s\"",
-                     ctx->client->client_id,
-                     ctx->result->err_msg ? ctx->result->err_msg
-                                          : "unknown error");
+                     ctx->client->client_id, err);
+    ctx->response = (char *)err;
+  } else {
+    translate(api_resp, TRANSLATOR_RESP_FORMAT_TYPE_TEXT, &tr);
+    if (!tr.success) {
+      LOG_ACTION_DEBUG(ACT_TRANSLATION_ERROR, "client_id=%lld err=\"%s\"",
+                       ctx->client->client_id, tr.err_msg);
+      ctx->response = INTERNAL_SERVER_ERROR_MSG;
+    } else {
+      ctx->response = ctx->response_to_free = tr.response;
+    }
   }
 
 cleanup:
-  // Cleanup resources
   if (tokens) {
     tok_clear_all(tokens);
     q_destroy(tokens);
@@ -288,6 +303,10 @@ cleanup:
 
   if (parsed) {
     parse_free_result(parsed);
+  }
+
+  if (api_resp) {
+    free_api_response(api_resp);
   }
 
   free(ctx->command);
@@ -307,30 +326,18 @@ static void _after_work_cb(uv_work_t *req, int status) {
     // System-level error from libuv
     LOG_ACTION_ERROR(ACT_WORK_QUEUE_FAILED, "client_id=%lld err=\"%s\"",
                      client->client_id, uv_strerror(status));
-    send_response(client, "ERROR: Internal server error\n");
-  } else if (!ctx->result) {
-    // Parse/tokenization error or api_exec returned NULL
-    send_response(client, "ERROR: Invalid command or execution failed\n");
-  } else if (ctx->result->is_ok) {
-    send_response(client, "OK\n");
-    LOG_ACTION_DEBUG(ACT_CMD_SUCCEEDED, "client_id=%lld", client->client_id);
+    send_response(client, INTERNAL_SERVER_ERROR_MSG);
+  } else if (ctx->response) {
+    send_response(client, ctx->response);
   } else {
-    // Execution error
-    const char *err =
-        ctx->result->err_msg ? ctx->result->err_msg : "Execution failed";
-    char error_buf[256];
-    snprintf(error_buf, sizeof(error_buf), "ERROR: %s\n", err);
-    send_response(client, error_buf);
-    LOG_ACTION_DEBUG(ACT_CMD_EXEC_FAILED, "client_id=%lld err=\"%s\"",
-                     client->client_id, err);
-  }
-
-  // Cleanup
-  if (ctx->result) {
-    free_api_response(ctx->result);
+    LOG_ACTION_ERROR(ACT_WORK_QUEUE_FAILED, "client_id=%lld err=\"%s\"",
+                     client->client_id, "Missing response");
+    send_response(client, INTERNAL_SERVER_ERROR_MSG);
   }
 
   _decrement_work_and_cleanup(client);
+
+  free(ctx->response_to_free);
   free(ctx);
 }
 
@@ -361,7 +368,7 @@ void process_one_command(client_t *client, char *command) {
     LOG_ACTION_ERROR(ACT_MEMORY_ALLOC_FAILED,
                      "context=\"work_context\" client_id=%lld",
                      client->client_id);
-    send_response(client, "ERROR: Internal server error (OOM)\n");
+    send_response(client, "Error: Internal server error (OOM)\n");
     return;
   }
 
@@ -371,7 +378,7 @@ void process_one_command(client_t *client, char *command) {
                      "context=\"command_buffer\" client_id=%lld",
                      client->client_id);
     free(ctx);
-    send_response(client, "ERROR: Internal server error (OOM)\n");
+    send_response(client, "Error: Internal server error (OOM)\n");
     return;
   }
   memcpy(ctx->command, command, cmd_len + 1);
@@ -388,7 +395,7 @@ void process_one_command(client_t *client, char *command) {
     client->work_refs--;
     free(ctx->command);
     free(ctx);
-    send_response(client, "ERROR: Failed to queue work\n");
+    send_response(client, "Error: Failed to queue work\n");
   }
 }
 
@@ -423,7 +430,7 @@ void process_data_buffer(client_t *client) {
     if (newline_pos - buffer_start > MAX_COMMAND_LENGTH) {
       LOG_ACTION_ERROR(ACT_CMD_TOO_LONG, "client_id=%lld max_len=%d",
                        client->client_id, MAX_COMMAND_LENGTH);
-      send_response(client, "ERROR: Command too long\n");
+      send_response(client, "Error: Command too long\n");
       _close_client_connection(client);
       return;
     }
@@ -450,7 +457,7 @@ void process_data_buffer(client_t *client) {
   if (client->buffer_len == READ_BUFFER_SIZE) {
     LOG_ACTION_ERROR(ACT_BUFFER_OVERFLOW, "client_id=%lld buffer_size=%d",
                      client->client_id, READ_BUFFER_SIZE);
-    send_response(client, "ERROR: Command buffer overflow\n");
+    send_response(client, "Error: Command buffer overflow\n");
     _close_client_connection(client);
   }
 }

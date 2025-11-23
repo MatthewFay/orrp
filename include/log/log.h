@@ -169,6 +169,9 @@ static inline void log_global_shutdown(void) { zlog_fini(); }
 #define ACT_API_EXEC_FAILED "api_exec_failed"
 #define ACT_CMD_EXEC_FAILED "cmd_exec_failed"
 
+// Translator
+#define ACT_TRANSLATION_ERROR "translation_error"
+
 // Work queue operations
 #define ACT_WORK_QUEUE_FAILED "work_queue_failed"
 

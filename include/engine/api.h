@@ -9,7 +9,7 @@
 
 enum api_op_type { API_INVALID, API_EVENT, API_QUERY };
 
-enum api_resp_type { API_RESP_TYPE_LIST_U32 };
+enum api_resp_type { API_RESP_TYPE_LIST_U32, API_RESP_TYPE_ACK };
 
 typedef struct api_response_type_list_u32_s {
   uint32_t *int32s;

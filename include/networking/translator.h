@@ -5,7 +5,7 @@
 #include <stdbool.h>
 
 typedef enum {
-  TRANSLATOR_COMMA_SEP_FORMAT_TYPE
+  TRANSLATOR_RESP_FORMAT_TYPE_TEXT
 } translator_response_format_type_t;
 
 typedef struct translator_result_s {
@@ -15,9 +15,8 @@ typedef struct translator_result_s {
   const char *err_msg;
 } translator_result_t;
 
-translator_result_t *translate(api_response_t *api_resp,
-                               translator_response_format_type_t resp_type);
-
-void translate_free_result(translator_result_t *tr);
+void translate(api_response_t *api_resp,
+               translator_response_format_type_t resp_type,
+               translator_result_t *tr);
 
 #endif
