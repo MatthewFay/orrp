@@ -25,7 +25,6 @@ static bool _is_valid_filename(const char *filename) {
     return false;
   }
 
-  // Only allow alphanumeric, underscore, hyphen
   for (size_t i = 0; i < len; i++) {
     unsigned char c = (unsigned char)filename[i];
     if (!isalnum(c) && c != '_' && c != '-') {
@@ -191,8 +190,7 @@ api_response_t *api_exec(ast_node_t *ast) {
     return r;
   }
 
-  // Dispatch based on the command type in the AST root.
-  switch (ast->type) {
+  switch (ast->command.type) {
   case AST_CMD_EVENT:
     _api_event(ast, r);
     break;

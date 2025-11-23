@@ -31,8 +31,8 @@ static void _handle_basic_fmt(api_response_t *api_resp,
     return;
   }
 
-  // uint32_t (10 chars max) + comma
-  size_t buf_size = ((uint32_t)list->count * 11) + 1;
+  // (count * uint32_t (10 chars max) + comma) + \n + \0
+  size_t buf_size = ((uint32_t)list->count * 11) + 1 + 1;
   tr->response = malloc(buf_size);
 
   if (!tr->response) {
@@ -48,6 +48,7 @@ static void _handle_basic_fmt(api_response_t *api_resp,
       *ptr++ = ',';
     }
   }
+  *ptr++ = '\n';
   *ptr = '\0';
 
   tr->success = true;
