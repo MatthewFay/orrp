@@ -218,13 +218,18 @@ static bool _is_new_container_entity(worker_t *worker, char *container_name,
   db_get_result_t r = {0};
   db_key_t db_key;
   db_key.type = DB_KEY_STRING;
-  db_key.key.s = strdup(USR_ENTITIES_KEY);
+  // Keep reference so we can free it
+  char *key_str = strdup(USR_ENTITIES_KEY);
+  db_key.key.s = key_str;
 
   if (!db_get(dc->dc->data.usr->user_dc_metadata_db, dc->txn, &db_key, &r)) {
     LOG_ACTION_ERROR(ACT_DB_READ_FAILED,
                      "context=container_entity entity_id=%d", ent_id);
+    free(key_str);
     return false;
   }
+
+  free(key_str);
 
   entities = malloc(sizeof(worker_container_entities_t));
   if (!entities) {
@@ -252,6 +257,7 @@ static bool _is_new_container_entity(worker_t *worker, char *container_name,
       LOG_ACTION_ERROR(ACT_DESERIALIZATION_FAILED,
                        "context=container_entity_name container_name=\"%s\"",
                        container_name);
+      free(entities->container_name);
       free(entities);
       db_get_result_clear(&r);
       return false;
@@ -263,6 +269,7 @@ static bool _is_new_container_entity(worker_t *worker, char *container_name,
   } else {
     entities->entities = bitmap_create();
     if (!entities->entities) {
+      free(entities->container_name);
       free(entities);
       db_get_result_clear(&r);
       return false;
@@ -273,8 +280,8 @@ static bool _is_new_container_entity(worker_t *worker, char *container_name,
 
   db_get_result_clear(&r);
 
-  HASH_ADD_KEYPTR(hh, worker->container_entities, container_name,
-                  strlen(container_name), entities);
+  HASH_ADD_KEYPTR(hh, worker->container_entities, entities->container_name,
+                  strlen(entities->container_name), entities);
 
   return true;
 }
