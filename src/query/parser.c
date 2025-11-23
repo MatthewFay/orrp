@@ -214,16 +214,57 @@ static ast_node_t *_parse_exp(Queue *tokens, parse_result_t *r) {
     if (expect_operand) {
       if (token->type == TOKEN_IDENTIFER ||
           token->type == TOKEN_LITERAL_NUMBER) {
-        token_t *val_token = q_dequeue(tokens);
-
+        token_t *operand_tok = q_dequeue(tokens);
         ast_node_t *node;
-        if (val_token->type == TOKEN_IDENTIFER) {
-          node = ast_create_string_literal_node(val_token->text_value);
+        token_t *next_tok = q_peek(tokens);
+
+        if (operand_tok->type == TOKEN_IDENTIFER && next_tok &&
+            next_tok->type == TOKEN_SYM_COLON) {
+          // consume colon
+          tok_free(q_dequeue(tokens));
+
+          token_t *val_tok = q_dequeue(tokens);
+          if (!val_tok) {
+            tok_free(operand_tok);
+            r->error_message = "Unexpected end of query after tag key";
+            return cleanup_stacks_and_return_null(value_stack, op_stack);
+          }
+
+          char *final_val_str = NULL;
+          if (val_tok->type == TOKEN_IDENTIFER ||
+              val_tok->type == TOKEN_LITERAL_STRING) {
+            final_val_str = val_tok->text_value;
+          } else if (val_tok->type == TOKEN_LITERAL_NUMBER) {
+            char str_buff[12];
+            if (conv_uint32_to_string(str_buff, sizeof(str_buff),
+                                      val_tok->number_value) == -1) {
+              tok_free(operand_tok);
+              tok_free(val_tok);
+              r->error_message = "Number conversion error";
+              return cleanup_stacks_and_return_null(value_stack, op_stack);
+            }
+            final_val_str = str_buff;
+          } else {
+            tok_free(operand_tok);
+            tok_free(val_tok);
+            r->error_message =
+                "Invalid tag value. Expected identifier, string, or number.";
+            return cleanup_stacks_and_return_null(value_stack, op_stack);
+          }
+
+          ast_node_t *tag_val_node =
+              ast_create_string_literal_node(final_val_str);
+          node = ast_create_custom_tag_node(operand_tok->text_value,
+                                            tag_val_node, false);
+          tok_free(val_tok);
+        } else if (operand_tok->type == TOKEN_IDENTIFER) {
+          node = ast_create_string_literal_node(operand_tok->text_value);
         } else {
-          node = ast_create_number_literal_node(val_token->number_value);
+          node = ast_create_number_literal_node(operand_tok->number_value);
         }
 
-        tok_free(val_token);
+        tok_free(operand_tok);
+
         if (!node || !stack_push(value_stack, node)) {
           ast_free(node);
           return cleanup_stacks_and_return_null(value_stack, op_stack);

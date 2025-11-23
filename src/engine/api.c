@@ -186,7 +186,7 @@ api_response_t *api_exec(ast_node_t *ast) {
     }
   }
   if (!v_r) {
-    r->err_msg = "Invalid AST";
+    r->err_msg = "Error: Invalid command";
     ast_free(ast);
     return r;
   }

@@ -1,4 +1,5 @@
 #include "networking/translator.h"
+#include "engine/api.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -6,6 +7,12 @@
 
 static void _handle_basic_fmt(api_response_t *api_resp,
                               translator_result_t *tr) {
+
+  if (api_resp->resp_type == API_RESP_TYPE_ACK) {
+    tr->response = strdup("OK\n");
+    tr->success = true;
+    return;
+  }
   if (api_resp->resp_type != API_RESP_TYPE_LIST_U32) {
     tr->err_msg = "Unexpected response type";
     return;

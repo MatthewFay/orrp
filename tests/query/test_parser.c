@@ -250,6 +250,16 @@ void test_where_not_operator(void) {
   parse_free_result(result);
 }
 
+void test_where_single_tag(void) {
+  parse_result_t *result = _parse_string("query in:test_c where:(loc:ca)");
+  _assert_success(result);
+
+  ast_node_t *where = _find_tag_by_key(result->ast, AST_KEY_WHERE)->tag.value;
+  TEST_ASSERT_EQUAL(AST_TAG_NODE, where->type);
+
+  parse_free_result(result);
+}
+
 void test_where_comparison(void) {
   parse_result_t *result = _parse_string(
       "QUERY in:analytics_2025_01 where:(loc:ca AND (action:login > 3))");
@@ -351,6 +361,7 @@ int main(void) {
   RUN_TEST(test_where_precedence);
   RUN_TEST(test_where_parentheses_override);
   RUN_TEST(test_where_not_operator);
+  RUN_TEST(test_where_single_tag);
   RUN_TEST(test_where_fails_mismatched_parens);
   RUN_TEST(test_where_fails_invalid_syntax);
 

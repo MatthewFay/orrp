@@ -298,6 +298,7 @@ void eng_event(api_response_t *r, ast_node_t *ast) {
   }
 
   r->is_ok = true;
+  r->resp_type = API_RESP_TYPE_ACK;
 }
 
 static void _handle_query_result(eng_query_result_t *query_r,

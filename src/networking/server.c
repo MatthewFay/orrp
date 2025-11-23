@@ -281,13 +281,13 @@ static void _work_cb(uv_work_t *req) {
   } else if (!api_resp->is_ok) {
     const char *err =
         api_resp->err_msg ? api_resp->err_msg : "Execution failed";
-    LOG_ACTION_DEBUG(ACT_CMD_EXEC_FAILED, "client_id=%lld err=\"%s\"",
+    LOG_ACTION_ERROR(ACT_CMD_EXEC_FAILED, "client_id=%lld err=\"%s\"",
                      ctx->client->client_id, err);
     ctx->response = (char *)err;
   } else {
     translate(api_resp, TRANSLATOR_RESP_FORMAT_TYPE_TEXT, &tr);
     if (!tr.success) {
-      LOG_ACTION_DEBUG(ACT_TRANSLATION_ERROR, "client_id=%lld err=\"%s\"",
+      LOG_ACTION_ERROR(ACT_TRANSLATION_ERROR, "client_id=%lld err=\"%s\"",
                        ctx->client->client_id, tr.err_msg);
       ctx->response = INTERNAL_SERVER_ERROR_MSG;
     } else {
