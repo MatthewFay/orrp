@@ -38,6 +38,17 @@ bool lock_striped_ht_put_int32(lock_striped_ht_t *ht, uint32_t key,
 bool lock_striped_ht_get_int32(lock_striped_ht_t *ht, uint32_t key,
                                void **val_out);
 
+// Callback function type.
+// key: The key pointer (char* or casted uint32_t)
+// value: The value pointer
+// ctx: User provided context
+typedef void (*ls_ht_iterator_cb)(void *key, void *value, void *ctx);
+
+// Iterate over all entries in the table (NOT THREAD SAFE - use during
+// shutdown/cleanup)
+void lock_striped_ht_iterate(lock_striped_ht_t *ht, ls_ht_iterator_cb cb,
+                             void *ctx);
+
 void lock_striped_ht_destroy(lock_striped_ht_t *lock_striped_ht);
 
 #endif

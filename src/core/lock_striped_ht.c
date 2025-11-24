@@ -6,6 +6,50 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+void lock_striped_ht_iterate(lock_striped_ht_t *ht, ls_ht_iterator_cb cb,
+                             void *ctx) {
+  if (!ht || !ht->init || !cb)
+    return;
+
+  for (int i = 0; i < NUM_STRIPES; i++) {
+    ck_ht_t *stripe_map = ht->ht[i];
+    if (!stripe_map)
+      continue;
+
+    ck_ht_iterator_t iterator;
+    ck_ht_entry_t *entry;
+
+    // Initialize iterator for this stripe
+    ck_ht_iterator_init(&iterator);
+
+    // Walk the stripe
+    while (ck_ht_next(stripe_map, &iterator, &entry)) {
+      // Extract key/value based on the mode (Direct vs ByteString)
+      // CK_HT stores keys differently depending on mode.
+
+      void *key_ptr = NULL;
+      void *val_ptr = NULL;
+
+      if (stripe_map->mode & CK_HT_MODE_DIRECT) {
+        // Int32 keys are stored directly in the key field
+        // We pass the address of the key field if you need it,
+        // or cast the key itself depending on how you use it.
+        // Since your put_int32 passes 'key' by value, let's treat it as such.
+        uintptr_t raw_key = ck_ht_entry_key_direct(entry);
+        key_ptr = (void *)raw_key; // Cast back to void* for callback
+        val_ptr = (void *)ck_ht_entry_value_direct(entry);
+      } else {
+        // String keys: entry->key points to the actual string (your strdup'd
+        // pointer)
+        key_ptr = ck_ht_entry_key(entry);
+        val_ptr = ck_ht_entry_value(entry);
+      }
+
+      cb(key_ptr, val_ptr, ctx);
+    }
+  }
+}
+
 void lock_striped_ht_destroy(lock_striped_ht_t *ht) {
   if (!ht || !ht->init)
     return;

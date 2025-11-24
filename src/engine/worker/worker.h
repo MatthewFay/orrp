@@ -60,6 +60,10 @@ typedef struct {
 // Call this before `worker_start` - sets up environment for worker threads
 worker_init_result_t worker_init_global(void);
 
+// Call this AFTER all worker threads have been stopped and joined.
+// It cleans up shared static resources (like the event ID cache).
+void worker_destroy_global(void);
+
 typedef struct {
   bool success;
   const char *msg;

@@ -347,8 +347,11 @@ static bool _get_next_event_id_for_container(worker_t *worker,
                   "counter_type=event_id container=\"%s\" value=%u",
                   container_name, next);
 
+  // duplicate `container_name` since it belongs to msg
+  char *cache_key = strdup(container_name);
+
   // Try to insert into cache
-  if (lock_striped_ht_put_string(&g_next_event_id_by_container, container_name,
+  if (lock_striped_ht_put_string(&g_next_event_id_by_container, cache_key,
                                  next_event_id)) {
     *event_id_out = atomic_fetch_add(next_event_id, 1);
     return true;
@@ -359,6 +362,7 @@ static bool _get_next_event_id_for_container(worker_t *worker,
                    "context=\"event_id_insert\" container=\"%s\"",
                    container_name);
   free(next_event_id);
+  free(cache_key);
 
   if (lock_striped_ht_get_string(&g_next_event_id_by_container, container_name,
                                  (void **)&next_event_id)) {
@@ -765,4 +769,27 @@ worker_result_t worker_stop(worker_t *worker) {
   }
 
   return (worker_result_t){.success = true};
+}
+
+static void _global_event_id_cleanup_cb(void *key, void *value, void *ctx) {
+  (void)ctx;
+  char *container_name_key = (char *)key;
+  atomic_uint_fast32_t *next_id_val = (atomic_uint_fast32_t *)value;
+
+  if (container_name_key) {
+    free(container_name_key);
+  }
+
+  if (next_id_val) {
+    free(next_id_val);
+  }
+}
+
+void worker_destroy_global(void) {
+  // Note: lock_striped_ht_iterate is not thread-safe,
+  // which is why we must ensure all workers are joined before calling this.
+  lock_striped_ht_iterate(&g_next_event_id_by_container,
+                          _global_event_id_cleanup_cb, NULL);
+
+  lock_striped_ht_destroy(&g_next_event_id_by_container);
 }

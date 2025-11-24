@@ -204,6 +204,8 @@ void eng_shutdown(void) {
   LOG_ACTION_INFO(ACT_THREAD_POOL_STOPPING,
                   "thread_type=worker status=complete");
 
+  worker_destroy_global();
+
   // Stop engine writer before consumers
   LOG_ACTION_INFO(ACT_THREAD_STOPPING, "thread_type=writer");
   if (!eng_writer_stop(&g_eng_writer)) {
