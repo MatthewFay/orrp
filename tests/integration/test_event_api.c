@@ -166,7 +166,7 @@ void test_EVENT_MissingRequiredTag_IN_ShouldFail(void) {
 
   TEST_ASSERT_NOT_NULL(response);
   TEST_ASSERT_FALSE(response->is_ok);
-  TEST_ASSERT_EQUAL_STRING("Invalid AST", response->err_msg);
+  TEST_ASSERT_EQUAL_STRING("Error: Invalid command", response->err_msg);
 
   free_api_response(response);
 }
@@ -177,7 +177,7 @@ void test_EVENT_MissingRequiredTag_ENTITY_ShouldFail(void) {
 
   TEST_ASSERT_NOT_NULL(response);
   TEST_ASSERT_FALSE(response->is_ok);
-  TEST_ASSERT_EQUAL_STRING("Invalid AST", response->err_msg);
+  TEST_ASSERT_EQUAL_STRING("Error: Invalid command", response->err_msg);
 
   free_api_response(response);
 }
@@ -188,7 +188,7 @@ void test_EVENT_DuplicateReservedTag_ShouldFail(void) {
 
   TEST_ASSERT_NOT_NULL(response);
   TEST_ASSERT_FALSE(response->is_ok);
-  TEST_ASSERT_EQUAL_STRING("Invalid AST", response->err_msg);
+  TEST_ASSERT_EQUAL_STRING("Error: Invalid command", response->err_msg);
 
   free_api_response(response);
 }
@@ -199,7 +199,7 @@ void test_EVENT_DuplicateCustomTag_ShouldFail(void) {
 
   TEST_ASSERT_NOT_NULL(response);
   TEST_ASSERT_FALSE(response->is_ok);
-  TEST_ASSERT_EQUAL_STRING("Invalid AST", response->err_msg);
+  TEST_ASSERT_EQUAL_STRING("Error: Invalid command", response->err_msg);
 
   free_api_response(response);
 }
@@ -215,7 +215,7 @@ void test_EVENT_InvalidContainerName_ShouldFail(void) {
   api_response_t *r1 = run_command(cmd1);
   TEST_ASSERT_NOT_NULL(r1);
   TEST_ASSERT_FALSE(r1->is_ok);
-  TEST_ASSERT_EQUAL_STRING("Invalid AST", r1->err_msg);
+  TEST_ASSERT_EQUAL_STRING("Error: Invalid command", r1->err_msg);
 
   free_api_response(r1);
 }
@@ -227,8 +227,8 @@ void test_EVENT_SyntaxError_MalformedTag_ShouldFail(void) {
 
   TEST_ASSERT_NOT_NULL(response);
   TEST_ASSERT_FALSE(response->is_ok);
-  // The exact error message may come from the parser, "Invalid AST" is a good
-  // generic check
+  // The exact error message may come from the parser, "Error: Invalid command"
+  // is a good generic check
   TEST_ASSERT_NOT_NULL(response->err_msg);
 
   free_api_response(response);
@@ -247,7 +247,7 @@ void test_EVENT_CommandOnly_ShouldFail(void) {
 
   TEST_ASSERT_NOT_NULL(response);
   TEST_ASSERT_FALSE(response->is_ok);
-  TEST_ASSERT_EQUAL_STRING("Invalid AST", response->err_msg);
+  TEST_ASSERT_EQUAL_STRING("Error: Invalid command", response->err_msg);
 
   free_api_response(response);
 }

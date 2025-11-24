@@ -71,7 +71,7 @@ void test_api_event_invalid_ast_missing_in(void) {
   api_response_t *resp = api_exec(cmd);
   TEST_ASSERT_NOT_NULL(resp);
   TEST_ASSERT_FALSE(resp->is_ok);
-  TEST_ASSERT_EQUAL_STRING("Invalid AST", resp->err_msg);
+  TEST_ASSERT_EQUAL_STRING("Error: Invalid command", resp->err_msg);
   TEST_ASSERT_EQUAL(0, mock_state.called);
   free_api_response(resp);
 }
@@ -85,7 +85,7 @@ void test_api_event_invalid_ast_missing_entity(void) {
   api_response_t *resp = api_exec(cmd);
   TEST_ASSERT_NOT_NULL(resp);
   TEST_ASSERT_FALSE(resp->is_ok);
-  TEST_ASSERT_EQUAL_STRING("Invalid AST", resp->err_msg);
+  TEST_ASSERT_EQUAL_STRING("Error: Invalid command", resp->err_msg);
   TEST_ASSERT_EQUAL(0, mock_state.called);
   free_api_response(resp);
 }
@@ -108,7 +108,7 @@ void test_api_event_invalid_ast_duplicate_custom_tag(void) {
   api_response_t *resp = api_exec(cmd);
   TEST_ASSERT_NOT_NULL(resp);
   TEST_ASSERT_FALSE(resp->is_ok);
-  TEST_ASSERT_EQUAL_STRING("Invalid AST", resp->err_msg);
+  TEST_ASSERT_EQUAL_STRING("Error: Invalid command", resp->err_msg);
   TEST_ASSERT_EQUAL(0, mock_state.called);
   free_api_response(resp);
 }
@@ -125,7 +125,7 @@ void test_api_event_invalid_ast_invalid_container_name(void) {
   api_response_t *resp = api_exec(cmd);
   TEST_ASSERT_NOT_NULL(resp);
   TEST_ASSERT_FALSE(resp->is_ok);
-  TEST_ASSERT_EQUAL_STRING("Invalid AST", resp->err_msg);
+  TEST_ASSERT_EQUAL_STRING("Error: Invalid command", resp->err_msg);
   TEST_ASSERT_EQUAL(0, mock_state.called);
   free_api_response(resp);
 }
@@ -145,7 +145,7 @@ void test_api_event_invalid_ast_duplicate_reserved_tag(void) {
   api_response_t *resp = api_exec(cmd);
   TEST_ASSERT_NOT_NULL(resp);
   TEST_ASSERT_FALSE(resp->is_ok);
-  TEST_ASSERT_EQUAL_STRING("Invalid AST", resp->err_msg);
+  TEST_ASSERT_EQUAL_STRING("Error: Invalid command", resp->err_msg);
   TEST_ASSERT_EQUAL(0, mock_state.called);
   free_api_response(resp);
 }
@@ -168,7 +168,7 @@ void test_api_event_invalid_ast_counter_twice(void) {
   api_response_t *resp = api_exec(cmd);
   TEST_ASSERT_NOT_NULL(resp);
   TEST_ASSERT_FALSE(resp->is_ok);
-  TEST_ASSERT_EQUAL_STRING("Invalid AST", resp->err_msg);
+  TEST_ASSERT_EQUAL_STRING("Error: Invalid command", resp->err_msg);
   TEST_ASSERT_EQUAL(0, mock_state.called);
   free_api_response(resp);
 }
@@ -189,7 +189,7 @@ void test_api_event_invalid_ast_where_tag(void) {
   api_response_t *resp = api_exec(cmd);
   TEST_ASSERT_NOT_NULL(resp);
   TEST_ASSERT_FALSE(resp->is_ok);
-  TEST_ASSERT_EQUAL_STRING("Invalid AST", resp->err_msg);
+  TEST_ASSERT_EQUAL_STRING("Error: Invalid command", resp->err_msg);
   TEST_ASSERT_EQUAL(0, mock_state.called);
   free_api_response(resp);
 }
@@ -199,7 +199,7 @@ void test_api_event_invalid_ast_null(void) {
   api_response_t *resp = api_exec(NULL);
   TEST_ASSERT_NOT_NULL(resp);
   TEST_ASSERT_FALSE(resp->is_ok);
-  TEST_ASSERT_EQUAL_STRING("Invalid AST", resp->err_msg);
+  TEST_ASSERT_EQUAL_STRING("Error: Invalid command", resp->err_msg);
   TEST_ASSERT_EQUAL(0, mock_state.called);
   free_api_response(resp);
 }
