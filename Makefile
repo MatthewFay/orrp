@@ -220,8 +220,10 @@ test: bin/test_bitmaps \
 			bin/test_stack \
 			bin/test_api \
 			bin/test_cmd_context \
+			bin/test_consumer_batch \
 			bin/test_consumer_cache \
 			bin/test_container_cache \
+			bin/test_consumer_schema \
 			bin/test_container_db \
 			bin/test_container \
 			bin/test_eng_eval \
@@ -252,8 +254,12 @@ test: bin/test_bitmaps \
 	./bin/test_api
 	@echo "--- Running cmd_context test ---"
 	./bin/test_cmd_context
+	@echo "--- Running consumer_batch test ---"
+	./bin/test_consumer_batch
 	@echo "--- Running consumer_cache test ---"
 	./bin/test_consumer_cache
+	@echo "--- Running consumer_schema test ---"
+	./bin/test_consumer_schema
 	@echo "--- Running container_cache test ---"
 	./bin/test_container_cache
 	@echo "--- Running container_db test ---"
@@ -293,7 +299,9 @@ test_build: bin/test_bitmaps \
 						bin/test_stack \
 						bin/test_api \
 						bin/test_cmd_context \
+						bin/test_consumer_batch \
 						bin/test_consumer_cache \
+						bin/test_consumer_schema \
 						bin/test_container_cache \
 						bin/test_container_db \
 						bin/test_container \
@@ -368,6 +376,12 @@ bin/test_cmd_context: tests/engine/test_cmd_context.c \
 							${UNITY_SRC} | $(BIN_DIR)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
 
+# Rule to build the consumer_batch test executable
+bin/test_consumer_batch: tests/engine/test_consumer_batch.c \
+							src/engine/consumer/consumer_batch.c \
+							${UNITY_SRC} | $(BIN_DIR)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
+
 # Rule to build the consumer_cache test executable
 bin/test_consumer_cache: tests/engine/test_consumer_cache.c \
 							src/engine/consumer/consumer_cache_internal.c \
@@ -377,6 +391,12 @@ bin/test_consumer_cache: tests/engine/test_consumer_cache.c \
 							lib/roaring/roaring.c \
 							${UNITY_SRC} | $(BIN_DIR) $(LIBCK_A)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBCK_A) $(LIBS)
+
+# Rule to build the consumer_schema test executable
+bin/test_consumer_schema: tests/engine/test_consumer_schema.c \
+							src/engine/consumer/consumer_schema.c \
+							${UNITY_SRC} | $(BIN_DIR)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 # Rule to build the container cache test executable
 bin/test_container_cache: tests/engine/test_container_cache.c \

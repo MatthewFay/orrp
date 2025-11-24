@@ -1,4 +1,4 @@
-#include "consumer_batch.h"
+#include "engine/consumer/consumer_batch.h"
 
 void consumer_batch_free_table(consumer_batch_container_t *container_table) {
   if (!container_table)
@@ -62,22 +62,27 @@ static bool _add_msg_to_batch(consumer_batch_container_t *batch,
     key->ser_db_key = strdup(msg->ser_db_key);
     key->head = NULL;
     key->tail = NULL;
-    HASH_ADD_KEYPTR(hh, batch->db_keys, msg->ser_db_key,
-                    strlen(msg->ser_db_key), key);
+    HASH_ADD_KEYPTR(hh, batch->db_keys, key->ser_db_key,
+                    strlen(key->ser_db_key), key);
   }
 
   consumer_batch_msg_node_t *m = _create_batch_entry(msg);
   if (!m) {
-    if (new_key)
+    if (new_key) {
+      if (key->ser_db_key)
+        free(key->ser_db_key);
       free(key);
+    }
     return false;
   }
 
   if (!key->head) {
     key->head = m;
     key->tail = m;
+    key->count = 1;
     return true;
   }
+
   key->tail->next = m;
   key->tail = m;
   key->count++;
@@ -93,14 +98,24 @@ bool consumer_batch_add_msg(consumer_batch_container_t **container_table,
     return false;
 
   HASH_FIND_STR(*container_table, msg->op->db_key.container_name, batch);
-  if (batch && !_add_msg_to_batch(batch, msg)) {
-    return false;
+
+  if (batch) {
+    if (!_add_msg_to_batch(batch, msg)) {
+      return false;
+    }
   } else {
     batch =
         _create_batch(msg->op->db_key.container_name, msg->op->db_key.dc_type);
-    if (!batch || !_add_msg_to_batch(batch, msg)) {
+    if (!batch) {
       return false;
     }
+
+    if (!_add_msg_to_batch(batch, msg)) {
+      free(batch->container_name);
+      free(batch);
+      return false;
+    }
+
     HASH_ADD_KEYPTR(hh, *container_table, batch->container_name,
                     strlen(batch->container_name), batch);
   }
