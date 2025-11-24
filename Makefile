@@ -227,6 +227,7 @@ test: bin/test_bitmaps \
 			bin/test_eng_eval \
 			bin/test_eng_key_format \
 			bin/test_op \
+			bin/test_routing \
 			bin/test_translator
 			bin/test_tokenizer \
  		  bin/test_ast \
@@ -265,6 +266,8 @@ test: bin/test_bitmaps \
 	./bin/test_eng_key_format
 	@echo "--- Running op test ---"
 	./bin/test_op
+	@echo "--- Running routing test ---"
+	./bin/test_routing
 
 	@echo "--- Running translator test ---"
 	./bin/test_translator
@@ -297,6 +300,7 @@ test_build: bin/test_bitmaps \
 						bin/test_eng_eval \
 						bin/test_eng_key_format \
 						bin/test_op \
+						bin/test_routing \
 						bin/test_translator \
 					  bin/test_ast \
 					  bin/test_parser \
@@ -421,6 +425,13 @@ bin/test_op: tests/engine/test_op.c \
 							src/engine/op/op.c \
 							src/core/bitmaps.c \
 							lib/roaring/roaring.c \
+							${UNITY_SRC} | $(BIN_DIR)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
+
+# Rule to build the routing test executable
+bin/test_routing: tests/engine/test_routing.c \
+							src/engine/routing/routing.c \
+							src/core/hash.c \
 							${UNITY_SRC} | $(BIN_DIR)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
 

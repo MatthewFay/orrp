@@ -1,3 +1,4 @@
+#include "routing.h"
 #include "core/hash.h"
 #include <string.h>
 
