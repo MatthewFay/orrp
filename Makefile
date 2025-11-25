@@ -223,6 +223,7 @@ test: bin/test_bitmaps \
 			bin/test_consumer_batch \
 			bin/test_consumer_cache \
 			bin/test_container_cache \
+			bin/test_consumer_flush \
 			bin/test_consumer_schema \
 			bin/test_container_db \
 			bin/test_container \
@@ -258,6 +259,8 @@ test: bin/test_bitmaps \
 	./bin/test_consumer_batch
 	@echo "--- Running consumer_cache test ---"
 	./bin/test_consumer_cache
+	@echo "--- Running consumer_flush test ---"
+	./bin/test_consumer_flush
 	@echo "--- Running consumer_schema test ---"
 	./bin/test_consumer_schema
 	@echo "--- Running container_cache test ---"
@@ -301,6 +304,7 @@ test_build: bin/test_bitmaps \
 						bin/test_cmd_context \
 						bin/test_consumer_batch \
 						bin/test_consumer_cache \
+						bin/test_consumer_flush \
 						bin/test_consumer_schema \
 						bin/test_container_cache \
 						bin/test_container_db \
@@ -391,6 +395,15 @@ bin/test_consumer_cache: tests/engine/test_consumer_cache.c \
 							lib/roaring/roaring.c \
 							${UNITY_SRC} | $(BIN_DIR) $(LIBCK_A)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBCK_A) $(LIBS)
+
+# Rule to build the consumer_flush test executable
+bin/test_consumer_flush: tests/engine/test_consumer_flush.c \
+							src/engine/consumer/consumer_flush.c \
+							src/core/bitmaps.c \
+							lib/roaring/roaring.c \
+							src/engine/engine_writer/engine_writer_queue_msg.c \
+							${UNITY_SRC} | $(BIN_DIR)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 # Rule to build the consumer_schema test executable
 bin/test_consumer_schema: tests/engine/test_consumer_schema.c \
