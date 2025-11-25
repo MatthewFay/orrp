@@ -290,6 +290,8 @@ test: bin/test_bitmaps \
 
 	@echo "--- Running integration test: event api ---"
 	./bin/test_event_api
+	@echo "--- Running integration test: query ---"
+	./bin/test_query
 	@echo "--- All tests finished successfully ---"
 
 # 'test_build' target: builds all test executables
@@ -317,7 +319,8 @@ test_build: bin/test_bitmaps \
 					  bin/test_ast \
 					  bin/test_parser \
 						bin/test_tokenizer \
-						bin/test_event_api
+						bin/test_event_api \
+						bin/test_query
 
 # --- INDIVIDUAL TEST BUILD RULES ---
 
@@ -503,7 +506,12 @@ bin/test_tokenizer: tests/query/test_tokenizer.c \
 # Rule to build the event api test executable
 bin/test_event_api: tests/integration/test_event_api.c \
   $(TEST_APP_SRCS) ${UNITY_SRC} $(LIB_SRCS) | $(BIN_DIR) $(LIBCK_A) $(LIBUV_A)
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBCK_A) $(LIBUV_A) $(LIBS)
+	$(CC) $(CFLAGS) -ULOG_LEVEL -DLOG_LEVEL=LOG_LEVEL_WARN $(LDFLAGS) -o $@ $^ $(LIBCK_A) $(LIBUV_A) $(LIBS)
+
+# Rule to build the query test executable
+bin/test_query: tests/integration/test_query.c \
+  $(TEST_APP_SRCS) ${UNITY_SRC} $(LIB_SRCS) | $(BIN_DIR) $(LIBCK_A) $(LIBUV_A)
+	$(CC) $(CFLAGS) -ULOG_LEVEL -DLOG_LEVEL=LOG_LEVEL_WARN $(LDFLAGS) -o $@ $^ $(LIBCK_A) $(LIBUV_A) $(LIBS)
 
 # --- OBJECT FILE COMPILATION ---
 
