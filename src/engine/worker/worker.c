@@ -37,10 +37,11 @@ static uint32_t _get_next_entity_id() {
   return atomic_fetch_add(&g_next_entity_id, 1);
 }
 
-static bool _get_entity_mapping_by_str(worker_t *worker, eng_container_t *sys_c,
-                                       MDB_txn *sys_txn, char *entity_id_str,
-                                       worker_entity_mapping_t **mapping_out,
-                                       bool *is_new_ent_out) {
+static bool
+_get_entity_mapping_by_str(worker_t *worker, eng_container_t **sys_c_ptr,
+                           MDB_txn **sys_txn_ptr, char *entity_id_str,
+                           worker_entity_mapping_t **mapping_out,
+                           bool *is_new_ent_out, bool *created_sys_txn) {
   worker_entity_mapping_t *em = NULL;
   *is_new_ent_out = false;
   *mapping_out = NULL;
@@ -59,17 +60,26 @@ static bool _get_entity_mapping_by_str(worker_t *worker, eng_container_t *sys_c,
                    "context=\"entity_mapping\" entity_id=\"%s\"",
                    entity_id_str);
 
-  bool created_txn = false;
-  if (!sys_txn) {
-    sys_txn = db_create_txn(sys_c->env, true);
-    if (!sys_txn) {
+  *created_sys_txn = false;
+  if (!*sys_c_ptr) {
+    container_result_t cr = container_get_system();
+    if (!cr.success) {
+      LOG_ACTION_ERROR(ACT_CONTAINER_OPEN_FAILED, "container=system");
+      return false;
+    }
+    *sys_c_ptr = cr.container;
+  }
+  if (!*sys_txn_ptr) {
+    MDB_txn *txn = db_create_txn((*sys_c_ptr)->env, true);
+    if (!txn) {
       LOG_ACTION_ERROR(ACT_TXN_FAILED,
                        "context=\"entity_mapping_lookup\" entity_id=\"%s\" "
                        "err=\"failed to create transaction\"",
                        entity_id_str);
       return false;
     }
-    created_txn = true;
+    *sys_txn_ptr = txn;
+    *created_sys_txn = true;
   }
 
   db_get_result_t r = {0};
@@ -77,13 +87,12 @@ static bool _get_entity_mapping_by_str(worker_t *worker, eng_container_t *sys_c,
   db_key.type = DB_KEY_STRING;
   db_key.key.s = entity_id_str;
 
-  if (!db_get(sys_c->data.sys->sys_dc_metadata_db, sys_txn, &db_key, &r)) {
+  if (!db_get((*sys_c_ptr)->data.sys->sys_dc_metadata_db, *sys_txn_ptr, &db_key,
+              &r)) {
     LOG_ACTION_ERROR(
         ACT_DB_READ_FAILED,
         "context=\"entity_metadata\" entity_id=\"%s\" db=sys_dc_metadata",
         entity_id_str);
-    if (created_txn)
-      db_abort_txn(sys_txn);
     return false;
   }
 
@@ -94,8 +103,6 @@ static bool _get_entity_mapping_by_str(worker_t *worker, eng_container_t *sys_c,
         "context=\"entity_mapping\" entity_id=\"%s\" size_bytes=%zu err=\"%s\"",
         entity_id_str, sizeof(worker_entity_mapping_t), strerror(errno));
     db_get_result_clear(&r);
-    if (created_txn)
-      db_abort_txn(sys_txn);
     return false;
   }
 
@@ -107,8 +114,6 @@ static bool _get_entity_mapping_by_str(worker_t *worker, eng_container_t *sys_c,
         entity_id_str, strerror(errno));
     free(em);
     db_get_result_clear(&r);
-    if (created_txn)
-      db_abort_txn(sys_txn);
     return false;
   }
 
@@ -128,8 +133,6 @@ static bool _get_entity_mapping_by_str(worker_t *worker, eng_container_t *sys_c,
   }
 
   db_get_result_clear(&r);
-  if (created_txn)
-    db_abort_txn(sys_txn);
 
   HASH_ADD_KEYPTR(hh, worker->entity_mappings, em->ent_str_id,
                   strlen(em->ent_str_id), em);
@@ -513,33 +516,19 @@ static bool _increment_entity_tag_counters(worker_t *worker,
 }
 
 static bool _process_msg(worker_t *worker, cmd_queue_msg_t *msg,
-                         eng_container_t **sys_c_ptr, MDB_txn **sys_txn_ptr) {
+                         eng_container_t **sys_c_ptr, MDB_txn **sys_txn_ptr,
+                         bool *created_sys_txn_out) {
   if (!msg || !msg->command) {
     LOG_ACTION_WARN(ACT_MSG_INVALID, "err=\"null_command\"");
     return false;
-  }
-
-  if (!*sys_c_ptr) {
-    container_result_t cr = container_get_system();
-    if (!cr.success) {
-      LOG_ACTION_ERROR(ACT_CONTAINER_OPEN_FAILED, "container=system");
-      return false;
-    }
-    MDB_txn *txn = db_create_txn(cr.container->env, true);
-    if (!txn) {
-      LOG_ACTION_ERROR(ACT_TXN_BEGIN, "err=\"failed\" container=system");
-      return false;
-    }
-    *sys_c_ptr = cr.container;
-    *sys_txn_ptr = txn;
   }
 
   bool is_new_ent = false;
   char *entity_id_str = msg->command->entity_tag_value->literal.string_value;
   worker_entity_mapping_t *em = NULL;
 
-  if (!_get_entity_mapping_by_str(worker, *sys_c_ptr, *sys_txn_ptr,
-                                  entity_id_str, &em, &is_new_ent)) {
+  if (!_get_entity_mapping_by_str(worker, sys_c_ptr, sys_txn_ptr, entity_id_str,
+                                  &em, &is_new_ent, created_sys_txn_out)) {
     LOG_ACTION_ERROR(ACT_ENTITY_MAPPING_FAILED, "entity_id=\"%s\"",
                      entity_id_str);
     return false;
@@ -594,7 +583,7 @@ static bool _process_msg(worker_t *worker, cmd_queue_msg_t *msg,
 
 // Returns num messages processed
 static int _do_work(worker_t *worker, eng_container_t **sys_c,
-                    MDB_txn **sys_txn) {
+                    MDB_txn **sys_txn, bool *created_sys_txn_out) {
   size_t prev_num_msgs = 0;
   size_t num_msgs_processed = 0;
   cmd_queue_msg_t *msg = NULL;
@@ -606,7 +595,7 @@ static int _do_work(worker_t *worker, eng_container_t **sys_c,
       cmd_queue_t *queue = &worker->config.cmd_queues[cmd_queue_idx];
 
       if (cmd_queue_dequeue(queue, &msg)) {
-        if (_process_msg(worker, msg, sys_c, sys_txn)) {
+        if (_process_msg(worker, msg, sys_c, sys_txn, created_sys_txn_out)) {
           num_msgs_processed++;
         } else {
           LOG_ACTION_WARN(ACT_MSG_PROCESS_FAILED, "queue_id=%u", cmd_queue_idx);
@@ -680,10 +669,16 @@ static void _worker_thread_func(void *arg) {
   size_t total_processed = 0;
   eng_container_t *sys_c = NULL;
   MDB_txn *sys_txn = NULL;
+  bool created_sys_txn = false;
   worker->user_dcs = NULL;
 
   while (!worker->should_stop) {
-    int processed = _do_work(worker, &sys_c, &sys_txn);
+    int processed = _do_work(worker, &sys_c, &sys_txn, &created_sys_txn);
+    if (created_sys_txn) {
+      db_abort_txn(sys_txn);
+      sys_txn = NULL;
+      created_sys_txn = false;
+    }
     if (processed > 0) {
       total_processed += processed;
       backoff = 1;
@@ -694,12 +689,6 @@ static void _worker_thread_func(void *arg) {
                         total_processed);
       }
     } else {
-      // `sys_txn` is created lazily
-      if (sys_txn) {
-        db_abort_txn(sys_txn);
-        sys_txn = NULL;
-      }
-
       if (worker->user_dcs) {
         worker_user_dc_t *user_dc, *user_dc_tmp;
 
