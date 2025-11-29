@@ -28,6 +28,7 @@ CFLAGS = -Iinclude \
 	 -Ilib/uthash \
 	 -Ilib/khash \
 	 -Ilib/ck/include \
+	 -Ilib/mpack \
 	 -Wall -Wextra -std=c11 \
 	 $(BUILD_CFLAGS) \
 	 -DLOG_LEVEL=$(LOG_LEVEL)
