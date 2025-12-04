@@ -59,11 +59,11 @@ bool db_key_into(char *buffer, size_t buffer_size,
   int r = -1;
   int db_type = 0;
   char *container_name;
-  if (db_key->dc_type == CONTAINER_TYPE_SYSTEM) {
+  if (db_key->dc_type == CONTAINER_TYPE_SYS) {
     db_type = db_key->sys_db_type;
     container_name = SYS_CONTAINER_NAME;
   } else {
-    db_type = db_key->user_db_type;
+    db_type = db_key->usr_db_type;
     container_name = db_key->container_name;
   }
   if (db_key->db_key.type == DB_KEY_INTEGER) {

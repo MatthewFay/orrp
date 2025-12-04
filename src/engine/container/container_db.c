@@ -1,5 +1,7 @@
 #include "container_db.h"
 #include "core/db.h"
+#include "core/mmap_array.h"
+#include "engine/container/container_types.h"
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -22,17 +24,16 @@ void container_close(eng_container_t *c) {
   }
 
   if (c->env) {
-    if (c->type == CONTAINER_TYPE_USER) {
+    if (c->type == CONTAINER_TYPE_USR) {
       db_close(c->env, c->data.usr->inverted_event_index_db);
-      db_close(c->env, c->data.usr->event_to_entity_db);
       db_close(c->env, c->data.usr->user_dc_metadata_db);
-      db_close(c->env, c->data.usr->counter_store_db);
-      db_close(c->env, c->data.usr->count_index_db);
+      db_close(c->env, c->data.usr->events_db);
+      mmap_array_close(&c->data.usr->event_to_entity_map);
       free(c->data.usr);
     } else {
       db_close(c->env, c->data.sys->sys_dc_metadata_db);
-      db_close(c->env, c->data.sys->int_to_ent_id_db);
       db_close(c->env, c->data.sys->ent_id_to_int_db);
+      mmap_array_close(&c->data.sys->entity_id_map);
       free(c->data.sys);
     }
     db_env_close(c->env);
@@ -52,7 +53,7 @@ eng_container_t *create_container_struct(eng_dc_type_t type) {
   c->name = NULL;
   c->type = type;
 
-  if (type == CONTAINER_TYPE_USER) {
+  if (type == CONTAINER_TYPE_USR) {
     c->data.usr = calloc(1, sizeof(eng_user_dc_t));
     if (!c->data.usr) {
       free(c);
@@ -80,7 +81,7 @@ container_result_t create_user_container(const char *name, const char *data_dir,
     return result;
   }
 
-  eng_container_t *c = create_container_struct(CONTAINER_TYPE_USER);
+  eng_container_t *c = create_container_struct(CONTAINER_TYPE_USR);
   if (!c) {
     result.error_code = CONTAINER_ERR_ALLOC;
     result.error_msg = "Failed to allocate container structure";
@@ -95,7 +96,7 @@ container_result_t create_user_container(const char *name, const char *data_dir,
     return result;
   }
 
-  c->env = db_create_env(c_path, initial_container_size, NUM_USR_DBS);
+  c->env = db_create_env(c_path, initial_container_size, USR_DB_COUNT);
   if (!c->env) {
     container_close(c);
     result.error_code = CONTAINER_ERR_ENV_CREATE;
@@ -106,19 +107,31 @@ container_result_t create_user_container(const char *name, const char *data_dir,
   // Open all user databases
   bool iei = db_open(c->env, USR_DB_INVERTED_EVENT_INDEX_NAME,
                      &c->data.usr->inverted_event_index_db);
-  bool ee = db_open(c->env, USR_DB_EVENT_TO_ENT_NAME,
-                    &c->data.usr->event_to_entity_db);
   bool meta =
       db_open(c->env, USR_DB_METADATA_NAME, &c->data.usr->user_dc_metadata_db);
-  bool cs = db_open(c->env, USR_DB_COUNTER_STORE_NAME,
-                    &c->data.usr->counter_store_db);
-  bool ci =
-      db_open(c->env, USR_DB_COUNT_INDEX_NAME, &c->data.usr->count_index_db);
 
-  if (!(iei && ee && meta && cs && ci)) {
+  bool edb = db_open(c->env, USR_DB_EVENTS_NAME, &c->data.usr->events_db);
+
+  if (!(iei && meta && edb)) {
     container_close(c);
     result.error_code = CONTAINER_ERR_DB_OPEN;
     result.error_msg = "Failed to open one or more databases";
+    return result;
+  }
+
+  char map_path[MAX_CONTAINER_PATH_LENGTH];
+  snprintf(map_path, sizeof(map_path), "%s/%s_evt_ent.bin", data_dir, name);
+
+  mmap_array_config_t map_cfg = {
+      .path = map_path,
+      .item_size = sizeof(uint32_t),
+      .initial_cap = 100000 // Start small, it auto-resizes
+  };
+
+  if (mmap_array_open(&c->data.usr->event_to_entity_map, &map_cfg) != 0) {
+    container_close(c);
+    result.error_code = CONTAINER_ERR_MMAP;
+    result.error_msg = "Failed to open Event-Entity mmap";
     return result;
   }
 
@@ -139,7 +152,7 @@ container_result_t create_system_container(const char *data_dir,
     return result;
   }
 
-  eng_container_t *c = create_container_struct(CONTAINER_TYPE_SYSTEM);
+  eng_container_t *c = create_container_struct(CONTAINER_TYPE_SYS);
   if (!c) {
     result.error_code = CONTAINER_ERR_ALLOC;
     result.error_msg = "Failed to allocate system container structure";
@@ -154,7 +167,7 @@ container_result_t create_system_container(const char *data_dir,
     return result;
   }
 
-  c->env = db_create_env(sys_path, initial_container_size, NUM_SYS_DBS);
+  c->env = db_create_env(sys_path, initial_container_size, SYS_DB_COUNT);
   if (!c->env) {
     container_close(c);
     result.error_code = CONTAINER_ERR_ENV_CREATE;
@@ -164,15 +177,27 @@ container_result_t create_system_container(const char *data_dir,
 
   bool id_to_int = db_open(c->env, SYS_DB_ENT_ID_TO_INT_NAME,
                            &c->data.sys->ent_id_to_int_db);
-  bool int_to_id = db_open(c->env, SYS_DB_INT_TO_ENT_ID_NAME,
-                           &c->data.sys->int_to_ent_id_db);
   bool meta =
       db_open(c->env, SYS_DB_METADATA_NAME, &c->data.sys->sys_dc_metadata_db);
 
-  if (!(id_to_int && int_to_id && meta)) {
+  if (!(id_to_int && meta)) {
     container_close(c);
     result.error_code = CONTAINER_ERR_DB_OPEN;
     result.error_msg = "Failed to open system databases";
+    return result;
+  }
+
+  char map_path[MAX_CONTAINER_PATH_LENGTH];
+  snprintf(map_path, sizeof(map_path), "%s/%s_ent.bin", data_dir,
+           SYS_CONTAINER_NAME);
+
+  mmap_array_config_t map_cfg = {
+      .path = map_path, .item_size = 64, .initial_cap = 100000};
+
+  if (mmap_array_open(&c->data.sys->entity_id_map, &map_cfg) != 0) {
+    container_close(c);
+    result.error_code = CONTAINER_ERR_MMAP;
+    result.error_msg = "Failed to open system Entity mmap";
     return result;
   }
 
@@ -183,25 +208,19 @@ container_result_t create_system_container(const char *data_dir,
 
 bool cdb_get_user_db_handle(eng_container_t *c, eng_dc_user_db_type_t db_type,
                             MDB_dbi *db_out) {
-  if (!c || c->type != CONTAINER_TYPE_USER || !db_out) {
+  if (!c || c->type != CONTAINER_TYPE_USR || !db_out) {
     return false;
   }
 
   switch (db_type) {
-  case USER_DB_INVERTED_EVENT_INDEX:
+  case USR_DB_INVERTED_EVENT_INDEX:
     *db_out = c->data.usr->inverted_event_index_db;
     break;
-  case USER_DB_EVENT_TO_ENTITY:
-    *db_out = c->data.usr->event_to_entity_db;
-    break;
-  case USER_DB_METADATA:
+  case USR_DB_METADATA:
     *db_out = c->data.usr->user_dc_metadata_db;
     break;
-  case USER_DB_COUNTER_STORE:
-    *db_out = c->data.usr->counter_store_db;
-    break;
-  case USER_DB_COUNT_INDEX:
-    *db_out = c->data.usr->count_index_db;
+  case USR_DB_EVENTS:
+    *db_out = c->data.usr->events_db;
     break;
   default:
     return false;
@@ -212,7 +231,7 @@ bool cdb_get_user_db_handle(eng_container_t *c, eng_dc_user_db_type_t db_type,
 
 bool cdb_get_system_db_handle(eng_container_t *c, eng_dc_sys_db_type_t db_type,
                               MDB_dbi *db_out) {
-  if (!c || c->type != CONTAINER_TYPE_SYSTEM || !db_out) {
+  if (!c || c->type != CONTAINER_TYPE_SYS || !db_out) {
     return false;
   }
 
@@ -220,9 +239,7 @@ bool cdb_get_system_db_handle(eng_container_t *c, eng_dc_sys_db_type_t db_type,
   case SYS_DB_ENT_ID_TO_INT:
     *db_out = c->data.sys->ent_id_to_int_db;
     break;
-  case SYS_DB_INT_TO_ENT_ID:
-    *db_out = c->data.sys->int_to_ent_id_db;
-    break;
+
   case SYS_DB_METADATA:
     *db_out = c->data.sys->sys_dc_metadata_db;
     break;

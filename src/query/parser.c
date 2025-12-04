@@ -47,7 +47,7 @@ static void _parse_event(Queue *tokens, parse_result_t *r) {
     return;
   }
 
-  r->type = OP_TYPE_WRITE;
+  r->type = PARSER_OP_TYPE_WRITE;
   r->ast = cmd_node;
 }
 
@@ -254,8 +254,8 @@ static ast_node_t *_parse_exp(Queue *tokens, parse_result_t *r) {
 
           ast_node_t *tag_val_node =
               ast_create_string_literal_node(final_val_str);
-          node = ast_create_custom_tag_node(operand_tok->text_value,
-                                            tag_val_node, false);
+          node =
+              ast_create_custom_tag_node(operand_tok->text_value, tag_val_node);
           tok_free(val_tok);
         } else if (operand_tok->type == TOKEN_IDENTIFER) {
           node = ast_create_string_literal_node(operand_tok->text_value);
@@ -374,14 +374,14 @@ static void _parse_query(Queue *tokens, parse_result_t *r) {
     return;
   }
 
-  r->type = OP_TYPE_READ;
+  r->type = PARSER_OP_TYPE_READ;
   r->ast = cmd_node;
 }
 
 static parse_result_t *_create_result(void) {
   parse_result_t *r = malloc(sizeof(parse_result_t));
   r->ast = NULL;
-  r->type = OP_TYPE_ERROR;
+  r->type = PARSER_OP_TYPE_ERROR;
   r->error_message = NULL;
   return r;
 }
@@ -448,6 +448,9 @@ static bool _is_token_kw(token_t *t) {
   case TOKEN_KW_ENTITY:
   case TOKEN_KW_WHERE:
   case TOKEN_KW_TAKE:
+  case TOKEN_KW_BY:
+  case TOKEN_KW_COUNT:
+  case TOKEN_KW_HAVING:
     return true;
   default:
     return false;
@@ -464,36 +467,37 @@ static ast_node_t *_parse_tag(Queue *tokens, parse_result_t *r) {
   token_t *key_token = q_dequeue(tokens);
   if (!key_token)
     return NULL;
-  token_type k_type = key_token->type;
+  token_type key_token_type = key_token->type;
 
-  if (k_type == TOKEN_IDENTIFER || k_type == TOKEN_LITERAL_STRING) {
-    tag = ast_create_custom_tag_node(key_token->text_value, NULL, false);
+  if (key_token_type == TOKEN_IDENTIFER ||
+      key_token_type == TOKEN_LITERAL_STRING) {
+    tag = ast_create_custom_tag_node(key_token->text_value, NULL);
   } else if (_is_token_kw(key_token)) {
     ast_reserved_key_t kt;
-    switch (k_type) {
+    switch (key_token_type) {
     case TOKEN_KW_IN:
       kt = AST_KEY_IN;
       break;
-    case TOKEN_KW_ID:
-      kt = AST_KEY_ID;
-      break;
+    // case TOKEN_KW_ID:
+    //   kt = AST_KEY_ID;
+    //   break;
     case TOKEN_KW_ENTITY:
       kt = AST_KEY_ENTITY;
       break;
     case TOKEN_KW_WHERE:
       kt = AST_KEY_WHERE;
       break;
-    case TOKEN_KW_TAKE:
-      kt = AST_KEY_TAKE;
-      break;
-    case TOKEN_KW_CURSOR:
-      kt = AST_KEY_CURSOR;
-      break;
+    // case TOKEN_KW_TAKE:
+    //   kt = AST_KEY_TAKE;
+    //   break;
+    // case TOKEN_KW_CURSOR:
+    //   kt = AST_KEY_CURSOR;
+    //   break;
     default:
       free(key_token);
       return NULL;
     }
-    tag = ast_create_tag_node(kt, NULL, false);
+    tag = ast_create_tag_node(kt, NULL);
   } else {
     free(key_token);
     return NULL;
@@ -513,7 +517,6 @@ static ast_node_t *_parse_tag(Queue *tokens, parse_result_t *r) {
   }
   free(sep);
 
-  // TODO: `take:<number>`
   token_t *first_val_token = q_peek(tokens);
   if (!first_val_token) {
     ast_free(tag);
@@ -580,13 +583,6 @@ static ast_node_t *_parse_tag(Queue *tokens, parse_result_t *r) {
       return NULL;
     }
     tag->tag.value = exp_tree;
-  }
-
-  token_t *next_t = q_peek(tokens);
-  if (next_t && next_t->type == TOKEN_SYM_PLUS) {
-    next_t = q_dequeue(tokens);
-    free(next_t);
-    tag->tag.is_counter = true;
   }
 
   return tag;

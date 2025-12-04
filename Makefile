@@ -53,6 +53,7 @@ APP_SRCS = \
 		   src/core/db.c \
 			 src/core/hash.c \
 			 src/core/lock_striped_ht.c \
+			 src/core/mmap_array.c \
 			 src/core/queue.c \
 		   src/core/stack.c \
 			 src/engine/cmd_context/cmd_context.c \
@@ -217,6 +218,7 @@ test: bin/test_bitmaps \
 			bin/test_db \
 			bin/test_hash \
 			bin/test_lock_striped_ht \
+			bin/test_mmap_array \
 			bin/test_queue \
 			bin/test_stack \
 			bin/test_api \
@@ -247,6 +249,8 @@ test: bin/test_bitmaps \
 	./bin/test_hash
 	@echo "--- Running lock_striped_ht test ---"
 	./bin/test_lock_striped_ht
+	@echo "--- Running mmap_array test ---"
+	./bin/test_mmap_array
 	@echo "--- Running queue test ---"
 	./bin/test_queue
 	@echo "--- Running stack test ---"
@@ -301,6 +305,7 @@ test_build: bin/test_bitmaps \
 						bin/test_db \
 						bin/test_hash \
 						bin/test_lock_striped_ht \
+						bin/test_mmap_array \
 						bin/test_queue \
 						bin/test_stack \
 						bin/test_api \
@@ -355,6 +360,12 @@ bin/test_hash: 	tests/core/test_hash.c \
 bin/test_lock_striped_ht:   tests/core/test_lock_striped_ht.c \
                     src/core/lock_striped_ht.c \
                     src/core/hash.c \
+                    ${UNITY_SRC} | $(BIN_DIR) $(LIBCK_A)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBCK_A) $(LIBS)
+
+# Rule to build the mmap_array test executable
+bin/test_mmap_array:   tests/core/test_mmap_array.c \
+											 src/core/mmap_array.c \
                     ${UNITY_SRC} | $(BIN_DIR) $(LIBCK_A)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBCK_A) $(LIBS)
 

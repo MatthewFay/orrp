@@ -151,10 +151,9 @@ static bool _write_to_db(eng_container_t *c, MDB_txn *txn,
   size_t val_size = 0;
   void *val = NULL;
 
-  if (!container_get_user_db_handle(c, entry->db_key.user_db_type,
-                                    &target_db)) {
+  if (!container_get_user_db_handle(c, entry->db_key.usr_db_type, &target_db)) {
     LOG_ACTION_ERROR(ACT_DB_HANDLE_FAILED, "container=\"%s\" db_type=%d",
-                     c->name, entry->db_key.user_db_type);
+                     c->name, entry->db_key.usr_db_type);
     return false;
   }
 

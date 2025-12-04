@@ -93,8 +93,7 @@ ast_node_t *ast_create_command_node(ast_command_type_t type, ast_node_t *tags) {
   return node;
 }
 
-ast_node_t *ast_create_tag_node(ast_reserved_key_t key, ast_node_t *value,
-                                bool is_counter) {
+ast_node_t *ast_create_tag_node(ast_reserved_key_t key, ast_node_t *value) {
   ast_node_t *node = malloc(sizeof(ast_node_t));
   if (!node) {
     return NULL;
@@ -105,12 +104,10 @@ ast_node_t *ast_create_tag_node(ast_reserved_key_t key, ast_node_t *value,
   node->tag.key_type = AST_TAG_KEY_RESERVED;
   node->tag.reserved_key = key;
   node->tag.value = value;
-  node->tag.is_counter = is_counter;
   return node;
 }
 
-ast_node_t *ast_create_custom_tag_node(const char *key, ast_node_t *value,
-                                       bool is_counter) {
+ast_node_t *ast_create_custom_tag_node(const char *key, ast_node_t *value) {
   ast_node_t *node = malloc(sizeof(ast_node_t));
   if (!node) {
     return NULL;
@@ -125,7 +122,6 @@ ast_node_t *ast_create_custom_tag_node(const char *key, ast_node_t *value,
     return NULL;
   }
   node->tag.value = value;
-  node->tag.is_counter = is_counter;
   return node;
 }
 

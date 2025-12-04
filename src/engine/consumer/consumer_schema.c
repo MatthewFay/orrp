@@ -1,4 +1,5 @@
 #include "consumer_schema.h"
+#include "engine/op/op.h"
 #include <string.h>
 
 // ============================================================================
@@ -29,7 +30,7 @@ _get_sys_db_value_type(eng_dc_sys_db_type_t db_type) {
 static consumer_cache_entry_val_type_t
 _get_user_db_value_type(eng_dc_user_db_type_t db_type) {
   switch (db_type) {
-  case USER_DB_INVERTED_EVENT_INDEX:
+  case USR_DB_INVERTED_EVENT_INDEX:
     // tag string -> roaring bitmap of event_ids
     return CONSUMER_CACHE_ENTRY_VAL_BM;
 
@@ -37,7 +38,7 @@ _get_user_db_value_type(eng_dc_user_db_type_t db_type) {
     // event_id (uint32_t) -> entity_id (uint32_t)
     return CONSUMER_CACHE_ENTRY_VAL_INT32;
 
-  case USER_DB_METADATA:
+  case USR_DB_METADATA:
     // Heterogeneous DB - metadata values
     return CONSUMER_CACHE_ENTRY_VAL_INT32;
 
@@ -60,7 +61,8 @@ _get_user_db_value_type(eng_dc_user_db_type_t db_type) {
 
 // Validate operation type and value type combination
 static schema_validation_result_t
-_validate_op_value_combination(op_type_t op_type, op_value_type_t value_type,
+_validate_op_value_combination(parser_op_type_t op_type,
+                               op_value_type_t value_type,
                                consumer_cache_entry_val_type_t expected_db_type,
                                cond_put_type_t cond_type) {
 
@@ -194,17 +196,17 @@ _validate_op_value_combination(op_type_t op_type, op_value_type_t value_type,
 // ============================================================================
 
 consumer_cache_entry_val_type_t
-consumer_schema_get_value_type(const eng_container_db_key_t *db_key) {
+consumer_schema_get_cache_value_type(const eng_container_db_key_t *db_key) {
   if (!db_key) {
     return CONSUMER_CACHE_ENTRY_VAL_UNKNOWN;
   }
 
   switch (db_key->dc_type) {
-  case CONTAINER_TYPE_SYSTEM:
+  case CONTAINER_TYPE_SYS:
     return _get_sys_db_value_type(db_key->sys_db_type);
 
-  case CONTAINER_TYPE_USER:
-    return _get_user_db_value_type(db_key->user_db_type);
+  case CONTAINER_TYPE_USR:
+    return _get_user_db_value_type(db_key->usr_db_type);
 
   default:
     return CONSUMER_CACHE_ENTRY_VAL_UNKNOWN;
@@ -222,7 +224,7 @@ schema_validation_result_t consumer_schema_validate_op(const op_t *op) {
   }
 
   consumer_cache_entry_val_type_t expected_db_type =
-      consumer_schema_get_value_type(&op->db_key);
+      consumer_schema_get_cache_value_type(&op->db_key);
 
   if (expected_db_type == CONSUMER_CACHE_ENTRY_VAL_UNKNOWN) {
     return (schema_validation_result_t){

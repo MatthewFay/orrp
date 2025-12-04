@@ -37,7 +37,6 @@ typedef struct {
     char *custom_key;
   };
   ast_node_t *value;
-  bool is_counter;
 } ast_tag_node_t;
 
 // Represents a string or number value.
@@ -114,10 +113,8 @@ void ast_free(ast_node_t *node);
 
 // Node creation
 ast_node_t *ast_create_command_node(ast_command_type_t type, ast_node_t *tags);
-ast_node_t *ast_create_tag_node(ast_reserved_key_t key, ast_node_t *value,
-                                bool is_counter);
-ast_node_t *ast_create_custom_tag_node(const char *key, ast_node_t *value,
-                                       bool is_counter);
+ast_node_t *ast_create_tag_node(ast_reserved_key_t key, ast_node_t *value);
+ast_node_t *ast_create_custom_tag_node(const char *key, ast_node_t *value);
 ast_node_t *ast_create_string_literal_node(const char *value);
 ast_node_t *ast_create_number_literal_node(uint32_t value);
 ast_node_t *ast_create_comparison_node(ast_comparison_op_t op, ast_node_t *key,

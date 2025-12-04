@@ -16,11 +16,14 @@ typedef enum {
 
   // --- Reserved Keywords ---
   TOKEN_KW_IN,
-  TOKEN_KW_ID, // event id, for idempotency
+  TOKEN_KW_ID, // Future: event id, for idempotency
   TOKEN_KW_ENTITY,
   TOKEN_KW_TAKE,
   TOKEN_KW_CURSOR,
   TOKEN_KW_WHERE,
+  TOKEN_KW_BY,
+  TOKEN_KW_HAVING,
+  TOKEN_KW_COUNT,
 
   TOKEN_IDENTIFER, // unquoted text
 
@@ -40,8 +43,7 @@ typedef enum {
   TOKEN_OP_LT,
   TOKEN_SYM_COLON,
   TOKEN_SYM_LPAREN,
-  TOKEN_SYM_RPAREN,
-  TOKEN_SYM_PLUS
+  TOKEN_SYM_RPAREN
 } token_type;
 
 typedef struct token_s {

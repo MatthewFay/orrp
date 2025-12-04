@@ -27,7 +27,7 @@
  * @return The cache entry value type, or CONSUMER_CACHE_ENTRY_VAL_BM on error
  */
 consumer_cache_entry_val_type_t
-consumer_schema_get_value_type(const eng_container_db_key_t *db_key);
+consumer_schema_get_cache_value_type(const eng_container_db_key_t *db_key);
 
 // ============================================================================
 // Validation

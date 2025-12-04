@@ -16,57 +16,57 @@ void tearDown(void) {}
 
 void test_get_value_type_system_dbs(void) {
   eng_container_db_key_t key = {0};
-  key.dc_type = CONTAINER_TYPE_SYSTEM;
+  key.dc_type = CONTAINER_TYPE_SYS;
 
   // Entity ID (String) -> Internal ID (Int)
   key.sys_db_type = SYS_DB_ENT_ID_TO_INT;
   TEST_ASSERT_EQUAL(CONSUMER_CACHE_ENTRY_VAL_INT32,
-                    consumer_schema_get_value_type(&key));
+                    consumer_schema_get_cache_value_type(&key));
 
   // Internal ID (Int) -> Entity ID (String)
   key.sys_db_type = SYS_DB_INT_TO_ENT_ID;
   TEST_ASSERT_EQUAL(CONSUMER_CACHE_ENTRY_VAL_STR,
-                    consumer_schema_get_value_type(&key));
+                    consumer_schema_get_cache_value_type(&key));
 
   // Metadata
   key.sys_db_type = SYS_DB_METADATA;
   TEST_ASSERT_EQUAL(CONSUMER_CACHE_ENTRY_VAL_INT32,
-                    consumer_schema_get_value_type(&key));
+                    consumer_schema_get_cache_value_type(&key));
 }
 
 void test_get_value_type_user_dbs(void) {
   eng_container_db_key_t key = {0};
-  key.dc_type = CONTAINER_TYPE_USER;
+  key.dc_type = CONTAINER_TYPE_USR;
 
   // Inverted Index: Tag -> Bitmap
-  key.user_db_type = USER_DB_INVERTED_EVENT_INDEX;
+  key.usr_db_type = USR_DB_INVERTED_EVENT_INDEX;
   TEST_ASSERT_EQUAL(CONSUMER_CACHE_ENTRY_VAL_BM,
-                    consumer_schema_get_value_type(&key));
+                    consumer_schema_get_cache_value_type(&key));
 
   // Event -> Entity: Int -> Int
-  key.user_db_type = USER_DB_EVENT_TO_ENTITY;
+  key.usr_db_type = USER_DB_EVENT_TO_ENTITY;
   TEST_ASSERT_EQUAL(CONSUMER_CACHE_ENTRY_VAL_INT32,
-                    consumer_schema_get_value_type(&key));
+                    consumer_schema_get_cache_value_type(&key));
 
   // Counters: Key -> Int
-  key.user_db_type = USER_DB_COUNTER_STORE;
+  key.usr_db_type = USER_DB_COUNTER_STORE;
   TEST_ASSERT_EQUAL(CONSUMER_CACHE_ENTRY_VAL_INT32,
-                    consumer_schema_get_value_type(&key));
+                    consumer_schema_get_cache_value_type(&key));
 
   // Count Index: Int -> Bitmap
-  key.user_db_type = USER_DB_COUNT_INDEX;
+  key.usr_db_type = USER_DB_COUNT_INDEX;
   TEST_ASSERT_EQUAL(CONSUMER_CACHE_ENTRY_VAL_BM,
-                    consumer_schema_get_value_type(&key));
+                    consumer_schema_get_cache_value_type(&key));
 }
 
 void test_get_value_type_unknown_should_return_unknown(void) {
   eng_container_db_key_t key = {0};
   key.dc_type = 99; // Invalid type
   TEST_ASSERT_EQUAL(CONSUMER_CACHE_ENTRY_VAL_UNKNOWN,
-                    consumer_schema_get_value_type(&key));
+                    consumer_schema_get_cache_value_type(&key));
 
   TEST_ASSERT_EQUAL(CONSUMER_CACHE_ENTRY_VAL_UNKNOWN,
-                    consumer_schema_get_value_type(NULL));
+                    consumer_schema_get_cache_value_type(NULL));
 }
 
 // ============================================================================
@@ -79,8 +79,8 @@ void test_validate_put_to_bitmap_db_valid(void) {
   op.value_type = OP_VALUE_BITMAP;
 
   // Target a Bitmap DB
-  op.db_key.dc_type = CONTAINER_TYPE_USER;
-  op.db_key.user_db_type = USER_DB_INVERTED_EVENT_INDEX;
+  op.db_key.dc_type = CONTAINER_TYPE_USR;
+  op.db_key.usr_db_type = USR_DB_INVERTED_EVENT_INDEX;
 
   schema_validation_result_t res = consumer_schema_validate_op(&op);
   TEST_ASSERT_TRUE(res.valid);
@@ -93,8 +93,8 @@ void test_validate_put_to_bitmap_db_invalid_type(void) {
   op.value_type = OP_VALUE_INT32; // Wrong value type for PUT
 
   // Target a Bitmap DB
-  op.db_key.dc_type = CONTAINER_TYPE_USER;
-  op.db_key.user_db_type = USER_DB_INVERTED_EVENT_INDEX;
+  op.db_key.dc_type = CONTAINER_TYPE_USR;
+  op.db_key.usr_db_type = USR_DB_INVERTED_EVENT_INDEX;
 
   schema_validation_result_t res = consumer_schema_validate_op(&op);
   TEST_ASSERT_FALSE(res.valid);
@@ -108,8 +108,8 @@ void test_validate_put_to_int_db_valid(void) {
   op.value_type = OP_VALUE_INT32;
 
   // Target an Int DB
-  op.db_key.dc_type = CONTAINER_TYPE_USER;
-  op.db_key.user_db_type = USER_DB_COUNTER_STORE;
+  op.db_key.dc_type = CONTAINER_TYPE_USR;
+  op.db_key.usr_db_type = USER_DB_COUNTER_STORE;
 
   schema_validation_result_t res = consumer_schema_validate_op(&op);
   TEST_ASSERT_TRUE(res.valid);
@@ -125,8 +125,8 @@ void test_validate_add_to_bitmap_db_valid(void) {
   op.op_type = OP_TYPE_ADD_VALUE;
   op.value_type = OP_VALUE_INT32;
 
-  op.db_key.dc_type = CONTAINER_TYPE_USER;
-  op.db_key.user_db_type = USER_DB_INVERTED_EVENT_INDEX;
+  op.db_key.dc_type = CONTAINER_TYPE_USR;
+  op.db_key.usr_db_type = USR_DB_INVERTED_EVENT_INDEX;
 
   schema_validation_result_t res = consumer_schema_validate_op(&op);
   TEST_ASSERT_TRUE(res.valid);
@@ -139,8 +139,8 @@ void test_validate_add_to_bitmap_db_invalid_value(void) {
   op.op_type = OP_TYPE_ADD_VALUE;
   op.value_type = OP_VALUE_BITMAP;
 
-  op.db_key.dc_type = CONTAINER_TYPE_USER;
-  op.db_key.user_db_type = USER_DB_INVERTED_EVENT_INDEX;
+  op.db_key.dc_type = CONTAINER_TYPE_USR;
+  op.db_key.usr_db_type = USR_DB_INVERTED_EVENT_INDEX;
 
   schema_validation_result_t res = consumer_schema_validate_op(&op);
   TEST_ASSERT_FALSE(res.valid);
@@ -153,8 +153,8 @@ void test_validate_add_to_int_db_valid(void) {
   op.op_type = OP_TYPE_ADD_VALUE;
   op.value_type = OP_VALUE_INT32;
 
-  op.db_key.dc_type = CONTAINER_TYPE_USER;
-  op.db_key.user_db_type = USER_DB_COUNTER_STORE;
+  op.db_key.dc_type = CONTAINER_TYPE_USR;
+  op.db_key.usr_db_type = USER_DB_COUNTER_STORE;
 
   schema_validation_result_t res = consumer_schema_validate_op(&op);
   TEST_ASSERT_TRUE(res.valid);
@@ -166,7 +166,7 @@ void test_validate_add_to_string_db_invalid(void) {
   op.op_type = OP_TYPE_ADD_VALUE;
   op.value_type = OP_VALUE_STRING;
 
-  op.db_key.dc_type = CONTAINER_TYPE_SYSTEM;
+  op.db_key.dc_type = CONTAINER_TYPE_SYS;
   op.db_key.sys_db_type = SYS_DB_INT_TO_ENT_ID;
 
   schema_validation_result_t res = consumer_schema_validate_op(&op);
@@ -185,8 +185,8 @@ void test_validate_cond_put_int_db_valid(void) {
   op.cond_type = 999;
   op.value_type = OP_VALUE_INT32;
 
-  op.db_key.dc_type = CONTAINER_TYPE_USER;
-  op.db_key.user_db_type = USER_DB_COUNTER_STORE;
+  op.db_key.dc_type = CONTAINER_TYPE_USR;
+  op.db_key.usr_db_type = USER_DB_COUNTER_STORE;
 
   schema_validation_result_t res = consumer_schema_validate_op(&op);
   TEST_ASSERT_TRUE(res.valid);
@@ -199,8 +199,8 @@ void test_validate_cond_put_bitmap_db_invalid(void) {
   op.value_type = OP_VALUE_INT32;
 
   // Bitmaps don't support conditional put logic in this schema
-  op.db_key.dc_type = CONTAINER_TYPE_USER;
-  op.db_key.user_db_type = USER_DB_INVERTED_EVENT_INDEX;
+  op.db_key.dc_type = CONTAINER_TYPE_USR;
+  op.db_key.usr_db_type = USR_DB_INVERTED_EVENT_INDEX;
 
   schema_validation_result_t res = consumer_schema_validate_op(&op);
   TEST_ASSERT_FALSE(res.valid);
@@ -214,8 +214,8 @@ void test_validate_cond_put_missing_condition(void) {
   op.cond_type = COND_PUT_NONE; // ERROR
   op.value_type = OP_VALUE_INT32;
 
-  op.db_key.dc_type = CONTAINER_TYPE_USER;
-  op.db_key.user_db_type = USER_DB_COUNTER_STORE;
+  op.db_key.dc_type = CONTAINER_TYPE_USR;
+  op.db_key.usr_db_type = USER_DB_COUNTER_STORE;
 
   schema_validation_result_t res = consumer_schema_validate_op(&op);
   TEST_ASSERT_FALSE(res.valid);
@@ -233,8 +233,8 @@ void test_validate_cache_op_valid(void) {
   op.value_type = OP_VALUE_BITMAP;
 
   // Cache loading a bitmap
-  op.db_key.dc_type = CONTAINER_TYPE_USER;
-  op.db_key.user_db_type = USER_DB_INVERTED_EVENT_INDEX;
+  op.db_key.dc_type = CONTAINER_TYPE_USR;
+  op.db_key.usr_db_type = USR_DB_INVERTED_EVENT_INDEX;
 
   schema_validation_result_t res = consumer_schema_validate_op(&op);
   TEST_ASSERT_TRUE(res.valid);
@@ -246,8 +246,8 @@ void test_validate_cache_op_mismatch(void) {
   op.value_type = OP_VALUE_INT32; // Mismatch
 
   // Target is Bitmap
-  op.db_key.dc_type = CONTAINER_TYPE_USER;
-  op.db_key.user_db_type = USER_DB_INVERTED_EVENT_INDEX;
+  op.db_key.dc_type = CONTAINER_TYPE_USR;
+  op.db_key.usr_db_type = USR_DB_INVERTED_EVENT_INDEX;
 
   schema_validation_result_t res = consumer_schema_validate_op(&op);
   TEST_ASSERT_FALSE(res.valid);
@@ -281,8 +281,8 @@ void test_validate_msg_valid_delegates_to_op(void) {
   op_t op = {0};
   op.op_type = OP_TYPE_PUT;
   op.value_type = OP_VALUE_INT32;
-  op.db_key.dc_type = CONTAINER_TYPE_USER;
-  op.db_key.user_db_type = USER_DB_COUNTER_STORE;
+  op.db_key.dc_type = CONTAINER_TYPE_USR;
+  op.db_key.usr_db_type = USER_DB_COUNTER_STORE;
 
   // Setup a valid msg
   op_queue_msg_t msg = {0};

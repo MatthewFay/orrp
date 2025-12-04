@@ -263,7 +263,7 @@ static void _work_cb(uv_work_t *req) {
   }
 
   parsed = parse(tokens);
-  if (parsed->type == OP_TYPE_ERROR) {
+  if (parsed->type == PARSER_OP_TYPE_ERROR) {
     LOG_ACTION_DEBUG(ACT_PARSE_FAILED, "client_id=%lld err=\"%s\"",
                      ctx->client->client_id,
                      parsed->error_message ? parsed->error_message : "unknown");

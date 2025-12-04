@@ -240,7 +240,7 @@ void container_release(eng_container_t *container) {
 
   // Only cached user containers need to be released
   // System container is never released
-  if (container->type == CONTAINER_TYPE_USER) {
+  if (container->type == CONTAINER_TYPE_USR) {
     atomic_fetch_sub(&container->_node->reference_count, 1);
   }
 }
@@ -262,10 +262,10 @@ bool container_get_db_handle(eng_container_t *c, eng_container_db_key_t *db_key,
   if (!c || !db_key || !db_out) {
     return false;
   }
-  if (db_key->dc_type == CONTAINER_TYPE_SYSTEM) {
+  if (db_key->dc_type == CONTAINER_TYPE_SYS) {
     return cdb_get_system_db_handle(c, db_key->sys_db_type, db_out);
   }
-  return cdb_get_user_db_handle(c, db_key->user_db_type, db_out);
+  return cdb_get_user_db_handle(c, db_key->usr_db_type, db_out);
 }
 
 void container_free_db_key_contents(eng_container_db_key_t *db_key) {

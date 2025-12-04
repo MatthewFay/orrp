@@ -1,21 +1,13 @@
 #ifndef WORKER_H
 #define WORKER_H
 
-#include "core/bitmaps.h"
 #include "engine/cmd_queue/cmd_queue.h"
 #include "engine/container/container_types.h"
 #include "engine/op_queue/op_queue.h"
 #include "lmdb.h"
 #include "uthash.h"
 #include "uv.h" // IWYU pragma: keep
-#include "worker_types.h"
 #include <stdint.h>
-
-typedef struct worker_container_entities_s {
-  UT_hash_handle hh;
-  char *container_name;
-  bitmap_t *entities;
-} worker_container_entities_t;
 
 typedef struct worker_entity_mapping_s {
   UT_hash_handle hh;
@@ -23,7 +15,7 @@ typedef struct worker_entity_mapping_s {
   uint32_t ent_int_id;
 } worker_entity_mapping_t;
 
-// user data containers for processing optimization across cmd msgs
+// user data containers cached across batch of cmd msgs
 typedef struct worker_user_dc_s {
   UT_hash_handle hh;
   char *container_name;
@@ -42,10 +34,8 @@ typedef struct worker_config_s {
 typedef struct worker_s {
   worker_config_t config;
   uv_thread_t thread;
-  worker_entity_mapping_t *entity_mappings;
   // we keep one per thread because each thread is entity-scoped
-  worker_container_entities_t *container_entities;
-  worker_entity_tag_counter_t *entity_tag_counters;
+  worker_entity_mapping_t *entity_mappings;
   worker_user_dc_t *user_dcs;
   volatile bool should_stop;
   uint64_t messages_processed; // Stats

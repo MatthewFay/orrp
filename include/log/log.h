@@ -221,6 +221,7 @@ static inline void log_global_shutdown(void) { zlog_fini(); }
 
 // Database Operations
 #define ACT_DB_READ "db_read"
+#define ACT_DB_READ_NOT_FOUND "db_read_not_found"
 #define ACT_DB_WRITE "db_write"
 #define ACT_DB_DELETE "db_delete"
 #define ACT_DB_READ_FAILED "db_read_failed"

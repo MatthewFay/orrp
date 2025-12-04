@@ -52,16 +52,16 @@ void test_op_create_all_types(void) {
 
 void test_op_set_target_string_key(void) {
   eng_container_db_key_t db_key = {
-      .dc_type = CONTAINER_TYPE_USER,
-      .user_db_type = USER_DB_INVERTED_EVENT_INDEX,
+      .dc_type = CONTAINER_TYPE_USR,
+      .usr_db_type = USR_DB_INVERTED_EVENT_INDEX,
       .container_name = "test_container",
       .db_key = {.type = DB_KEY_STRING, .key = {.s = "test_key"}}};
 
   op_t *op = op_create(OP_TYPE_PUT);
   op_set_target(op, &db_key);
 
-  TEST_ASSERT_EQUAL(CONTAINER_TYPE_USER, op->db_key.dc_type);
-  TEST_ASSERT_EQUAL(USER_DB_INVERTED_EVENT_INDEX, op->db_key.user_db_type);
+  TEST_ASSERT_EQUAL(CONTAINER_TYPE_USR, op->db_key.dc_type);
+  TEST_ASSERT_EQUAL(USR_DB_INVERTED_EVENT_INDEX, op->db_key.usr_db_type);
   TEST_ASSERT_EQUAL_STRING(db_key.container_name, op->db_key.container_name);
   TEST_ASSERT_EQUAL_STRING(db_key.db_key.key.s, op->db_key.db_key.key.s);
 
@@ -70,7 +70,7 @@ void test_op_set_target_string_key(void) {
 
 void test_op_set_target_int_key(void) {
   eng_container_db_key_t db_key = {
-      .dc_type = CONTAINER_TYPE_SYSTEM,
+      .dc_type = CONTAINER_TYPE_SYS,
       .sys_db_type = SYS_DB_ENT_ID_TO_INT,
       .container_name = NULL,
       .db_key = {.type = DB_KEY_INTEGER, .key = {.i = 12345}}};
@@ -78,7 +78,7 @@ void test_op_set_target_int_key(void) {
   op_t *op = op_create(OP_TYPE_PUT);
   op_set_target(op, &db_key);
 
-  TEST_ASSERT_EQUAL(CONTAINER_TYPE_SYSTEM, op->db_key.dc_type);
+  TEST_ASSERT_EQUAL(CONTAINER_TYPE_SYS, op->db_key.dc_type);
   TEST_ASSERT_EQUAL(SYS_DB_ENT_ID_TO_INT, op->db_key.sys_db_type);
   TEST_ASSERT_EQUAL(12345, op->db_key.db_key.key.i);
 
@@ -162,7 +162,7 @@ void test_op_set_value_int32_overwrites_str(void) {
 
 void test_op_getters(void) {
   eng_container_db_key_t db_key = {
-      .dc_type = CONTAINER_TYPE_USER,
+      .dc_type = CONTAINER_TYPE_USR,
       .user_db_type = USER_DB_COUNTER_STORE,
       .container_name = "container",
       .db_key = {.type = DB_KEY_INTEGER, .key = {.i = 42}}};
@@ -179,7 +179,7 @@ void test_op_getters(void) {
 
   const eng_container_db_key_t *key = op_get_db_key(op);
   TEST_ASSERT_NOT_NULL(key);
-  TEST_ASSERT_EQUAL(CONTAINER_TYPE_USER, key->dc_type);
+  TEST_ASSERT_EQUAL(CONTAINER_TYPE_USR, key->dc_type);
   TEST_ASSERT_EQUAL(42, key->db_key.key.i);
 
   op_destroy(op);
@@ -208,7 +208,7 @@ void test_op_get_null_op(void) {
 
 void test_op_create_str_val_success(void) {
   eng_container_db_key_t db_key = {
-      .dc_type = CONTAINER_TYPE_SYSTEM,
+      .dc_type = CONTAINER_TYPE_SYS,
       .sys_db_type = SYS_DB_INT_TO_ENT_ID,
       .container_name = NULL,
       .db_key = {.type = DB_KEY_STRING, .key = {.s = "test_key"}}};
@@ -221,7 +221,7 @@ void test_op_create_str_val_success(void) {
   TEST_ASSERT_EQUAL(OP_TYPE_PUT, op->op_type);
   TEST_ASSERT_EQUAL(OP_VALUE_STRING, op->value_type);
   TEST_ASSERT_EQUAL(COND_PUT_IF_EXISTING_LESS_THAN, op->cond_type);
-  TEST_ASSERT_EQUAL(CONTAINER_TYPE_SYSTEM, op->db_key.dc_type);
+  TEST_ASSERT_EQUAL(CONTAINER_TYPE_SYS, op->db_key.dc_type);
   TEST_ASSERT_EQUAL_STRING(db_key.db_key.key.s, op->db_key.db_key.key.s);
   TEST_ASSERT_EQUAL_STRING(val, op->value.str);
   TEST_ASSERT_NOT_EQUAL(val, op->value.str); // Should be duplicated
@@ -231,8 +231,8 @@ void test_op_create_str_val_success(void) {
 
 void test_op_create_str_val_null_args(void) {
   eng_container_db_key_t db_key = {
-      .dc_type = CONTAINER_TYPE_USER,
-      .user_db_type = USER_DB_INVERTED_EVENT_INDEX,
+      .dc_type = CONTAINER_TYPE_USR,
+      .usr_db_type = USR_DB_INVERTED_EVENT_INDEX,
       .container_name = "c",
       .db_key = {.type = DB_KEY_STRING, .key = {.s = "k"}}};
   const char *val = "v";
@@ -244,7 +244,7 @@ void test_op_create_str_val_null_args(void) {
 
 void test_op_create_int32_val_success(void) {
   eng_container_db_key_t db_key = {
-      .dc_type = CONTAINER_TYPE_USER,
+      .dc_type = CONTAINER_TYPE_USR,
       .user_db_type = USER_DB_EVENT_TO_ENTITY,
       .container_name = "int_container",
       .db_key = {.type = DB_KEY_INTEGER, .key = {.i = 123}}};
@@ -257,7 +257,7 @@ void test_op_create_int32_val_success(void) {
   TEST_ASSERT_EQUAL(OP_TYPE_ADD_VALUE, op->op_type);
   TEST_ASSERT_EQUAL(OP_VALUE_INT32, op->value_type);
   TEST_ASSERT_EQUAL(COND_PUT_NONE, op->cond_type);
-  TEST_ASSERT_EQUAL(CONTAINER_TYPE_USER, op->db_key.dc_type);
+  TEST_ASSERT_EQUAL(CONTAINER_TYPE_USR, op->db_key.dc_type);
   TEST_ASSERT_EQUAL(USER_DB_EVENT_TO_ENTITY, op->db_key.user_db_type);
   TEST_ASSERT_EQUAL(db_key.db_key.key.i, op->db_key.db_key.key.i);
   TEST_ASSERT_EQUAL_UINT32(val, op->value.int32);
@@ -267,7 +267,7 @@ void test_op_create_int32_val_success(void) {
 
 void test_op_create_int32_val_with_zero_value(void) {
   eng_container_db_key_t db_key = {
-      .dc_type = CONTAINER_TYPE_USER,
+      .dc_type = CONTAINER_TYPE_USR,
       .user_db_type = USER_DB_COUNTER_STORE,
       .container_name = "int_container",
       .db_key = {.type = DB_KEY_INTEGER, .key = {.i = 123}}};
@@ -289,7 +289,7 @@ void test_op_create_int32_val_null_db_key(void) {
 
 void test_op_full_workflow_string(void) {
   eng_container_db_key_t db_key = {
-      .dc_type = CONTAINER_TYPE_SYSTEM,
+      .dc_type = CONTAINER_TYPE_SYS,
       .sys_db_type = SYS_DB_INT_TO_ENT_ID,
       .container_name = NULL,
       .db_key = {.type = DB_KEY_INTEGER, .key = {.i = 999}}};
@@ -303,7 +303,7 @@ void test_op_full_workflow_string(void) {
   TEST_ASSERT_EQUAL_STRING("entity_id_string", op_get_value_str(op));
 
   const eng_container_db_key_t *retrieved_key = op_get_db_key(op);
-  TEST_ASSERT_EQUAL(CONTAINER_TYPE_SYSTEM, retrieved_key->dc_type);
+  TEST_ASSERT_EQUAL(CONTAINER_TYPE_SYS, retrieved_key->dc_type);
   TEST_ASSERT_EQUAL(999, retrieved_key->db_key.key.i);
 
   op_destroy(op);
@@ -311,7 +311,7 @@ void test_op_full_workflow_string(void) {
 
 void test_op_full_workflow_int32(void) {
   eng_container_db_key_t db_key = {
-      .dc_type = CONTAINER_TYPE_USER,
+      .dc_type = CONTAINER_TYPE_USR,
       .user_db_type = USER_DB_COUNTER_STORE,
       .container_name = "user_123",
       .db_key = {.type = DB_KEY_STRING, .key = {.s = "counter_key"}}};
@@ -325,7 +325,7 @@ void test_op_full_workflow_int32(void) {
   TEST_ASSERT_EQUAL_UINT32(5, op_get_value_int32(op));
 
   const eng_container_db_key_t *retrieved_key = op_get_db_key(op);
-  TEST_ASSERT_EQUAL(CONTAINER_TYPE_USER, retrieved_key->dc_type);
+  TEST_ASSERT_EQUAL(CONTAINER_TYPE_USR, retrieved_key->dc_type);
   TEST_ASSERT_EQUAL_STRING("user_123", retrieved_key->container_name);
 
   op_destroy(op);
@@ -333,7 +333,7 @@ void test_op_full_workflow_int32(void) {
 
 void test_op_conditional_put(void) {
   eng_container_db_key_t db_key = {
-      .dc_type = CONTAINER_TYPE_USER,
+      .dc_type = CONTAINER_TYPE_USR,
       .user_db_type = USER_DB_COUNTER_STORE,
       .container_name = "user_456",
       .db_key = {.type = DB_KEY_STRING, .key = {.s = "max_value"}}};

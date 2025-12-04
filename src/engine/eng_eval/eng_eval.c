@@ -107,7 +107,7 @@ static eval_bitmap_t *_fetch_bitmap_data(eval_ctx_t *ctx,
     return NULL;
   }
 
-  MDB_txn *txn = (db_key->dc_type == CONTAINER_TYPE_SYSTEM)
+  MDB_txn *txn = (db_key->dc_type == CONTAINER_TYPE_SYS)
                      ? ctx->config->sys_txn
                      : ctx->config->user_txn;
 
@@ -136,8 +136,8 @@ static uint32_t _get_max_event_id(eval_ctx_t *ctx) {
 
   eng_container_db_key_t db_key;
   db_key.container_name = ctx->config->container->name;
-  db_key.user_db_type = USER_DB_METADATA;
-  db_key.dc_type = CONTAINER_TYPE_USER;
+  db_key.usr_db_type = USR_DB_METADATA;
+  db_key.dc_type = CONTAINER_TYPE_USR;
   db_key.db_key.type = DB_KEY_STRING;
   db_key.db_key.key.s = USR_NEXT_EVENT_ID_KEY;
 
@@ -184,8 +184,8 @@ static eval_bitmap_t *_tag(ast_node_t *tag_node, eval_ctx_t *ctx,
                            eng_eval_result_t *result) {
   eng_container_db_key_t db_key;
   db_key.container_name = ctx->config->container->name;
-  db_key.user_db_type = USER_DB_INVERTED_EVENT_INDEX;
-  db_key.dc_type = CONTAINER_TYPE_USER;
+  db_key.usr_db_type = USR_DB_INVERTED_EVENT_INDEX;
+  db_key.dc_type = CONTAINER_TYPE_USR;
   db_key.db_key.type = DB_KEY_STRING;
 
   char tag_key[512];

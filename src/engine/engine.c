@@ -23,13 +23,7 @@ LOG_INIT(engine);
 
 #define CONTAINER_FOLDER "data"
 #define DC_CACHE_CAPACITY 128
-const size_t CONTAINER_SIZE = 1048576;
-
-const char *ENG_TXN_ERR = "Transaction error";
-const char *ENG_ID_TRANSL_ERR = "Id translation error";
-const char *ENG_COUNTER_ERR = "Counter error";
-const char *ENG_BITMAP_ERR = "Bitmap error";
-const char *ENG_TXN_COMMIT_ERR = "Transaction Commit error";
+const size_t INITIAL_CONTAINER_SIZE = 1048576;
 
 #define NUM_CMD_QUEUEs 16
 #define CMD_QUEUE_MASK (NUM_CMD_QUEUEs - 1)
@@ -64,7 +58,8 @@ bool eng_init(void) {
                   NUM_CMD_QUEUEs, NUM_WORKERS, NUM_OP_QUEUES, NUM_CONSUMERS);
 
   // Initialize container subsystem
-  if (!container_init(DC_CACHE_CAPACITY, CONTAINER_FOLDER, CONTAINER_SIZE)) {
+  if (!container_init(DC_CACHE_CAPACITY, CONTAINER_FOLDER,
+                      INITIAL_CONTAINER_SIZE)) {
     LOG_ACTION_FATAL(ACT_SUBSYSTEM_INIT_FAILED, "subsystem=container");
     return NULL;
   }

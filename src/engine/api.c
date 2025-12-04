@@ -49,8 +49,6 @@ static bool _validate_ast(ast_node_t *ast, custom_key **c_keys) {
   bool seen_entity = false;
   bool seen_take = false;
   bool seen_cursor = false;
-  // in future- allow multiple tag counters
-  bool seen_tag_counter = false;
 
   if (ast->type != AST_COMMAND_NODE || !ast->command.tags ||
       ast->command.tags->type != AST_TAG_NODE)
@@ -63,11 +61,6 @@ static bool _validate_ast(ast_node_t *ast, custom_key **c_keys) {
     ast_tag_node_t t_node = tag->tag;
     if (!t_node.value)
       return false;
-    if (t_node.is_counter) {
-      if (seen_tag_counter)
-        return false;
-      seen_tag_counter = true;
-    }
     if (t_node.key_type == AST_TAG_KEY_RESERVED) {
       switch (t_node.reserved_key) {
       case AST_KEY_IN:

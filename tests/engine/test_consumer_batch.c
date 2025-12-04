@@ -65,7 +65,7 @@ op_queue_msg_t *create_msg(char *container, char *ser_key) {
   // This handles the case where container_name is a char* initialized to NULL.
   msg->op->db_key.container_name = strdup(container);
 
-  msg->op->db_key.dc_type = CONTAINER_TYPE_USER;
+  msg->op->db_key.dc_type = CONTAINER_TYPE_USR;
   msg->ser_db_key = ser_key;
 
   _track_msg(msg);

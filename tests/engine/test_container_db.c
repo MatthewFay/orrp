@@ -80,7 +80,7 @@ void test_create_user_container_success(void) {
   TEST_ASSERT_NOT_NULL(result.container->name);
   TEST_ASSERT_EQUAL_STRING("test_user", result.container->name);
   TEST_ASSERT_NOT_NULL(result.container->env);
-  TEST_ASSERT_EQUAL(CONTAINER_TYPE_USER, result.container->type);
+  TEST_ASSERT_EQUAL(CONTAINER_TYPE_USR, result.container->type);
   TEST_ASSERT_NOT_NULL(result.container->data.usr);
 
   // Verify all user databases are opened
@@ -147,7 +147,7 @@ void test_create_system_container_success(void) {
   TEST_ASSERT_NOT_NULL(result.container->name);
   TEST_ASSERT_EQUAL_STRING(SYS_CONTAINER_NAME, result.container->name);
   TEST_ASSERT_NOT_NULL(result.container->env);
-  TEST_ASSERT_EQUAL(CONTAINER_TYPE_SYSTEM, result.container->type);
+  TEST_ASSERT_EQUAL(CONTAINER_TYPE_SYS, result.container->type);
   TEST_ASSERT_NOT_NULL(result.container->data.sys);
 
   // Verify all system databases are opened
@@ -188,7 +188,7 @@ void test_create_system_container_reopen(void) {
 void test_cdb_get_user_db_handle_null_container(void) {
   MDB_dbi db_out;
   bool result =
-      cdb_get_user_db_handle(NULL, USER_DB_INVERTED_EVENT_INDEX, &db_out);
+      cdb_get_user_db_handle(NULL, USR_DB_INVERTED_EVENT_INDEX, &db_out);
   TEST_ASSERT_FALSE(result);
 }
 
@@ -198,7 +198,7 @@ void test_cdb_get_user_db_handle_null_output(void) {
   TEST_ASSERT_TRUE(result.success);
 
   bool get_result = cdb_get_user_db_handle(result.container,
-                                           USER_DB_INVERTED_EVENT_INDEX, NULL);
+                                           USR_DB_INVERTED_EVENT_INDEX, NULL);
   TEST_ASSERT_FALSE(get_result);
 
   container_close(result.container);
@@ -211,7 +211,7 @@ void test_cdb_get_user_db_handle_wrong_container_type(void) {
 
   MDB_dbi db_out;
   bool get_result = cdb_get_user_db_handle(
-      result.container, USER_DB_INVERTED_EVENT_INDEX, &db_out);
+      result.container, USR_DB_INVERTED_EVENT_INDEX, &db_out);
   TEST_ASSERT_FALSE(get_result);
 
   container_close(result.container);
@@ -226,7 +226,7 @@ void test_cdb_get_user_db_handle_all_db_types(void) {
 
   // Test each database type
   TEST_ASSERT_TRUE(cdb_get_user_db_handle(
-      result.container, USER_DB_INVERTED_EVENT_INDEX, &db_out));
+      result.container, USR_DB_INVERTED_EVENT_INDEX, &db_out));
   TEST_ASSERT_EQUAL(result.container->data.usr->inverted_event_index_db,
                     db_out);
 
@@ -235,7 +235,7 @@ void test_cdb_get_user_db_handle_all_db_types(void) {
   TEST_ASSERT_EQUAL(result.container->data.usr->event_to_entity_db, db_out);
 
   TEST_ASSERT_TRUE(
-      cdb_get_user_db_handle(result.container, USER_DB_METADATA, &db_out));
+      cdb_get_user_db_handle(result.container, USR_DB_METADATA, &db_out));
   TEST_ASSERT_EQUAL(result.container->data.usr->user_dc_metadata_db, db_out);
 
   TEST_ASSERT_TRUE(

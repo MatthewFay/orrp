@@ -91,7 +91,7 @@ void test_get_system_container_success(void) {
 
   TEST_ASSERT_TRUE(result.success);
   TEST_ASSERT_NOT_NULL(result.container);
-  TEST_ASSERT_EQUAL(CONTAINER_TYPE_SYSTEM, result.container->type);
+  TEST_ASSERT_EQUAL(CONTAINER_TYPE_SYS, result.container->type);
   TEST_ASSERT_NOT_NULL(result.container->name);
   TEST_ASSERT_EQUAL_STRING(SYS_CONTAINER_NAME, result.container->name);
   TEST_ASSERT_NULL(result.error_msg);
@@ -141,7 +141,7 @@ void test_get_user_container_success(void) {
 
   TEST_ASSERT_TRUE(result.success);
   TEST_ASSERT_NOT_NULL(result.container);
-  TEST_ASSERT_EQUAL(CONTAINER_TYPE_USER, result.container->type);
+  TEST_ASSERT_EQUAL(CONTAINER_TYPE_USR, result.container->type);
   TEST_ASSERT_NOT_NULL(result.container->name);
   TEST_ASSERT_EQUAL_STRING("test_user", result.container->name);
   TEST_ASSERT_NULL(result.error_msg);
@@ -184,11 +184,11 @@ void test_user_container_has_all_databases(void) {
 
   MDB_dbi db_out;
   TEST_ASSERT_TRUE(container_get_user_db_handle(
-      result.container, USER_DB_INVERTED_EVENT_INDEX, &db_out));
+      result.container, USR_DB_INVERTED_EVENT_INDEX, &db_out));
   TEST_ASSERT_TRUE(container_get_user_db_handle(
       result.container, USER_DB_EVENT_TO_ENTITY, &db_out));
-  TEST_ASSERT_TRUE(container_get_user_db_handle(result.container,
-                                                USER_DB_METADATA, &db_out));
+  TEST_ASSERT_TRUE(
+      container_get_user_db_handle(result.container, USR_DB_METADATA, &db_out));
   TEST_ASSERT_TRUE(container_get_user_db_handle(
       result.container, USER_DB_COUNTER_STORE, &db_out));
   TEST_ASSERT_TRUE(container_get_user_db_handle(result.container,
@@ -307,7 +307,7 @@ void test_get_user_db_handle_null_container(void) {
   container_init(TEST_CACHE_CAPACITY, TEST_DATA_DIR, TEST_CONTAINER_SIZE);
 
   MDB_dbi db_out;
-  bool result = container_get_user_db_handle(NULL, USER_DB_METADATA, &db_out);
+  bool result = container_get_user_db_handle(NULL, USR_DB_METADATA, &db_out);
   TEST_ASSERT_FALSE(result);
 }
 
@@ -318,7 +318,7 @@ void test_get_user_db_handle_null_output(void) {
   TEST_ASSERT_TRUE(result.success);
 
   bool get_result =
-      container_get_user_db_handle(result.container, USER_DB_METADATA, NULL);
+      container_get_user_db_handle(result.container, USR_DB_METADATA, NULL);
   TEST_ASSERT_FALSE(get_result);
 
   container_release(result.container);
@@ -331,7 +331,7 @@ void test_get_user_db_handle_wrong_container_type(void) {
 
   MDB_dbi db_out;
   bool result =
-      container_get_user_db_handle(sys.container, USER_DB_METADATA, &db_out);
+      container_get_user_db_handle(sys.container, USR_DB_METADATA, &db_out);
   TEST_ASSERT_FALSE(result);
 }
 
@@ -364,11 +364,11 @@ void test_all_user_db_types_accessible(void) {
 
   MDB_dbi db_out;
   TEST_ASSERT_TRUE(container_get_user_db_handle(
-      result.container, USER_DB_INVERTED_EVENT_INDEX, &db_out));
+      result.container, USR_DB_INVERTED_EVENT_INDEX, &db_out));
   TEST_ASSERT_TRUE(container_get_user_db_handle(
       result.container, USER_DB_EVENT_TO_ENTITY, &db_out));
-  TEST_ASSERT_TRUE(container_get_user_db_handle(result.container,
-                                                USER_DB_METADATA, &db_out));
+  TEST_ASSERT_TRUE(
+      container_get_user_db_handle(result.container, USR_DB_METADATA, &db_out));
   TEST_ASSERT_TRUE(container_get_user_db_handle(
       result.container, USER_DB_COUNTER_STORE, &db_out));
   TEST_ASSERT_TRUE(container_get_user_db_handle(result.container,
@@ -575,7 +575,7 @@ void test_full_lifecycle(void) {
   TEST_ASSERT_TRUE(
       container_get_system_db_handle(sys.container, SYS_DB_METADATA, &db));
   TEST_ASSERT_TRUE(
-      container_get_user_db_handle(u1.container, USER_DB_METADATA, &db));
+      container_get_user_db_handle(u1.container, USR_DB_METADATA, &db));
 
   // Release containers
   container_release(u1.container);

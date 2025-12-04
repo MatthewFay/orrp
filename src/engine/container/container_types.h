@@ -2,6 +2,7 @@
 #define CONTAINER_TYPES_H
 
 #include "core/db.h"
+#include "core/mmap_array.h"
 #include "lmdb.h"
 #include "uthash.h"
 #include <stdatomic.h>
@@ -11,15 +12,12 @@
 // ============================================================================
 
 #define SYS_CONTAINER_NAME "system"
-#define NUM_SYS_DBS 3
-#define NUM_USR_DBS 5
 
 // ============================================================================
 // Constants - System Database Names
 // ============================================================================
 
 #define SYS_DB_ENT_ID_TO_INT_NAME "ent_id_to_int_db"
-#define SYS_DB_INT_TO_ENT_ID_NAME "int_to_ent_id_db"
 #define SYS_DB_METADATA_NAME "sys_dc_metadata_db"
 
 // ============================================================================
@@ -27,10 +25,8 @@
 // ============================================================================
 
 #define USR_DB_INVERTED_EVENT_INDEX_NAME "inverted_event_index_db"
-#define USR_DB_EVENT_TO_ENT_NAME "event_to_entity_db"
-#define USR_DB_COUNTER_STORE_NAME "counter_store_db"
-#define USR_DB_COUNT_INDEX_NAME "count_index_db"
 #define USR_DB_METADATA_NAME "user_dc_metadata_db"
+#define USR_DB_EVENTS_NAME "events_db"
 
 // ============================================================================
 // Constants - Metadata Keys & Initial Values
@@ -43,28 +39,25 @@
 #define USR_NEXT_EVENT_ID_INIT_VAL 1
 #define USR_ENTITIES_KEY "entities"
 
-#define MAX_CONTAINER_PATH_LENGTH 256
+#define MAX_CONTAINER_PATH_LENGTH 128
 
 // ============================================================================
 // Enums - Container & Database Types
 // ============================================================================
 
-typedef enum { CONTAINER_TYPE_SYSTEM, CONTAINER_TYPE_USER } eng_dc_type_t;
+typedef enum { CONTAINER_TYPE_SYS, CONTAINER_TYPE_USR } eng_dc_type_t;
 
 typedef enum {
   SYS_DB_ENT_ID_TO_INT = 0,
-  SYS_DB_INT_TO_ENT_ID,
   SYS_DB_METADATA,
   SYS_DB_COUNT
 } eng_dc_sys_db_type_t;
 
 typedef enum {
-  USER_DB_INVERTED_EVENT_INDEX = 0,
-  USER_DB_EVENT_TO_ENTITY,
-  USER_DB_METADATA,
-  USER_DB_COUNTER_STORE,
-  USER_DB_COUNT_INDEX,
-  USER_DB_COUNT
+  USR_DB_INVERTED_EVENT_INDEX = 0,
+  USR_DB_METADATA,
+  USR_DB_EVENTS,
+  USR_DB_COUNT,
 } eng_dc_user_db_type_t;
 
 // ============================================================================
@@ -76,11 +69,12 @@ typedef enum {
  * Stores entity ID mappings and metadata
  */
 typedef struct {
-  // Forward mapping from string entity id to integer ID
+  // B-Tree to find ID from String efficiently.
+  // Key: "user-123", Value: uint32_t (e.g. 100)
   MDB_dbi ent_id_to_int_db;
 
-  // Reverse mapping for resolving results
-  MDB_dbi int_to_ent_id_db;
+  // MMap Array: Index 100 -> "user-123"
+  mmap_array_t entity_id_map;
 
   // Contains atomic counter for generating new entity integer IDs
   MDB_dbi sys_dc_metadata_db;
@@ -94,29 +88,22 @@ typedef struct {
   // The Event Index:
   // Key: The tag (e.g., `loc:ca`)
   // Value: A Roaring Bitmap of all local `event_id`s that have this tag
+  // Used for filtering (WHERE)
   MDB_dbi inverted_event_index_db;
 
-  // Event-to-Entity Map
-  // Key: The local `event_id` (`uint32_t`)
-  // Value: The global `entity_id` (`uint32_t`) associated with the event
-  MDB_dbi event_to_entity_db;
+  // Data retrieval (SELECT)
+  // Key = event id, Value = MsgPack Blob
+  MDB_dbi events_db;
 
   // Metadata:
-  // Contains atomic counter for generating new event integer IDs,
-  // and bitmap of all entity ids present in this container.
+  // Contains 1) atomic counter for generating new event integer IDs,
+  // and 2) bitmap of all entity ids present in this container (used for
+  // negation logic).
   MDB_dbi user_dc_metadata_db;
 
-  // Stores the raw counts for countable tags
-  // Key: A composite of `(tag, entity_id)`
-  // Value: The `uint32_t` count
-  MDB_dbi counter_store_db;
-
-  // The Count Index: An inverted index for fast count-based threshold queries
-  // This index uses a CUMULATIVE model for efficiency
-  //
-  // Key: A composite of `(tag, count)`
-  // Value: A Roaring Bitmap of `entity_id`s that have a count >= this count
-  MDB_dbi count_index_db;
+  // Aggregation (GROUP BY)
+  // MMap Array: Index EventID -> EntityID
+  mmap_array_t event_to_entity_map;
 } eng_user_dc_t;
 
 typedef struct container_cache_node_s container_cache_node_t;
@@ -144,7 +131,7 @@ typedef struct {
   eng_dc_type_t dc_type;
   union {
     eng_dc_sys_db_type_t sys_db_type;
-    eng_dc_user_db_type_t user_db_type;
+    eng_dc_user_db_type_t usr_db_type;
   };
   char *container_name; // NULL for system DBs
   db_key_t db_key;
@@ -177,6 +164,7 @@ typedef enum {
   CONTAINER_ERR_ENV_CREATE,
   CONTAINER_ERR_DB_OPEN,
   CONTAINER_ERR_CACHE_FULL,
+  CONTAINER_ERR_MMAP,
 } container_error_code_t;
 
 typedef struct {

@@ -5,14 +5,14 @@
 #include "query/ast.h"
 
 typedef enum {
-  OP_TYPE_READ,
-  OP_TYPE_WRITE,
-  OP_TYPE_ADMIN,
-  OP_TYPE_ERROR
-} op_type_t;
+  PARSER_OP_TYPE_READ,
+  PARSER_OP_TYPE_WRITE,
+  PARSER_OP_TYPE_ADMIN,
+  PARSER_OP_TYPE_ERROR
+} parser_op_type_t;
 
 typedef struct parse_result_s {
-  op_type_t type;
+  parser_op_type_t type;
   ast_node_t *ast;           // Can be NULL if type is ERROR
   const char *error_message; // Optional: for detailed errors
 } parse_result_t;

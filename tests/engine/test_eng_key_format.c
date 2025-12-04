@@ -68,8 +68,8 @@ void test_custom_tag_into_zero_size(void) {
 void test_db_key_into_user_integer_success(void) {
   char buffer[64];
   eng_container_db_key_t db_key = {
-      .dc_type = CONTAINER_TYPE_USER,
-      .user_db_type = 42,
+      .dc_type = CONTAINER_TYPE_USR,
+      .usr_db_type = 42,
       .container_name = "users",
       .db_key = {.type = DB_KEY_INTEGER, .key = {.i = 12345}}};
 
@@ -83,7 +83,7 @@ void test_db_key_into_user_integer_success(void) {
 void test_db_key_into_system_string_success(void) {
   char buffer[64];
   eng_container_db_key_t db_key = {
-      .dc_type = CONTAINER_TYPE_SYSTEM,
+      .dc_type = CONTAINER_TYPE_SYS,
       .sys_db_type = 1,
       .db_key = {.type = DB_KEY_STRING, .key = {.s = "config_item_name"}}};
 
@@ -98,8 +98,8 @@ void test_db_key_into_buffer_too_small(void) {
   char buffer[20]; // Should be too small for the full output
   char long_string[] = "this_is_a_very_long_key_string_to_force_overflow";
   eng_container_db_key_t db_key = {
-      .dc_type = CONTAINER_TYPE_USER,
-      .user_db_type = 5,
+      .dc_type = CONTAINER_TYPE_USR,
+      .usr_db_type = 5,
       .container_name = "data",
       .db_key = {.type = DB_KEY_STRING, .key = {.s = long_string}}};
 
@@ -114,8 +114,8 @@ void test_db_key_into_buffer_too_small(void) {
 void test_db_key_into_invalid_type(void) {
   char buffer[64];
   eng_container_db_key_t db_key = {
-      .dc_type = CONTAINER_TYPE_USER,
-      .user_db_type = 10,
+      .dc_type = CONTAINER_TYPE_USR,
+      .usr_db_type = 10,
       .container_name = "temp",
       .db_key = {.type = (db_key_type_t)999, // Invalid/unhandled type
                  .key = {.i = 100}}};

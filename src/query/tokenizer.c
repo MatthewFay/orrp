@@ -8,7 +8,8 @@
 #include <string.h>
 
 const int MAX_TOKENS = 256;
-const int MAX_TEXT_VAL_LEN = 128;
+const int MAX_TEXT_VAL_LEN =
+    63; // 64th byte is reserved for the null terminator
 const int MAX_NUMBERS_SEQ = 9;
 const int MAX_TOTAL_CHARS = 2048;
 
@@ -115,7 +116,8 @@ struct {
     {"query", TOKEN_CMD_QUERY},  {"in", TOKEN_KW_IN},
     {"id", TOKEN_KW_ID},         {"entity", TOKEN_KW_ENTITY},
     {"cursor", TOKEN_KW_CURSOR}, {"take", TOKEN_KW_TAKE},
-    {"where", TOKEN_KW_WHERE},
+    {"where", TOKEN_KW_WHERE},   {"by", TOKEN_KW_BY},
+    {"having", TOKEN_KW_HAVING}, {"count", TOKEN_KW_COUNT},
 };
 
 // Return tokens from input string.
@@ -182,11 +184,6 @@ Queue *tok_tokenize(char *input) {
 
     else if (c == ':') {
       if (!_enqueue(q, &num_tokens, TOKEN_SYM_COLON, &t, &i, 1, NULL, 0))
-        return NULL;
-    }
-
-    else if (c == '+') {
-      if (!_enqueue(q, &num_tokens, TOKEN_SYM_PLUS, &t, &i, 1, NULL, 0))
         return NULL;
     }
 
