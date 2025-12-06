@@ -3,6 +3,7 @@
 
 #include "engine/cmd_queue/cmd_queue.h"
 #include "engine/container/container_types.h"
+#include "engine/engine_writer/engine_writer.h"
 #include "engine/op_queue/op_queue.h"
 #include "lmdb.h"
 #include "uthash.h"
@@ -24,6 +25,7 @@ typedef struct worker_user_dc_s {
 } worker_user_dc_t;
 
 typedef struct worker_config_s {
+  eng_writer_t *writer;
   cmd_queue_t *cmd_queues;
   uint32_t cmd_queue_consume_start; // Starting cmd queue index to consume
   uint32_t cmd_queue_consume_count; // Number of cmd queues to consume from

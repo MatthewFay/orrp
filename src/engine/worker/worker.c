@@ -6,10 +6,13 @@
 #include "engine/cmd_queue/cmd_queue_msg.h"
 #include "engine/container/container.h"
 #include "engine/container/container_types.h"
+#include "engine/engine_writer/engine_writer_queue.h"
+#include "engine/engine_writer/engine_writer_queue_msg.h"
 #include "engine/op_queue/op_queue.h"
 #include "engine/op_queue/op_queue_msg.h"
 #include "engine/routing/routing.h"
 #include "engine/worker/worker_ops.h"
+#include "engine/worker/worker_writer.h"
 #include "lmdb.h"
 #include "log/log.h"
 #include "query/ast.h"
@@ -390,6 +393,20 @@ static bool _write_to_event_ent_map(worker_t *worker, char *container_name,
   return true;
 }
 
+static bool _send_to_writer(eng_writer_msg_t *writer_msg, worker_t *worker) {
+  if (!writer_msg)
+    return false;
+  if (!eng_writer_queue_enqueue(&worker->config.writer->queue, writer_msg)) {
+    LOG_ACTION_ERROR(ACT_FLUSH_FAILED,
+                     "context=\"send_to_writer\" entries_prepared=%u",
+                     writer_msg->count);
+    return false;
+  }
+  LOG_ACTION_INFO(ACT_PERF_FLUSH_COMPLETE, "entries_flushed=%u",
+                  writer_msg->count);
+  return true;
+}
+
 static bool _process_msg(worker_t *worker, cmd_queue_msg_t *msg,
                          eng_container_t **sys_c_ptr, MDB_txn **sys_txn_ptr,
                          bool *created_sys_txn_out) {
@@ -421,10 +438,24 @@ static bool _process_msg(worker_t *worker, cmd_queue_msg_t *msg,
     return false;
   }
 
+  eng_writer_msg_t *writer_msg =
+      worker_create_writer_msg(msg, container_name, event_id, em->ent_int_id,
+                               em->ent_str_id, is_new_ent);
+  if (!writer_msg) {
+    LOG_ACTION_ERROR(ACT_WORKER_WRITER_MSG_FAILED, "container=\"%s\"",
+                     container_name);
+    return false;
+  }
+
+  // TODO: consider batching multiple groups of entries
+  if (!_send_to_writer(writer_msg, worker)) {
+    eng_writer_queue_free_msg(writer_msg);
+    return false;
+  }
+
   worker_ops_t ops = {0};
-  worker_ops_result_t ops_result = worker_create_ops(
-      msg, container_name, em->ent_str_id, em->ent_int_id, is_new_ent, event_id,
-      worker->entity_tag_counters, &ops, is_new_container_ent);
+  worker_ops_result_t ops_result =
+      worker_create_ops(msg, container_name, em->ent_int_id, event_id, &ops);
 
   if (!ops_result.success) {
     LOG_ACTION_ERROR(

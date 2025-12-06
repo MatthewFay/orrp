@@ -1,29 +1,30 @@
 #ifndef eng_writer_queue_MSG_H
 #define eng_writer_queue_MSG_H
 
-#include "core/bitmaps.h"
 #include "engine/container/container_types.h"
 #include <stdatomic.h>
+#include <stddef.h>
 #include <stdint.h>
 
 typedef enum {
-  ENG_WRITER_VAL_BITMAP = 0,
-  ENG_WRITER_VAL_INT32,
-  ENG_WRITER_VAL_STR
-} eng_writer_val_type_t;
+  WRITE_COND_ALWAYS = 0,        // Standard 'put'. Overwrites whatever is there.
+  WRITE_COND_NO_OVERWRITE,      // 'put' only if key does not exist
+  WRITE_COND_INT32_GREATER_THAN // 'put' only if new_val > existing_val
+                                // (Monotonic)
+} write_condition_t;
 
 typedef struct eng_writer_entry_s {
-  eng_writer_val_type_t val_type;
-  union {
-    bitmap_t *bitmap_copy;
-    uint32_t int32;
-    char *str_copy;
-  } val;
-  // Owned by consumer
+  // Writer takes ownership
+  void *value;
+  size_t value_size;
+
+  // Owned by caller
   _Atomic(uint64_t) *flush_version_ptr;
   uint64_t version;
+  bool bump_flush_version; // If true, bump flush version to `version`
 
   eng_container_db_key_t db_key;
+  write_condition_t write_condition;
 } eng_writer_entry_t;
 
 typedef struct eng_writer_msg_s {

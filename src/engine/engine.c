@@ -155,6 +155,7 @@ bool eng_init(void) {
                   NUM_WORKERS);
   for (int i = 0; i < NUM_WORKERS; i++) {
     worker_config_t worker_config = {
+        .writer = &g_eng_writer,
         .cmd_queues = g_cmd_queues,
         .cmd_queue_consume_start = i * CMD_QUEUES_PER_WORKER,
         .cmd_queue_consume_count = CMD_QUEUES_PER_WORKER,

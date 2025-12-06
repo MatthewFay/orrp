@@ -5,7 +5,7 @@
 #include "engine_writer_queue_msg.h"
 #include <stdbool.h>
 
-#define ENG_WRITER_QUEUE_CAPACITY 65536
+#define ENG_WRITER_QUEUE_CAPACITY 262144
 
 typedef struct eng_writer_queue_s {
   ck_ring_t ring;

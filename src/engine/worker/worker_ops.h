@@ -3,7 +3,6 @@
 
 #include "engine/cmd_queue/cmd_queue_msg.h"
 #include "engine/op_queue/op_queue_msg.h"
-#include "engine/worker/worker_types.h"
 #include <stdint.h>
 
 typedef struct {
@@ -24,12 +23,9 @@ typedef struct worker_ops_s {
 } worker_ops_t;
 
 worker_ops_result_t worker_create_ops(cmd_queue_msg_t *msg,
-                                      char *container_name, char *entity_id_str,
+                                      char *container_name,
                                       uint32_t entity_id_int32,
-                                      bool is_new_entity, uint32_t event_id,
-                                      worker_entity_tag_counter_t *tag_counters,
-                                      worker_ops_t *ops_out,
-                                    bool is_new_container_ent);
+                                      uint32_t event_id, worker_ops_t *ops_out);
 
 // Free ops array
 void worker_ops_clear(worker_ops_t *ops);

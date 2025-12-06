@@ -257,11 +257,14 @@ static inline void log_global_shutdown(void) { zlog_fini(); }
 #define ACT_QUEUE_DESTROY "queue_destroy"
 #define ACT_QUEUE_INVALID "queue_invalid"
 
-// Thread/Worker Operations
+// Thread Operations
 #define ACT_THREAD_STARTED "thread_started"
 #define ACT_THREAD_STOPPED "thread_stopped"
+
+// Worker
 #define ACT_WORKER_IDLE "worker_idle"
 #define ACT_WORKER_BUSY "worker_busy"
+#define ACT_WORKER_WRITER_MSG_FAILED "worker_writer_msg_failed"
 
 // System Events
 #define ACT_SYSTEM_INIT "system_init"
