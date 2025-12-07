@@ -65,7 +65,6 @@ APP_SRCS = \
 			 src/engine/consumer/consumer_cache.c \
 			 src/engine/consumer/consumer_ebr.c \
 			 src/engine/consumer/consumer_flush.c \
-			 src/engine/consumer/consumer_schema.c \
 			 src/engine/consumer/consumer.c \
 			 src/engine/container/container_cache.c \
 			 src/engine/container/container_db.c \
@@ -80,7 +79,9 @@ APP_SRCS = \
 			 src/engine/op_queue/op_queue_msg.c \
 			 src/engine/op_queue/op_queue.c \
 			 src/engine/routing/routing.c \
+			 src/engine/worker/encoder.c \
 			 src/engine/worker/worker_ops.c \
+			 src/engine/worker/worker_writer.c \
 			 src/engine/worker/worker.c \
 			 src/engine/api.c \
 			 src/engine/engine.c \
@@ -97,7 +98,8 @@ TEST_APP_SRCS = $(filter-out src/main.c, $(APP_SRCS))
 # Library sources
 LIB_SRCS = \
   $(wildcard lib/roaring/*.c) \
-  $(wildcard lib/lmdb/*.c)
+  $(wildcard lib/lmdb/*.c) \
+	$(wildcard lib/mpack/*.c)
 
 # Unity testing framework source
 UNITY_SRC = tests/unity/unity.c
@@ -227,7 +229,6 @@ test: bin/test_bitmaps \
 			bin/test_consumer_cache \
 			bin/test_container_cache \
 			bin/test_consumer_flush \
-			bin/test_consumer_schema \
 			bin/test_container_db \
 			bin/test_container \
 			bin/test_eng_eval \
@@ -266,8 +267,6 @@ test: bin/test_bitmaps \
 	./bin/test_consumer_cache
 	@echo "--- Running consumer_flush test ---"
 	./bin/test_consumer_flush
-	@echo "--- Running consumer_schema test ---"
-	./bin/test_consumer_schema
 	@echo "--- Running container_cache test ---"
 	./bin/test_container_cache
 	@echo "--- Running container_db test ---"
@@ -313,7 +312,6 @@ test_build: bin/test_bitmaps \
 						bin/test_consumer_batch \
 						bin/test_consumer_cache \
 						bin/test_consumer_flush \
-						bin/test_consumer_schema \
 						bin/test_container_cache \
 						bin/test_container_db \
 						bin/test_container \
@@ -417,12 +415,6 @@ bin/test_consumer_flush: tests/engine/test_consumer_flush.c \
 							src/core/bitmaps.c \
 							lib/roaring/roaring.c \
 							src/engine/engine_writer/engine_writer_queue_msg.c \
-							${UNITY_SRC} | $(BIN_DIR)
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
-
-# Rule to build the consumer_schema test executable
-bin/test_consumer_schema: tests/engine/test_consumer_schema.c \
-							src/engine/consumer/consumer_schema.c \
 							${UNITY_SRC} | $(BIN_DIR)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
 

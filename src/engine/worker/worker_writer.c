@@ -1,3 +1,4 @@
+#include "worker_writer.h"
 #include "core/db.h"
 #include "engine/cmd_queue/cmd_queue_msg.h"
 #include "engine/container/container.h"
@@ -7,7 +8,6 @@
 #include "engine/worker/encoder.h"
 #include <stdint.h>
 #include <string.h>
-#include "worker_writer.h"
 
 #define SYNC_INTERVAL 1000
 
@@ -176,7 +176,7 @@ eng_writer_msg_t *worker_create_writer_msg(cmd_queue_msg_t *cmd_msg,
     return NULL;
   }
 
-  if (event_id % SYNC_INTERVAL == 0 &&
+  if (event_id && // % SYNC_INTERVAL == 0 &&
       !(_create_event_counter_entry(container_name, event_id,
                                     &msg->entries[msg->count++]))) {
     eng_writer_queue_free_msg(msg);
@@ -186,7 +186,7 @@ eng_writer_msg_t *worker_create_writer_msg(cmd_queue_msg_t *cmd_msg,
   if (!is_new_ent)
     return msg;
 
-  if (ent_id % SYNC_INTERVAL == 0 &&
+  if (ent_id && // % SYNC_INTERVAL == 0 &&
       !(_create_ent_counter_entry(ent_id, &msg->entries[msg->count++]))) {
     eng_writer_queue_free_msg(msg);
     return NULL;

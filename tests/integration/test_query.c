@@ -38,7 +38,7 @@ static api_response_t *run_command(const char *command_string) {
 
   parse_result_t *parse_res = parse(tokens);
   tok_clear_all(tokens);
-  if (!parse_res || parse_res->type == OP_TYPE_ERROR) {
+  if (!parse_res || parse_res->type == PARSER_OP_TYPE_ERROR) {
     api_response_t *err_res = calloc(1, sizeof(api_response_t));
     err_res->err_msg =
         parse_res ? parse_res->error_message : "Tokenization failed";

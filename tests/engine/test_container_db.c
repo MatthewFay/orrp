@@ -85,10 +85,7 @@ void test_create_user_container_success(void) {
 
   // Verify all user databases are opened
   TEST_ASSERT_NOT_EQUAL(0, result.container->data.usr->inverted_event_index_db);
-  TEST_ASSERT_NOT_EQUAL(0, result.container->data.usr->event_to_entity_db);
   TEST_ASSERT_NOT_EQUAL(0, result.container->data.usr->user_dc_metadata_db);
-  TEST_ASSERT_NOT_EQUAL(0, result.container->data.usr->counter_store_db);
-  TEST_ASSERT_NOT_EQUAL(0, result.container->data.usr->count_index_db);
 
   container_close(result.container);
 }
@@ -152,7 +149,6 @@ void test_create_system_container_success(void) {
 
   // Verify all system databases are opened
   TEST_ASSERT_NOT_EQUAL(0, result.container->data.sys->ent_id_to_int_db);
-  TEST_ASSERT_NOT_EQUAL(0, result.container->data.sys->int_to_ent_id_db);
   TEST_ASSERT_NOT_EQUAL(0, result.container->data.sys->sys_dc_metadata_db);
 
   container_close(result.container);
@@ -230,21 +226,11 @@ void test_cdb_get_user_db_handle_all_db_types(void) {
   TEST_ASSERT_EQUAL(result.container->data.usr->inverted_event_index_db,
                     db_out);
 
-  TEST_ASSERT_TRUE(cdb_get_user_db_handle(result.container,
-                                          USER_DB_EVENT_TO_ENTITY, &db_out));
-  TEST_ASSERT_EQUAL(result.container->data.usr->event_to_entity_db, db_out);
 
   TEST_ASSERT_TRUE(
       cdb_get_user_db_handle(result.container, USR_DB_METADATA, &db_out));
   TEST_ASSERT_EQUAL(result.container->data.usr->user_dc_metadata_db, db_out);
 
-  TEST_ASSERT_TRUE(
-      cdb_get_user_db_handle(result.container, USER_DB_COUNTER_STORE, &db_out));
-  TEST_ASSERT_EQUAL(result.container->data.usr->counter_store_db, db_out);
-
-  TEST_ASSERT_TRUE(
-      cdb_get_user_db_handle(result.container, USER_DB_COUNT_INDEX, &db_out));
-  TEST_ASSERT_EQUAL(result.container->data.usr->count_index_db, db_out);
 
   container_close(result.container);
 }
@@ -308,9 +294,6 @@ void test_cdb_get_system_db_handle_all_db_types(void) {
                                             SYS_DB_ENT_ID_TO_INT, &db_out));
   TEST_ASSERT_EQUAL(result.container->data.sys->ent_id_to_int_db, db_out);
 
-  TEST_ASSERT_TRUE(cdb_get_system_db_handle(result.container,
-                                            SYS_DB_INT_TO_ENT_ID, &db_out));
-  TEST_ASSERT_EQUAL(result.container->data.sys->int_to_ent_id_db, db_out);
 
   TEST_ASSERT_TRUE(
       cdb_get_system_db_handle(result.container, SYS_DB_METADATA, &db_out));

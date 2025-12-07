@@ -49,7 +49,7 @@ void test_tokenize_null_or_empty_input(void) {
 
 // Test simple operators and parentheses
 void test_tokenize_simple_operators(void) {
-  char input[] = "() >= > <= < = : +";
+  char input[] = "() >= > <= < = :";
   Queue *tokens = tok_tokenize(input);
 
   TEST_ASSERT_NOT_NULL(tokens);
@@ -62,7 +62,6 @@ void test_tokenize_simple_operators(void) {
   assert_next_token(tokens, TOKEN_OP_LT, NULL, 0);
   assert_next_token(tokens, TOKEN_OP_EQ, NULL, 0);
   assert_next_token(tokens, TOKEN_SYM_COLON, NULL, 0);
-  assert_next_token(tokens, TOKEN_SYM_PLUS, NULL, 0);
 
   // Ensure the queue is properly terminated
   TEST_ASSERT_TRUE(q_empty(tokens));
@@ -282,7 +281,7 @@ void test_tokenize_quoted_strings(void) {
 
 // Test mix of all token types in one input
 void test_tokenize_all_token_types(void) {
-  char input[] = "event in id ( ) : + \"str\" 42 and or not query >= > <= < = "
+  char input[] = "event in id ( ) : \"str\" 42 and or not query >= > <= < = "
                  "!= identifier";
   Queue *tokens = tok_tokenize(input);
   TEST_ASSERT_NOT_NULL(tokens);
@@ -292,7 +291,6 @@ void test_tokenize_all_token_types(void) {
   assert_next_token(tokens, TOKEN_SYM_LPAREN, NULL, 0);
   assert_next_token(tokens, TOKEN_SYM_RPAREN, NULL, 0);
   assert_next_token(tokens, TOKEN_SYM_COLON, NULL, 0);
-  assert_next_token(tokens, TOKEN_SYM_PLUS, NULL, 0);
   assert_next_token(tokens, TOKEN_LITERAL_STRING, "str", 0);
   assert_next_token(tokens, TOKEN_LITERAL_NUMBER, NULL, 42);
   assert_next_token(tokens, TOKEN_OP_AND, NULL, 0);

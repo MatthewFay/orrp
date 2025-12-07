@@ -28,33 +28,31 @@ void test_number_literal_node(void) {
 
 void test_tag_node_reserved(void) {
   ast_node_t *val = ast_create_string_literal_node("events");
-  ast_node_t *tag = ast_create_tag_node(AST_KEY_IN, val, false);
+  ast_node_t *tag = ast_create_tag_node(AST_KEY_IN, val);
 
   TEST_ASSERT_NOT_NULL(tag);
   TEST_ASSERT_EQUAL(AST_TAG_NODE, tag->type);
   TEST_ASSERT_EQUAL(AST_TAG_KEY_RESERVED, tag->tag.key_type);
   TEST_ASSERT_EQUAL(AST_KEY_IN, tag->tag.reserved_key);
   TEST_ASSERT_EQUAL(val, tag->tag.value);
-  TEST_ASSERT_FALSE(tag->tag.is_counter);
   TEST_ASSERT_NULL(tag->next);
   ast_free(tag);
 }
 
 void test_tag_node_custom(void) {
   ast_node_t *val = ast_create_string_literal_node("US");
-  ast_node_t *tag = ast_create_custom_tag_node("country", val, true);
+  ast_node_t *tag = ast_create_custom_tag_node("country", val);
 
   TEST_ASSERT_NOT_NULL(tag);
   TEST_ASSERT_EQUAL(AST_TAG_NODE, tag->type);
   TEST_ASSERT_EQUAL(AST_TAG_KEY_CUSTOM, tag->tag.key_type);
   TEST_ASSERT_EQUAL_STRING("country", tag->tag.custom_key);
   TEST_ASSERT_EQUAL(val, tag->tag.value);
-  TEST_ASSERT_TRUE(tag->tag.is_counter);
   ast_free(tag);
 }
 
 void test_comparison_node(void) {
-  ast_node_t *left = ast_create_custom_tag_node("clicks", NULL, true);
+  ast_node_t *left = ast_create_custom_tag_node("clicks", NULL);
   ast_node_t *right = ast_create_number_literal_node(100);
   ast_node_t *cmp = ast_create_comparison_node(AST_OP_GT, left, right);
 
@@ -119,10 +117,10 @@ void test_append_multiple_nodes(void) {
 void test_command_node(void) {
   // Build a list of tags
   ast_node_t *tags_list = NULL;
-  ast_node_t *tag1 = ast_create_tag_node(
-      AST_KEY_IN, ast_create_string_literal_node("users"), false);
+  ast_node_t *tag1 =
+      ast_create_tag_node(AST_KEY_IN, ast_create_string_literal_node("users"));
   ast_node_t *tag2 = ast_create_custom_tag_node(
-      "country", ast_create_string_literal_node("US"), false);
+      "country", ast_create_string_literal_node("US"));
   ast_append_node(&tags_list, tag1);
   ast_append_node(&tags_list, tag2);
 

@@ -126,8 +126,6 @@ void test_system_container_has_all_databases(void) {
   MDB_dbi db_out;
   TEST_ASSERT_TRUE(container_get_system_db_handle(
       result.container, SYS_DB_ENT_ID_TO_INT, &db_out));
-  TEST_ASSERT_TRUE(container_get_system_db_handle(
-      result.container, SYS_DB_INT_TO_ENT_ID, &db_out));
   TEST_ASSERT_TRUE(container_get_system_db_handle(result.container,
                                                   SYS_DB_METADATA, &db_out));
 }
@@ -185,14 +183,8 @@ void test_user_container_has_all_databases(void) {
   MDB_dbi db_out;
   TEST_ASSERT_TRUE(container_get_user_db_handle(
       result.container, USR_DB_INVERTED_EVENT_INDEX, &db_out));
-  TEST_ASSERT_TRUE(container_get_user_db_handle(
-      result.container, USER_DB_EVENT_TO_ENTITY, &db_out));
   TEST_ASSERT_TRUE(
       container_get_user_db_handle(result.container, USR_DB_METADATA, &db_out));
-  TEST_ASSERT_TRUE(container_get_user_db_handle(
-      result.container, USER_DB_COUNTER_STORE, &db_out));
-  TEST_ASSERT_TRUE(container_get_user_db_handle(result.container,
-                                                USER_DB_COUNT_INDEX, &db_out));
 
   container_release(result.container);
 }
@@ -365,14 +357,8 @@ void test_all_user_db_types_accessible(void) {
   MDB_dbi db_out;
   TEST_ASSERT_TRUE(container_get_user_db_handle(
       result.container, USR_DB_INVERTED_EVENT_INDEX, &db_out));
-  TEST_ASSERT_TRUE(container_get_user_db_handle(
-      result.container, USER_DB_EVENT_TO_ENTITY, &db_out));
   TEST_ASSERT_TRUE(
       container_get_user_db_handle(result.container, USR_DB_METADATA, &db_out));
-  TEST_ASSERT_TRUE(container_get_user_db_handle(
-      result.container, USER_DB_COUNTER_STORE, &db_out));
-  TEST_ASSERT_TRUE(container_get_user_db_handle(result.container,
-                                                USER_DB_COUNT_INDEX, &db_out));
 
   container_release(result.container);
 }
@@ -386,8 +372,6 @@ void test_all_system_db_types_accessible(void) {
   MDB_dbi db_out;
   TEST_ASSERT_TRUE(container_get_system_db_handle(
       result.container, SYS_DB_ENT_ID_TO_INT, &db_out));
-  TEST_ASSERT_TRUE(container_get_system_db_handle(
-      result.container, SYS_DB_INT_TO_ENT_ID, &db_out));
   TEST_ASSERT_TRUE(container_get_system_db_handle(result.container,
                                                   SYS_DB_METADATA, &db_out));
 }

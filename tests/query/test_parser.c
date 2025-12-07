@@ -25,13 +25,13 @@ static void _assert_success(parse_result_t *result) {
   if (result->error_message) {
     TEST_FAIL_MESSAGE(result->error_message);
   }
-  TEST_ASSERT_NOT_EQUAL(OP_TYPE_ERROR, result->type);
+  TEST_ASSERT_NOT_EQUAL(PARSER_OP_TYPE_ERROR, result->type);
   TEST_ASSERT_NOT_NULL(result->ast);
 }
 
 static void _assert_error(parse_result_t *result) {
   TEST_ASSERT_NOT_NULL_MESSAGE(result, "Result should not be NULL");
-  TEST_ASSERT_EQUAL(OP_TYPE_ERROR, result->type);
+  TEST_ASSERT_EQUAL(PARSER_OP_TYPE_ERROR, result->type);
   TEST_ASSERT_NULL(result->ast);
   // We don't check for a specific message, just that an error occurred.
 }
@@ -71,7 +71,7 @@ void test_event_success_minimal(void) {
   parse_result_t *result =
       _parse_string("event in:\"metrics\" entity:\"user-123\"");
   _assert_success(result);
-  TEST_ASSERT_EQUAL(OP_TYPE_WRITE, result->type);
+  TEST_ASSERT_EQUAL(PARSER_OP_TYPE_WRITE, result->type);
 
   ast_node_t *in_tag = _find_tag_by_key(result->ast, AST_KEY_IN);
   TEST_ASSERT_NOT_NULL(in_tag);
@@ -88,7 +88,7 @@ void test_event_success_minimal(void) {
 void test_event_success_minimal2(void) {
   parse_result_t *result = _parse_string("event IN:abc tag:erc entity:fff");
   _assert_success(result);
-  TEST_ASSERT_EQUAL(OP_TYPE_WRITE, result->type);
+  TEST_ASSERT_EQUAL(PARSER_OP_TYPE_WRITE, result->type);
 
   ast_node_t *in_tag = _find_tag_by_key(result->ast, AST_KEY_IN);
   TEST_ASSERT_NOT_NULL(in_tag);
@@ -108,7 +108,6 @@ void test_event_success_full_different_order(void) {
 
   ast_node_t *clicks_tag = _find_tag_by_custom_key(result->ast, "clicks");
   TEST_ASSERT_NOT_NULL(clicks_tag);
-  TEST_ASSERT_TRUE(clicks_tag->tag.is_counter);
   TEST_ASSERT_EQUAL_STRING("one", clicks_tag->tag.value->literal.string_value);
 
   TEST_ASSERT_NOT_NULL(_find_tag_by_key(result->ast, AST_KEY_IN));
@@ -160,7 +159,7 @@ void test_event_fails_with_query_only_tag(void) {
 void test_query_success_minimal(void) {
   parse_result_t *result = _parse_string("query in:\"logs\" where:(a and b)");
   _assert_success(result);
-  TEST_ASSERT_EQUAL(OP_TYPE_READ, result->type);
+  TEST_ASSERT_EQUAL(PARSER_OP_TYPE_READ, result->type);
 
   ast_node_t *in_tag = _find_tag_by_key(result->ast, AST_KEY_IN);
   TEST_ASSERT_NOT_NULL(in_tag);

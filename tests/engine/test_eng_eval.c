@@ -64,17 +64,22 @@ void add_to_mock_db(const char *key, void *data, size_t len) {
 // Mock Routing: Always route to consumer 0
 int route_key_to_consumer(const char *key, uint32_t total,
                           uint32_t per_consumer) {
+  (void)key;
+  (void)total;
+  (void)per_consumer;
   return 0;
 }
 
 // Mock Consumer Access
 consumer_cache_t *consumer_get_cache(consumer_t *consumer) {
+  (void)consumer;
   return &mock_consumer_cache;
 }
 
 // Mock Consumer Cache Lookup: Returns injected global if present
 const bitmap_t *consumer_cache_get_bm(consumer_cache_t *cache,
                                       const char *key) {
+  (void)cache;
   if (injected_cache_bm && strstr(key, "cached_tag")) {
     return injected_cache_bm;
   }
@@ -83,12 +88,16 @@ const bitmap_t *consumer_cache_get_bm(consumer_cache_t *cache,
 
 // Mock Consumer Cache U32 Lookup
 uint32_t consumer_cache_get_u32(consumer_cache_t *cache, const char *key) {
+  (void)cache;
+  (void)key;
   return injected_cache_max_id;
 }
 
 // Mock Container DB Handle Retrieval
 bool container_get_db_handle(eng_container_t *container,
                              eng_container_db_key_t *key, MDB_dbi *dbi) {
+  (void)container;
+  (void)key;
   *dbi = 1; // Dummy handle
   return true;
 }
@@ -97,6 +106,8 @@ bool container_get_db_handle(eng_container_t *container,
 
 // Mock the db_get function to read from our linked list
 bool db_get(MDB_dbi dbi, MDB_txn *txn, db_key_t *key, db_get_result_t *result) {
+  (void)dbi;
+  (void)txn;
   if (key->type != DB_KEY_STRING)
     return false;
 
@@ -143,8 +154,7 @@ void setup_db_max_id(uint32_t max_id) {
 
 // Helper to make test code less verbose while using real AST API
 ast_node_t *make_test_tag(const char *k, const char *v) {
-  return ast_create_custom_tag_node(k, ast_create_string_literal_node(v),
-                                    false);
+  return ast_create_custom_tag_node(k, ast_create_string_literal_node(v));
 }
 
 // --- Setup / Teardown ---

@@ -148,31 +148,23 @@ static uint32_t _get_max_event_id(eval_ctx_t *ctx) {
 
   uint32_t max_id = 0;
 
-  int consumer_idx =
-      route_key_to_consumer(ser_db_key, ctx->config->op_queue_total_count,
-                            ctx->config->op_queues_per_consumer);
-
-  consumer_t *consumer = &ctx->config->consumers[consumer_idx];
-  if (consumer) {
-    consumer_cache_t *cc = consumer_get_cache(consumer);
-    max_id = cc ? consumer_cache_get_u32(cc, ser_db_key) : 0;
-  }
-
   db_get_result_t r;
   MDB_dbi dbi;
-  if (!max_id &&
-      container_get_db_handle(ctx->config->container, &db_key, &dbi)) {
-    if (db_get(dbi, ctx->config->user_txn, &db_key.db_key, &r) &&
-        r.status == DB_GET_OK) {
-      if (r.value_len == sizeof(uint32_t)) {
-        memcpy(&max_id, r.value, sizeof(uint32_t));
-      } else if (r.value_len == sizeof(uint64_t)) {
-        uint64_t tmp;
-        memcpy(&tmp, r.value, sizeof(uint64_t));
-        max_id = (uint32_t)tmp;
-      }
-      db_get_result_clear(&r);
+  if (!container_get_db_handle(ctx->config->container, &db_key, &dbi)) {
+    return 0;
+  }
+  if (!db_get(dbi, ctx->config->user_txn, &db_key.db_key, &r)) {
+    return 0;
+  }
+  if (r.status == DB_GET_OK) {
+    if (r.value_len == sizeof(uint32_t)) {
+      memcpy(&max_id, r.value, sizeof(uint32_t));
+    } else if (r.value_len == sizeof(uint64_t)) {
+      uint64_t tmp;
+      memcpy(&tmp, r.value, sizeof(uint64_t));
+      max_id = (uint32_t)tmp;
     }
+    db_get_result_clear(&r);
   }
 
   ctx->state->max_event_id = max_id;
