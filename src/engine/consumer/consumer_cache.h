@@ -28,9 +28,6 @@ void consumer_cache_query_begin();
 const bitmap_t *consumer_cache_get_bm(consumer_cache_t *consumer_cache,
                                       const char *ser_db_key);
 
-uint32_t consumer_cache_get_u32(consumer_cache_t *consumer_cache,
-                                const char *ser_db_key);
-
 /**
  * @brief Ends a query session.
  *

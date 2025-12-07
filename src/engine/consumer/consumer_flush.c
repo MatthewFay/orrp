@@ -9,41 +9,27 @@ void consumer_flush_clear_result(consumer_flush_result_t fr) {
   eng_writer_queue_free_msg(fr.msg);
 }
 
+static bool _ser_bitmap(consumer_cache_bitmap_t *cc_bm, void **val_out,
+                        size_t *val_size_out) {
+  *val_out = bitmap_serialize(cc_bm->bitmap, val_size_out);
+  if (!*val_out) {
+    return false;
+  }
+  return true;
+}
+
 static bool _consumer_flush_prepare_entry(consumer_cache_entry_t *cache_entry,
                                           eng_writer_entry_t *writer_entry) {
-  consumer_cache_bitmap_t *cc_bm;
-  consumer_cache_str_t *cc_str;
-  uint32_t int32;
   if (!cache_entry || !writer_entry)
     return false;
-  switch (cache_entry->val_type) {
-  case CONSUMER_CACHE_ENTRY_VAL_BM:
-    cc_bm = atomic_load(&cache_entry->val.cc_bitmap);
-    if (!cc_bm || !cc_bm->bitmap)
-      return false;
-    writer_entry->val_type = ENG_WRITER_VAL_BITMAP;
-    writer_entry->val.bitmap_copy = bitmap_copy(cc_bm->bitmap);
-    if (!writer_entry->val.bitmap_copy)
-      return false;
-    break;
-  case CONSUMER_CACHE_ENTRY_VAL_INT32:
-    int32 = atomic_load(&cache_entry->val.int32);
-    writer_entry->val_type = ENG_WRITER_VAL_INT32;
-    writer_entry->val.int32 = int32;
-    break;
-  case CONSUMER_CACHE_ENTRY_VAL_STR:
-    cc_str = atomic_load(&cache_entry->val.cc_str);
-    if (!cc_str || !cc_str->str)
-      return false;
-    writer_entry->val_type = ENG_WRITER_VAL_STR;
-    writer_entry->val.str_copy = strdup(cc_str->str);
-    if (!writer_entry->val.str_copy)
-      return false;
-    break;
-  default:
+  consumer_cache_bitmap_t *cc_bm = atomic_load(&cache_entry->cc_bitmap);
+  if (!cc_bm || !cc_bm->bitmap)
+    return false;
+  if (!_ser_bitmap(cc_bm, &writer_entry->value, &writer_entry->value_size)) {
     return false;
   }
 
+  writer_entry->bump_flush_version = true;
   writer_entry->flush_version_ptr = &cache_entry->flush_version;
   writer_entry->version = cache_entry->version;
   writer_entry->db_key = cache_entry->db_key;

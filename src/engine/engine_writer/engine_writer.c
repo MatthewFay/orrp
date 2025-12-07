@@ -1,5 +1,4 @@
 #include "engine_writer.h"
-#include "core/bitmaps.h"
 #include "core/db.h"
 #include "engine/container/container.h"
 #include "engine/container/container_types.h"
@@ -86,8 +85,8 @@ static bool _add_entry_to_batch(write_batch_t *batch,
   return true;
 }
 
-static bool _group_dirty_copies_by_container(write_batch_t **b_hash,
-                                             eng_writer_msg_t *msg) {
+static bool _group_entries_by_container(write_batch_t **b_hash,
+                                        eng_writer_msg_t *msg) {
   write_batch_t *batch_hash = *b_hash;
   write_batch_t *batch = NULL;
 
@@ -132,24 +131,9 @@ static bool _group_dirty_copies_by_container(write_batch_t **b_hash,
   return true;
 }
 
-static bool _ser_bitmap(eng_writer_entry_t *entry, void **val_out,
-                        size_t *val_size_out) {
-  *val_out = bitmap_serialize(entry->val.bitmap_copy, val_size_out);
-  if (!*val_out) {
-    LOG_ACTION_ERROR(ACT_SERIALIZATION_FAILED, "val_type=bitmap");
-    return false;
-  }
-  LOG_ACTION_DEBUG(ACT_SERIALIZATION_SUCCESS,
-                   "val_type=bitmap size_bytes=%zu version=%llu", *val_size_out,
-                   entry->version);
-  return true;
-}
-
 static bool _write_to_db(eng_container_t *c, MDB_txn *txn,
                          eng_writer_entry_t *entry) {
   MDB_dbi target_db;
-  size_t val_size = 0;
-  void *val = NULL;
 
   if (!container_get_user_db_handle(c, entry->db_key.usr_db_type, &target_db)) {
     LOG_ACTION_ERROR(ACT_DB_HANDLE_FAILED, "container=\"%s\" db_type=%d",
@@ -157,29 +141,18 @@ static bool _write_to_db(eng_container_t *c, MDB_txn *txn,
     return false;
   }
 
-  switch (entry->val_type) {
-  case ENG_WRITER_VAL_BITMAP:
-    if (!_ser_bitmap(entry, &val, &val_size)) {
-      return false;
-    }
-    break;
-  case ENG_WRITER_VAL_STR:
-    val = entry->val.str_copy;
-    val_size = strlen(entry->val.str_copy);
-    break;
-  case ENG_WRITER_VAL_INT32:
-    val = &entry->val.int32;
-    val_size = sizeof(uint32_t);
-    break;
-  default:
+  if (!entry->value) {
     LOG_ACTION_ERROR(ACT_WRITE_FAILED,
                      "err=\"unknown_value_type\" container=\"%s\"", c->name);
     return false;
   }
 
-  if (!db_put(target_db, txn, &entry->db_key.db_key, val, val_size, false)) {
+  // TODO: HANDLE WRITE CONDITION
+
+  if (!db_put(target_db, txn, &entry->db_key.db_key, entry->value,
+              entry->value_size, false)) {
     LOG_ACTION_ERROR(ACT_DB_WRITE_FAILED, "container=\"%s\" size_bytes=%zu",
-                     c->name, val_size);
+                     c->name, entry->value_size);
     return false;
   }
 
@@ -191,9 +164,12 @@ static void _bump_flush_version(write_batch_t *container_batch) {
   uint32_t bumped = 0;
 
   while (item) {
-    uint32_t v = item->entry->version;
-    atomic_store(item->entry->flush_version_ptr, v);
-    bumped++;
+    if (item->entry->bump_flush_version) {
+      uint32_t v = item->entry->version;
+      atomic_store(item->entry->flush_version_ptr, v);
+      bumped++;
+    }
+
     item = item->next;
   }
 
@@ -201,7 +177,7 @@ static void _bump_flush_version(write_batch_t *container_batch) {
                    bumped, container_batch->container_name);
 }
 
-static void _flush_dirty_snapshots_to_db(write_batch_t *hash) {
+static void _flush_to_db(write_batch_t *hash) {
   if (!hash)
     return;
 
@@ -327,7 +303,7 @@ static void _eng_writer_thread_func(void *arg) {
       total_messages++;
       total_entries += msg->count;
 
-      if (!_group_dirty_copies_by_container(&batch_hash, msg)) {
+      if (!_group_entries_by_container(&batch_hash, msg)) {
         LOG_ACTION_ERROR(ACT_BATCH_GROUPING_FAILED,
                          "entries=%u action=discarding", msg->count);
         break;
@@ -346,7 +322,7 @@ static void _eng_writer_thread_func(void *arg) {
         continue;
       }
 
-      _flush_dirty_snapshots_to_db(batch_hash);
+      _flush_to_db(batch_hash);
       _free_batch_hash(batch_hash);
     } else {
       if (spin_count < ENG_WRITER_SPIN_LIMIT) {
