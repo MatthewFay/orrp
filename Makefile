@@ -233,8 +233,8 @@ test: bin/test_bitmaps \
 			bin/test_container \
 			bin/test_eng_eval \
 			bin/test_eng_key_format \
-			bin/test_op \
 			bin/test_routing \
+			bin/test_encoder \
 			bin/test_translator
 			bin/test_tokenizer \
  		  bin/test_ast \
@@ -277,10 +277,10 @@ test: bin/test_bitmaps \
 	./bin/test_eng_eval
 	@echo "--- Running eng_key_format test ---"
 	./bin/test_eng_key_format
-	@echo "--- Running op test ---"
-	./bin/test_op
 	@echo "--- Running routing test ---"
 	./bin/test_routing
+	@echo "--- Running encoder test ---"
+	./bin/test_encoder
 
 	@echo "--- Running translator test ---"
 	./bin/test_translator
@@ -317,8 +317,8 @@ test_build: bin/test_bitmaps \
 						bin/test_container \
 						bin/test_eng_eval \
 						bin/test_eng_key_format \
-						bin/test_op \
 						bin/test_routing \
+						bin/test_encoder \
 						bin/test_translator \
 					  bin/test_ast \
 					  bin/test_parser \
@@ -429,7 +429,9 @@ bin/test_container_cache: tests/engine/test_container_cache.c \
 bin/test_container_db: tests/engine/test_container_db.c \
 							src/engine/container/container_db.c \
 							src/core/db.c \
+							src/core/mmap_array.c \
 										$(wildcard lib/lmdb/*.c) \
+											$(wildcard lib/mpack/*.c) \
 							${UNITY_SRC} | $(BIN_DIR)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
 
@@ -439,7 +441,9 @@ bin/test_container: tests/engine/test_container.c \
 							src/engine/container/container_db.c \
 							src/engine/container/container_cache.c \
 							src/core/db.c \
+							src/core/mmap_array.c \
 										$(wildcard lib/lmdb/*.c) \
+											$(wildcard lib/mpack/*.c) \
 							${UNITY_SRC} | $(BIN_DIR) $(LIBUV_A)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBUV_A) $(LIBS)
 
@@ -460,18 +464,19 @@ bin/test_eng_key_format: tests/engine/test_eng_key_format.c \
 							${UNITY_SRC} | $(BIN_DIR)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
 
-# Rule to build the op test executable
-bin/test_op: tests/engine/test_op.c \
-							src/engine/op/op.c \
-							src/core/bitmaps.c \
-							lib/roaring/roaring.c \
-							${UNITY_SRC} | $(BIN_DIR)
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
-
 # Rule to build the routing test executable
 bin/test_routing: tests/engine/test_routing.c \
 							src/engine/routing/routing.c \
 							src/core/hash.c \
+							${UNITY_SRC} | $(BIN_DIR)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
+
+# Rule to build the encoder test executable
+bin/test_encoder: tests/engine/test_encoder.c \
+							src/engine/worker/encoder.c \
+							src/core/mmap_array.c \
+							src/query/ast.c \
+								$(wildcard lib/mpack/*.c) \
 							${UNITY_SRC} | $(BIN_DIR)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
 

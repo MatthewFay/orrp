@@ -28,6 +28,12 @@ static void free_test_ctx(cmd_ctx_t *ctx) {
   ast_node_t *node = ctx->custom_tags_head;
   while (node) {
     ast_node_t *next = node->next;
+
+    // Breaking the chain here prevents ast_free from recursively freeing
+    // 'next'. This fixes the double-free/heap corruption crash seen in previous
+    // runs.
+    node->next = NULL;
+
     ast_free(node);
     node = next;
   }
@@ -63,7 +69,7 @@ static void verify_msgpack_string(const char *data, size_t size,
   TEST_ASSERT_EQUAL(mpack_type_map, mpack_node_type(root));
 
   mpack_node_t value = mpack_node_map_cstr(root, key);
-  TEST_ASSERT_FALSE(mpack_node_is_missing(value));
+  TEST_ASSERT_FALSE_MESSAGE(mpack_node_is_missing(value), key);
   TEST_ASSERT_EQUAL(mpack_type_str, mpack_node_type(value));
 
   size_t len = mpack_node_strlen(value);
@@ -86,7 +92,7 @@ static void verify_msgpack_uint(const char *data, size_t size, const char *key,
   TEST_ASSERT_EQUAL(mpack_type_map, mpack_node_type(root));
 
   mpack_node_t value = mpack_node_map_cstr(root, key);
-  TEST_ASSERT_FALSE(mpack_node_is_missing(value));
+  TEST_ASSERT_FALSE_MESSAGE(mpack_node_is_missing(value), key);
   TEST_ASSERT_EQUAL(mpack_type_uint, mpack_node_type(value));
 
   uint32_t actual = mpack_node_u32(value);

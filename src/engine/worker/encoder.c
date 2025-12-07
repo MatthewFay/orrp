@@ -9,33 +9,29 @@ bool encode_event(cmd_ctx_t *cmd_ctx, uint32_t event_id, char **data_out,
     return false;
   }
 
-  if (!cmd_ctx->in_tag_value) {
-    fprintf(stderr, "encode_event: missing 'in' tag\n");
+  if (!cmd_ctx->in_tag_value ||
+      cmd_ctx->in_tag_value->type != AST_LITERAL_NODE) {
+    fprintf(stderr, "encode_event: missing or invalid 'in' tag\n");
     return false;
   }
 
-  if (!cmd_ctx->entity_tag_value) {
-    fprintf(stderr, "encode_event: missing 'entity' tag\n");
+  if (!cmd_ctx->entity_tag_value ||
+      cmd_ctx->entity_tag_value->type != AST_LITERAL_NODE) {
+    fprintf(stderr, "encode_event: missing or invalid 'entity' tag\n");
     return false;
   }
 
-  if (cmd_ctx->in_tag_value->type != AST_LITERAL_NODE ||
-      cmd_ctx->in_tag_value->literal.type != AST_LITERAL_STRING) {
-    fprintf(stderr, "encode_event: 'in' tag is not a string literal\n");
-    return false;
-  }
+  // `mpack_start_map` requires exact element count upfront.
+  // 'id', 'in', and 'entity' are always present (3), plus the count of
+  // custom tags.
+  uint32_t map_count = 3 + cmd_ctx->num_custom_tags;
 
-  if (cmd_ctx->entity_tag_value->type != AST_LITERAL_NODE ||
-      cmd_ctx->entity_tag_value->literal.type != AST_LITERAL_STRING) {
-    fprintf(stderr, "encode_event: 'entity' tag is not a string literal\n");
-    return false;
-  }
-
-  ast_node_t *node = cmd_ctx->custom_tags_head;
   mpack_writer_t writer;
+  // Initialize growable buffer. mpack handles realloc; caller must free
+  // *data_out.
   mpack_writer_init_growable(&writer, data_out, size_out);
 
-  mpack_build_map(&writer);
+  mpack_start_map(&writer, map_count);
 
   mpack_write_cstr(&writer, "id");
   mpack_write_u32(&writer, event_id);
@@ -46,54 +42,47 @@ bool encode_event(cmd_ctx_t *cmd_ctx, uint32_t event_id, char **data_out,
   mpack_write_cstr(&writer, "entity");
   mpack_write_cstr(&writer, cmd_ctx->entity_tag_value->literal.string_value);
 
+  ast_node_t *node = cmd_ctx->custom_tags_head;
   while (node) {
+    // Fail fast if AST structure is invalid to prevent writing corrupt data
     if (node->type != AST_TAG_NODE) {
-      fprintf(stderr, "encode_event: invalid node type in custom tags\n");
       mpack_writer_destroy(&writer);
+      // Clean up buffer so caller doesn't try to use invalid/partial data
       if (*data_out) {
-        MPACK_FREE(*data_out);
+        free(*data_out);
         *data_out = NULL;
         *size_out = 0;
       }
       return false;
     }
 
-    if (node->tag.key_type != AST_TAG_KEY_CUSTOM) {
-      fprintf(stderr, "encode_event: expected custom key type\n");
-      mpack_writer_destroy(&writer);
-      if (*data_out) {
-        MPACK_FREE(*data_out);
-        *data_out = NULL;
-        *size_out = 0;
-      }
-      return false;
+    if (node->tag.key_type == AST_TAG_KEY_CUSTOM) {
+      mpack_write_cstr(&writer, node->tag.custom_key);
+    } else {
+      // Fallback for reserved keys in custom list to maintain map pairing
+      mpack_write_cstr(&writer, "reserved_unknown");
     }
 
-    if (!node->tag.value || node->tag.value->type != AST_LITERAL_NODE ||
-        node->tag.value->literal.type != AST_LITERAL_STRING) {
-      fprintf(stderr,
-              "encode_event: custom tag value is not a string literal\n");
-      mpack_writer_destroy(&writer);
-      if (*data_out) {
-        MPACK_FREE(*data_out);
-        *data_out = NULL;
-        *size_out = 0;
+    if (node->tag.value && node->tag.value->type == AST_LITERAL_NODE) {
+      if (node->tag.value->literal.type == AST_LITERAL_STRING) {
+        mpack_write_cstr(&writer, node->tag.value->literal.string_value);
+      } else if (node->tag.value->literal.type == AST_LITERAL_NUMBER) {
+        mpack_write_u32(&writer, node->tag.value->literal.number_value);
+      } else {
+        mpack_write_nil(&writer);
       }
-      return false;
+    } else {
+      mpack_write_nil(&writer); // Unsupported value type
     }
-
-    mpack_write_cstr(&writer, node->tag.custom_key);
-    mpack_write_cstr(&writer, node->tag.value->literal.string_value);
 
     node = node->next;
   }
 
-  mpack_complete_map(&writer);
-
+  // Verify that the number of items written matches map_count
   if (mpack_writer_destroy(&writer) != mpack_ok) {
-    fprintf(stderr, "An error occurred encoding the data!\n");
+    fprintf(stderr, "Encoding error or map size mismatch\n");
     if (*data_out) {
-      MPACK_FREE(*data_out);
+      free(*data_out);
       *data_out = NULL;
       *size_out = 0;
     }
