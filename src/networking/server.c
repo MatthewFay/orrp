@@ -258,7 +258,8 @@ static void _work_cb(uv_work_t *req) {
   if (!tokens) {
     LOG_ACTION_DEBUG(ACT_TOKENIZATION_FAILED, "client_id=%lld",
                      ctx->client->client_id);
-    ctx->response = "Error: Unrecognized character\n";
+    // TODO: improve error message
+    ctx->response = "Error: Unrecognized character or invalid command\n";
     goto cleanup;
   }
 

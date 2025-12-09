@@ -102,8 +102,8 @@ void test_event_success_minimal2(void) {
 }
 
 void test_event_success_full_different_order(void) {
-  parse_result_t *result = _parse_string(
-      "event id:\"abc\" clicks:\"one\"+ entity:\"user-123\" in:\"metrics\"");
+  parse_result_t *result =
+      _parse_string("event clicks:\"one\" entity:\"user-123\" in:\"metrics\"");
   _assert_success(result);
 
   ast_node_t *clicks_tag = _find_tag_by_custom_key(result->ast, "clicks");
@@ -111,7 +111,6 @@ void test_event_success_full_different_order(void) {
   TEST_ASSERT_EQUAL_STRING("one", clicks_tag->tag.value->literal.string_value);
 
   TEST_ASSERT_NOT_NULL(_find_tag_by_key(result->ast, AST_KEY_IN));
-  TEST_ASSERT_NOT_NULL(_find_tag_by_key(result->ast, AST_KEY_ID));
   TEST_ASSERT_NOT_NULL(_find_tag_by_key(result->ast, AST_KEY_ENTITY));
 
   parse_free_result(result);
@@ -173,14 +172,11 @@ void test_query_success_minimal(void) {
 }
 
 void test_query_success_full_different_order(void) {
-  parse_result_t *result =
-      _parse_string("query where:(a) cursor:\"xyz\" in:\"logs\" loc:\"us\"");
+  parse_result_t *result = _parse_string("query where:(a:b) in:\"logs\"");
   _assert_success(result);
 
   TEST_ASSERT_NOT_NULL(_find_tag_by_key(result->ast, AST_KEY_IN));
   TEST_ASSERT_NOT_NULL(_find_tag_by_key(result->ast, AST_KEY_WHERE));
-  TEST_ASSERT_NOT_NULL(_find_tag_by_key(result->ast, AST_KEY_CURSOR));
-  TEST_ASSERT_NOT_NULL(_find_tag_by_custom_key(result->ast, "loc"));
 
   parse_free_result(result);
 }

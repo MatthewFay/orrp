@@ -139,7 +139,7 @@ container_result_t container_get_or_create_user(const char *name) {
     return result;
   }
 
-  if (!name || strlen(name) == 0) {
+  if (!name || strlen(name) == 0 || strcmp(name, SYS_CONTAINER_NAME) == 0) {
     result.error_code = CONTAINER_ERR_INVALID_NAME;
     result.error_msg = "Invalid container name";
     return result;

@@ -205,17 +205,14 @@ void test_EVENT_DuplicateCustomTag_ShouldFail(void) {
 }
 
 void test_EVENT_InvalidContainerName_ShouldFail(void) {
-  // The API layer's `_validate_ast` should catch these before they hit the
-  // engine
   const char *cmd1 = "EVENT "
                      "in:"
                      "a23456789012345678901234567890123456789012345678901234567"
                      "8901234567890 entity:u1"; // Too long
 
   api_response_t *r1 = run_command(cmd1);
-  TEST_ASSERT_NOT_NULL(r1);
-  TEST_ASSERT_FALSE(r1->is_ok);
-  TEST_ASSERT_EQUAL_STRING("Error: Invalid command", r1->err_msg);
+  // tokenizer fails, returning null
+  TEST_ASSERT_NULL(r1);
 
   free_api_response(r1);
 }

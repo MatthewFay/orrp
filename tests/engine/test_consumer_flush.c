@@ -40,11 +40,11 @@ void _free_input_entry(consumer_cache_entry_t *entry) {
 
   // Free Payload
   consumer_cache_bitmap_t *cc_bm = atomic_load(&entry->cc_bitmap);
-    if (cc_bm) {
-      if (cc_bm->bitmap)
-        bitmap_free(cc_bm->bitmap);
-      free(cc_bm);
-    }
+  if (cc_bm) {
+    if (cc_bm->bitmap)
+      bitmap_free(cc_bm->bitmap);
+    free(cc_bm);
+  }
 
   free(entry);
 }
@@ -68,7 +68,6 @@ consumer_cache_entry_t *_create_entry(const char *c, const char *k) {
   input_entries_head = e;
   return e;
 }
-
 
 consumer_cache_entry_t *create_bm(const char *c, const char *k) {
   consumer_cache_entry_t *e = _create_entry(c, k);
@@ -97,7 +96,6 @@ void test_flush_prepare_handles_null_or_empty(void) {
   TEST_ASSERT_EQUAL_UINT32(0, r2.entries_prepared);
 }
 
-
 void test_flush_prepare_deep_copies_bitmaps(void) {
   consumer_cache_entry_t *e = create_bm("idx", "tag:a");
 
@@ -106,11 +104,13 @@ void test_flush_prepare_deep_copies_bitmaps(void) {
 
   eng_writer_entry_t *w = &res.msg->entries[0];
 
+  bitmap_t *deser = bitmap_deserialize(w->value, w->value_size);
+
   // 1. Content matches
-  TEST_ASSERT_TRUE(bitmap_contains(w->value, 123));
+  TEST_ASSERT_TRUE(bitmap_contains(deser, 123));
 
   // 2. Memory is distinct (Modify copy, check source)
-  bitmap_remove(w->value, 123);
+  bitmap_remove(deser, 123);
 
   consumer_cache_bitmap_t *src_bm = atomic_load(&e->cc_bitmap);
   TEST_ASSERT_TRUE(bitmap_contains(src_bm->bitmap, 123)); // Source unchanged

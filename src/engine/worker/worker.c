@@ -77,7 +77,6 @@ _get_entity_mapping_by_str(worker_t *worker, eng_container_t **sys_c_ptr,
                    "context=\"entity_mapping\" entity_id=\"%s\"",
                    entity_id_str);
 
-  *created_sys_txn = false;
   if (!_ensure_sys_container(sys_c_ptr)) {
     return false;
   }
@@ -548,11 +547,7 @@ static void _worker_thread_func(void *arg) {
 
   while (!worker->should_stop) {
     int processed = _do_work(worker, &sys_c, &sys_txn, &created_sys_txn);
-    if (created_sys_txn) {
-      db_abort_txn(sys_txn);
-      sys_txn = NULL;
-      created_sys_txn = false;
-    }
+
     if (processed > 0) {
       total_processed += processed;
       backoff = 1;
@@ -563,6 +558,12 @@ static void _worker_thread_func(void *arg) {
                         total_processed);
       }
     } else {
+      if (created_sys_txn) {
+        db_abort_txn(sys_txn);
+        sys_txn = NULL;
+        created_sys_txn = false;
+      }
+
       if (worker->user_dcs) {
         worker_user_dc_t *user_dc, *user_dc_tmp;
 

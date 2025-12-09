@@ -97,6 +97,7 @@ void container_cache_move_to_front(container_cache_t *cache,
   }
 }
 
+// Frees the node
 bool container_cache_remove(container_cache_t *cache,
                             container_cache_node_t *node) {
   if (!cache || !node) {

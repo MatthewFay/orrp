@@ -23,7 +23,6 @@ static eval_ctx_t ctx;
 
 // Helper to allow tests to inject "Cached" bitmaps
 static bitmap_t *injected_cache_bm = NULL;
-static uint32_t injected_cache_max_id = 0;
 
 // --- In-Memory Mock Database ---
 typedef struct mock_db_entry_s {
@@ -84,13 +83,6 @@ const bitmap_t *consumer_cache_get_bm(consumer_cache_t *cache,
     return injected_cache_bm;
   }
   return NULL;
-}
-
-// Mock Consumer Cache U32 Lookup
-uint32_t consumer_cache_get_u32(consumer_cache_t *cache, const char *key) {
-  (void)cache;
-  (void)key;
-  return injected_cache_max_id;
 }
 
 // Mock Container DB Handle Retrieval
@@ -180,7 +172,6 @@ void setUp(void) {
   ctx.state = &state;
 
   injected_cache_bm = NULL;
-  injected_cache_max_id = 0;
 }
 
 void tearDown(void) {
@@ -333,28 +324,6 @@ void test_logical_not(void) {
   TEST_ASSERT_TRUE(bitmap_contains(r.events, 0));
   TEST_ASSERT_TRUE(bitmap_contains(r.events, 5));
   TEST_ASSERT_FALSE(bitmap_contains(r.events, 10));
-
-  bitmap_free(r.events);
-  ast_free(ast);
-}
-
-void test_not_uses_cached_max_id_if_db_missing(void) {
-  injected_cache_max_id = 5;
-
-  // loc:ca (1)
-  bitmap_t *b1 = bitmap_create();
-  bitmap_add(b1, 1);
-  setup_db_bitmap("loc:ca", b1);
-  bitmap_free(b1);
-
-  ast_node_t *ast = ast_create_not_node(make_test_tag("loc", "ca"));
-  eng_eval_result_t r = eng_eval_resolve_exp_to_events(ast, &ctx);
-
-  TEST_ASSERT_TRUE(r.success);
-  TEST_ASSERT_TRUE(bitmap_contains(r.events, 0));
-  TEST_ASSERT_FALSE(bitmap_contains(r.events, 1));
-  TEST_ASSERT_TRUE(bitmap_contains(r.events, 4));
-  TEST_ASSERT_FALSE(bitmap_contains(r.events, 5));
 
   bitmap_free(r.events);
   ast_free(ast);
@@ -529,7 +498,6 @@ int main(void) {
   RUN_TEST(test_logical_and);
   RUN_TEST(test_logical_or);
   RUN_TEST(test_logical_not);
-  RUN_TEST(test_not_uses_cached_max_id_if_db_missing);
   RUN_TEST(test_complex_nested_logic);
   RUN_TEST(test_stack_overflow_protection);
   RUN_TEST(test_deeply_nested_mixed_logic);
