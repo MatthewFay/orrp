@@ -130,9 +130,16 @@ static bool _validate_ast(ast_node_t *ast, custom_key **c_keys) {
 void free_api_response(api_response_t *r) {
   if (!r)
     return;
-  if (r->resp_type == API_RESP_TYPE_LIST_U32) {
+  switch (r->resp_type) {
+  case API_RESP_TYPE_LIST_U32:
     free(r->payload.list_u32.int32s);
+    break;
+  case API_RESP_TYPE_LIST_OBJ:
+    break;
+  default:
+    break;
   }
+
   free(r);
 }
 

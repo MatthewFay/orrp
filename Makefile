@@ -86,7 +86,7 @@ APP_SRCS = \
 			 src/engine/api.c \
 			 src/engine/engine.c \
 		   src/networking/server.c \
-			 src/networking/translator.c \
+			 src/networking/serializer.c \
 		   src/query/ast.c \
 			 src/query/parser.c \
 		   src/query/tokenizer.c \
@@ -235,7 +235,7 @@ test: bin/test_bitmaps \
 			bin/test_eng_key_format \
 			bin/test_routing \
 			bin/test_encoder \
-			bin/test_translator
+			bin/test_serializer
 			bin/test_tokenizer \
  		  bin/test_ast \
 			bin/test_parser \
@@ -282,8 +282,8 @@ test: bin/test_bitmaps \
 	@echo "--- Running encoder test ---"
 	./bin/test_encoder
 
-	@echo "--- Running translator test ---"
-	./bin/test_translator
+	@echo "--- Running serializer test ---"
+	./bin/test_serializer
 
 	@echo "--- Running ast test ---"
 	./bin/test_ast
@@ -319,7 +319,7 @@ test_build: bin/test_bitmaps \
 						bin/test_eng_key_format \
 						bin/test_routing \
 						bin/test_encoder \
-						bin/test_translator \
+						bin/test_serializer \
 					  bin/test_ast \
 					  bin/test_parser \
 						bin/test_tokenizer \
@@ -480,9 +480,10 @@ bin/test_encoder: tests/engine/test_encoder.c \
 							${UNITY_SRC} | $(BIN_DIR)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
 
-# Rule to build the translator test executable
-bin/test_translator: tests/networking/test_translator.c \
-							src/networking/translator.c \
+# Rule to build the serializer test executable
+bin/test_serializer: tests/networking/test_serializer.c \
+							src/networking/serializer.c \
+							$(wildcard lib/mpack/*.c) \
 							${UNITY_SRC} | $(BIN_DIR)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
 

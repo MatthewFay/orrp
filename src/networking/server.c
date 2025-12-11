@@ -13,7 +13,7 @@
 #include "core/queue.h"
 #include "engine/api.h"
 #include "log/log.h"
-#include "networking/translator.h"
+#include "networking/serializer.h"
 #include "query/parser.h"
 #include "query/tokenizer.h"
 #include "uv.h"
@@ -239,6 +239,12 @@ static void _decrement_work_and_cleanup(client_t *client) {
   }
 }
 
+static void _encode_err(work_ctx_t *ctx, serializer_result_t *sr,
+                        const char *err_msg) {
+  serializer_encode_err(err_msg, sr);
+  ctx->response = ctx->response_to_free = sr->response;
+}
+
 /**
  * @brief Background worker: runs in libuv thread-pool
  * Handles tokenization, parsing, and command execution for all command types
@@ -252,14 +258,14 @@ static void _work_cb(uv_work_t *req) {
   Queue *tokens = NULL;
   parse_result_t *parsed = NULL;
   api_response_t *api_resp = NULL;
-  translator_result_t tr = {0};
+  serializer_result_t sr = {0};
 
   tokens = tok_tokenize(ctx->command);
   if (!tokens) {
     LOG_ACTION_DEBUG(ACT_TOKENIZATION_FAILED, "client_id=%lld",
                      ctx->client->client_id);
     // TODO: improve error message
-    ctx->response = "Error: Unrecognized character or invalid command\n";
+    _encode_err(ctx, &sr, "Unrecognized character or invalid command");
     goto cleanup;
   }
 
@@ -268,7 +274,8 @@ static void _work_cb(uv_work_t *req) {
     LOG_ACTION_DEBUG(ACT_PARSE_FAILED, "client_id=%lld err=\"%s\"",
                      ctx->client->client_id,
                      parsed->error_message ? parsed->error_message : "unknown");
-    ctx->response = "Error: Syntax error\n";
+    _encode_err(ctx, &sr, "Syntax error");
+
     goto cleanup;
   }
 
@@ -278,21 +285,23 @@ static void _work_cb(uv_work_t *req) {
     LOG_ACTION_ERROR(ACT_API_EXEC_FAILED,
                      "client_id=%lld err=\"returned_null\"",
                      ctx->client->client_id);
-    ctx->response = INTERNAL_SERVER_ERROR_MSG;
+    _encode_err(ctx, &sr, INTERNAL_SERVER_ERROR_MSG);
+
   } else if (!api_resp->is_ok) {
     const char *err =
         api_resp->err_msg ? api_resp->err_msg : "Execution failed";
     LOG_ACTION_ERROR(ACT_CMD_EXEC_FAILED, "client_id=%lld err=\"%s\"",
                      ctx->client->client_id, err);
-    ctx->response = (char *)err;
+    _encode_err(ctx, &sr, err);
+
   } else {
-    translate(api_resp, TRANSLATOR_RESP_FORMAT_TYPE_TEXT, &tr);
-    if (!tr.success) {
-      LOG_ACTION_ERROR(ACT_TRANSLATION_ERROR, "client_id=%lld err=\"%s\"",
-                       ctx->client->client_id, tr.err_msg);
-      ctx->response = INTERNAL_SERVER_ERROR_MSG;
+    serializer_encode_api_resp(api_resp, &sr);
+    if (!sr.success) {
+      LOG_ACTION_ERROR(ACT_SERIALIZER_ERROR, "client_id=%lld err=\"%s\"",
+                       ctx->client->client_id, sr.err_msg);
+      _encode_err(ctx, &sr, INTERNAL_SERVER_ERROR_MSG);
     } else {
-      ctx->response = ctx->response_to_free = tr.response;
+      ctx->response = ctx->response_to_free = sr.response;
     }
   }
 

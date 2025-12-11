@@ -9,7 +9,24 @@
 
 enum api_op_type { API_INVALID, API_EVENT, API_QUERY };
 
-enum api_resp_type { API_RESP_TYPE_LIST_U32, API_RESP_TYPE_ACK };
+enum api_resp_type {
+  API_RESP_TYPE_LIST_U32,
+  API_RESP_TYPE_LIST_OBJ,
+  API_RESP_TYPE_ACK
+};
+
+enum api_obj_type { EVENT };
+
+typedef struct api_obj_s {
+  uint32_t id;
+  char *data;
+} api_obj_t;
+
+typedef struct api_response_type_list_obj_s {
+  api_obj_t type;
+  api_obj_t **objects;
+  uint32_t count;
+} api_response_type_list_obj_t;
 
 typedef struct api_response_type_list_u32_s {
   uint32_t *int32s;
@@ -22,6 +39,7 @@ typedef struct api_response_s {
 
   union {
     api_response_type_list_u32_t list_u32;
+    api_response_type_list_obj_t list_obj;
   } payload;
 
   bool is_ok;
