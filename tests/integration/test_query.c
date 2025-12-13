@@ -7,16 +7,22 @@
 #include <unistd.h>
 
 #include "engine/api.h"
+#include "mpack.h"
 #include "query/parser.h"
 #include "query/tokenizer.h"
 
 // --- Constants ---
 
-// Polling Configuration for Eventual Consistency
 static const int POLL_RETRIES = 50;
-static const useconds_t POLL_SLEEP_US = 50000; // 50ms * 50 = 2.5s timeout
+static const useconds_t POLL_SLEEP_US = 5000;
 
 // --- Helpers ---
+
+// Structure to define expected key-value pairs for assertions
+typedef struct {
+  const char *key;
+  const char *val;
+} kv_pair_t;
 
 static void _safe_remove_db_file(const char *container_name) {
   if (container_name == NULL || container_name[0] == '\0' ||
@@ -67,19 +73,15 @@ static void _write_event(const char *container, const char *tags) {
 static void _assert_count_val(api_response_t *res, uint32_t expected_count) {
   TEST_ASSERT_NOT_NULL(res);
   TEST_ASSERT_TRUE_MESSAGE(res->is_ok, res->err_msg);
-  TEST_ASSERT_EQUAL(API_RESP_TYPE_LIST_U32, res->resp_type);
+  TEST_ASSERT_EQUAL(API_RESP_TYPE_LIST_OBJ, res->resp_type);
 
   char msg[128];
   snprintf(msg, sizeof(msg), "Expected %u results, got %u", expected_count,
-           res->payload.list_u32.count);
-  TEST_ASSERT_EQUAL_UINT32_MESSAGE(expected_count, res->payload.list_u32.count,
+           res->payload.list_obj.count);
+  TEST_ASSERT_EQUAL_UINT32_MESSAGE(expected_count, res->payload.list_obj.count,
                                    msg);
 }
 
-/**
- * @brief Polls the query engine until the result count matches expected_count
- * or timeout. This handles the eventual consistency of the worker threads.
- */
 static void _assert_query_count(const char *container, const char *query_clause,
                                 uint32_t expected_count) {
   char cmd[256];
@@ -92,26 +94,110 @@ static void _assert_query_count(const char *container, const char *query_clause,
 
     res = run_command(cmd);
 
-    // If we got a valid response and the count matches, we are done
-    // (consistency reached)
-    if (res && res->is_ok && res->resp_type == API_RESP_TYPE_LIST_U32 &&
-        res->payload.list_u32.count == expected_count) {
+    if (res && res->is_ok && res->resp_type == API_RESP_TYPE_LIST_OBJ &&
+        res->payload.list_obj.count == expected_count) {
       break;
     }
 
     usleep(POLL_SLEEP_US);
   }
 
-  // Final assertion (will fail with helpful message if timeout reached)
   _assert_count_val(res, expected_count);
   free_api_response(res);
+}
+
+// --- MessagePack Content Verification ---
+
+static void _verify_obj_content(api_obj_t *obj, uint32_t expected_id,
+                                kv_pair_t *expected_kvs, size_t kv_count) {
+  TEST_ASSERT_NOT_NULL(obj->data);
+  TEST_ASSERT_GREATER_THAN(0, obj->data_size);
+
+  mpack_reader_t reader;
+  mpack_reader_init_data(&reader, obj->data, obj->data_size);
+
+  uint32_t map_count = mpack_expect_map(&reader);
+  bool id_found = false;
+
+  bool *kv_found = calloc(kv_count, sizeof(bool));
+
+  for (uint32_t i = 0; i < map_count; i++) {
+    if (mpack_reader_error(&reader) != mpack_ok)
+      break;
+
+    char key_buf[32];
+    mpack_expect_utf8_cstr(&reader, key_buf, sizeof(key_buf));
+
+    if (mpack_reader_error(&reader) != mpack_ok)
+      break;
+
+    if (strcmp(key_buf, "id") == 0) {
+      uint32_t val = mpack_expect_u32(&reader);
+      TEST_ASSERT_EQUAL_UINT32(expected_id, val);
+      id_found = true;
+    } else {
+      char val_buf[64];
+      mpack_expect_utf8_cstr(&reader, val_buf, sizeof(val_buf));
+
+      if (mpack_reader_error(&reader) != mpack_ok)
+        break;
+
+      // Loop through expected keys to see if we found a match
+      for (size_t k = 0; k < kv_count; k++) {
+        if (strcmp(expected_kvs[k].key, key_buf) == 0) {
+          TEST_ASSERT_EQUAL_STRING(expected_kvs[k].val, val_buf);
+          kv_found[k] = true;
+          break;
+        }
+      }
+    }
+  }
+
+  TEST_ASSERT_EQUAL(mpack_ok, mpack_reader_error(&reader));
+  TEST_ASSERT_TRUE_MESSAGE(id_found, "ID field missing in MessagePack");
+
+  for (size_t k = 0; k < kv_count; k++) {
+    char msg[128];
+    snprintf(msg, sizeof(msg), "Expected key '%s' was not found in object",
+             expected_kvs[k].key);
+    TEST_ASSERT_TRUE_MESSAGE(kv_found[k], msg);
+  }
+
+  free(kv_found);
+}
+
+// Decodes just the ID for simple checks
+static void _verify_obj_id(api_obj_t *obj, uint32_t expected_id) {
+  // Pass empty kvs
+  _verify_obj_content(obj, expected_id, NULL, 0);
 }
 
 static void _assert_ids(api_response_t *res, uint32_t *expected, size_t count) {
   _assert_count_val(res, count);
   for (size_t i = 0; i < count; i++) {
-    TEST_ASSERT_EQUAL_UINT32(expected[i], res->payload.list_u32.int32s[i]);
+    // Check Struct ID
+    TEST_ASSERT_EQUAL_UINT32(expected[i], res->payload.list_obj.objects[i].id);
+    // Check Encoded ID
+    _verify_obj_id(&res->payload.list_obj.objects[i], expected[i]);
   }
+}
+
+static void _assert_obj_at_index(const char *cmd, uint32_t index,
+                                 uint32_t expected_id, kv_pair_t *expected_kvs,
+                                 size_t kv_count) {
+  api_response_t *res = run_command(cmd);
+
+  TEST_ASSERT_NOT_NULL(res);
+  TEST_ASSERT_TRUE(res->is_ok);
+  TEST_ASSERT_EQUAL(API_RESP_TYPE_LIST_OBJ, res->resp_type);
+  TEST_ASSERT_GREATER_THAN(index, res->payload.list_obj.count);
+
+  api_obj_t *obj = &res->payload.list_obj.objects[index];
+
+  TEST_ASSERT_EQUAL_UINT32(expected_id, obj->id);
+  _verify_obj_content(obj, expected_id, expected_kvs, kv_count);
+
+  free_api_response(res);
 }
 
 // --- Setup/Teardown ---
@@ -133,6 +219,8 @@ int suiteTearDown(int num_failures) {
   _safe_remove_db_file("query_empty");
   _safe_remove_db_file("query_deep");
   _safe_remove_db_file("query_strict");
+  _safe_remove_db_file("query_content");
+  _safe_remove_db_file("query_complex");
   return (num_failures > 0) ? 1 : 0;
 }
 
@@ -300,6 +388,29 @@ void test_QUERY_StrictOrdering_ManualSerialization(void) {
   free_api_response(res);
 }
 
+void test_QUERY_VerifyContent_ShouldReturnCorrectTags(void) {
+  const char *c = "query_content";
+  _safe_remove_db_file(c);
+
+  // ID 1
+  _write_event(c, "loc:ca env:prod user:matt");
+  usleep(100000); // Allow write
+
+  // ID 2
+  _write_event(c, "loc:ny env:dev user:john");
+  usleep(100000);
+
+  // Query specific item
+  char cmd[256];
+  snprintf(cmd, sizeof(cmd), "QUERY in:%s where:(loc:ca)", c);
+
+  // Expect ID 1 with specific tags
+  kv_pair_t expected[] = {{"loc", "ca"}, {"env", "prod"}, {"user", "matt"}};
+
+  // We expect exactly 1 result (ID 1), at index 0
+  _assert_obj_at_index(cmd, 0, 1, expected, 3);
+}
+
 int main(void) {
   suiteSetUp();
 
@@ -315,6 +426,7 @@ int main(void) {
   RUN_TEST(test_QUERY_ComplexDeepNesting_ShouldSucceed);
 
   RUN_TEST(test_QUERY_StrictOrdering_ManualSerialization);
+  RUN_TEST(test_QUERY_VerifyContent_ShouldReturnCorrectTags);
 
   int result = UNITY_END();
   usleep(100000);

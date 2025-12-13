@@ -5,6 +5,7 @@
 
 #include "query/ast.h"
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 enum api_op_type { API_INVALID, API_EVENT, API_QUERY };
@@ -15,16 +16,17 @@ enum api_resp_type {
   API_RESP_TYPE_ACK
 };
 
-enum api_obj_type { EVENT };
+enum api_obj_type { API_OBJ_TYPE_EVENT };
 
 typedef struct api_obj_s {
   uint32_t id;
   char *data;
+  size_t data_size;
 } api_obj_t;
 
 typedef struct api_response_type_list_obj_s {
   api_obj_t type;
-  api_obj_t **objects;
+  api_obj_t *objects;
   uint32_t count;
 } api_response_type_list_obj_t;
 

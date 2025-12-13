@@ -289,7 +289,7 @@ static void _work_cb(uv_work_t *req) {
 
   } else if (!api_resp->is_ok) {
     const char *err =
-        api_resp->err_msg ? api_resp->err_msg : "Execution failed";
+        api_resp->err_msg != NULL ? api_resp->err_msg : "Execution failed";
     LOG_ACTION_ERROR(ACT_CMD_EXEC_FAILED, "client_id=%lld err=\"%s\"",
                      ctx->client->client_id, err);
     _encode_err(ctx, &sr, err);

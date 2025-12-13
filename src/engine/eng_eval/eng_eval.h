@@ -23,6 +23,7 @@ typedef struct eval_cache_entry_s {
   eval_bitmap_t *bm;
 } eval_cache_entry_t;
 
+// Immutable config
 typedef struct eval_config_s {
   eng_container_t *container;
   MDB_txn *user_txn;
@@ -32,6 +33,7 @@ typedef struct eval_config_s {
   uint32_t op_queues_per_consumer;
 } eval_config_t;
 
+// Mutable state
 typedef struct eval_state_s {
   eval_cache_entry_t *cache_head;
 

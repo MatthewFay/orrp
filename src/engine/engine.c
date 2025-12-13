@@ -2,14 +2,18 @@
 #include "cmd_context/cmd_context.h"
 #include "container/container.h"
 #include "core/bitmaps.h"
+#include "core/db.h"
 #include "core/hash.h"
 #include "engine/api.h"
 #include "engine/cmd_queue/cmd_queue.h"
 #include "engine/consumer/consumer.h"
+#include "engine/container/container_types.h"
+#include "engine/eng_eval/eng_eval.h"
 #include "engine/eng_query/eng_query.h"
 #include "engine/op_queue/op_queue.h"
 #include "engine/worker/worker.h"
 #include "engine_writer/engine_writer.h"
+#include "lmdb.h"
 #include "log/log.h"
 #include "query/ast.h"
 #include <stdatomic.h>
@@ -299,8 +303,8 @@ void eng_event(api_response_t *r, ast_node_t *ast) {
   r->resp_type = API_RESP_TYPE_ACK;
 }
 
-static void _handle_query_result(eng_query_result_t *query_r,
-                                 api_response_t *r) {
+static void _handle_query_result(eng_query_result_t *query_r, api_response_t *r,
+                                 MDB_txn *usr_txn, eng_container_t *usr_c) {
   r->is_ok = false;
   r->err_msg = query_r->err_msg;
 
@@ -308,21 +312,49 @@ static void _handle_query_result(eng_query_result_t *query_r,
     LOG_ACTION_ERROR(ACT_QUERY_ERROR, "err=\"%s\"", query_r->err_msg);
     return;
   }
-  r->resp_type = API_RESP_TYPE_LIST_U32;
+  r->resp_type = API_RESP_TYPE_LIST_OBJ;
   uint32_t count = bitmap_get_cardinality(query_r->events);
 
-  r->payload.list_u32.int32s = calloc(count, (sizeof(uint32_t)));
-  if (!r->payload.list_u32.int32s) {
+  r->payload.list_obj.objects = malloc(count * sizeof(api_obj_t));
+  if (!r->payload.list_obj.objects) {
     r->err_msg = "OOM error handling query result";
     bitmap_free(query_r->events);
     return;
   }
-  r->payload.list_u32.count = count;
+  r->payload.list_obj.count = count;
 
-  bitmap_to_uint32_array(query_r->events, r->payload.list_u32.int32s);
+  roaring_uint32_iterator_t *it = bitmap_iterator_create(query_r->events);
+  if (!it) {
+    r->err_msg = "Iterator error handling query result";
+    bitmap_free(query_r->events);
+    return;
+  }
+
+  db_get_result_t db_r = {0};
+  db_key_t db_k = {.type = DB_KEY_INTEGER, .key = {.i = 0}};
+  MDB_dbi db = usr_c->data.usr->events_db;
+  int i = 0;
+  while (it->has_value) {
+    uint32_t event_id = it->current_value;
+    db_k.key.i = event_id;
+    if (!db_get(db, usr_txn, &db_k, &db_r) || db_r.status != DB_GET_OK) {
+      // TODO: handle error better, skip for now
+      roaring_uint32_iterator_advance(it);
+      continue;
+    }
+
+    api_obj_t *o = &r->payload.list_obj.objects[i++];
+    o->id = event_id;
+    o->data = db_r.value;
+    o->data_size = db_r.value_len;
+
+    // Do not clear db result as we do not want to free `db_r.value`
+
+    roaring_uint32_iterator_advance(it);
+  }
 
   r->is_ok = true;
-
+  r->payload.list_obj.count = i;
   bitmap_free(query_r->events);
 }
 
@@ -336,10 +368,49 @@ void eng_query(api_response_t *r, ast_node_t *ast) {
     return;
   }
 
-  eng_query_result_t query_r = eng_query_exec(
-      cmd_ctx, g_consumers, NUM_OP_QUEUES, OP_QUEUES_PER_CONSUMER);
+  eng_query_result_t qr = {0};
+  container_result_t scr = container_get_system();
+  if (!scr.success) {
+    r->err_msg = "Unable to get sys container";
+    return;
+  }
+  MDB_txn *sys_txn = db_create_txn(scr.container->env, true);
+  if (!sys_txn) {
+    r->err_msg = "Unable to get sys txn";
+    return;
+  }
+  container_result_t cr =
+      container_get_or_create_user(cmd_ctx->in_tag_value->literal.string_value);
+  if (!cr.success) {
+    db_abort_txn(sys_txn);
+    r->err_msg = "Unable to get user container";
+    return;
+  }
+  MDB_txn *user_txn = db_create_txn(cr.container->env, true);
+  if (!user_txn) {
+    db_abort_txn(sys_txn);
+    container_release(cr.container);
+    r->err_msg = "Unable to create user txn";
+    return;
+  }
 
-  _handle_query_result(&query_r, r);
+  eval_config_t config = {.container = cr.container,
+                          .sys_txn = sys_txn,
+                          .user_txn = user_txn,
+                          .consumers = g_consumers,
+                          .op_queue_total_count = NUM_OP_QUEUES,
+                          .op_queues_per_consumer = OP_QUEUES_PER_CONSUMER};
+
+  eval_state_t state = {0};
+
+  eval_ctx_t ctx = {.config = &config, .state = &state};
+
+  eng_query_exec(cmd_ctx, g_consumers, &ctx, &qr);
+
+  _handle_query_result(&qr, r, user_txn, cr.container);
 
   cmd_context_free(cmd_ctx);
+  container_release(cr.container);
+  db_abort_txn(user_txn);
+  db_abort_txn(sys_txn);
 }

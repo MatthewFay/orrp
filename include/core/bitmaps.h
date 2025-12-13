@@ -57,4 +57,6 @@ bitmap_t *bitmap_deserialize(void *buffer, size_t buffer_size);
 
 bitmap_t *bitmap_copy(bitmap_t *bm);
 
+roaring_uint32_iterator_t *bitmap_iterator_create(const bitmap_t *bm);
+
 #endif // CORE_BITMAPS_H

@@ -102,6 +102,37 @@ static void _encode_list_u32(const api_response_t *api_resp,
   free(data);
 }
 
+static void _encode_list_obj(const api_response_t *api_resp,
+                             serializer_result_t *sr) {
+  char *data;
+  size_t data_size;
+  const api_response_type_list_obj_t *list = &api_resp->payload.list_obj;
+
+  mpack_writer_t writer;
+  mpack_writer_init_growable(&writer, &data, &data_size);
+  mpack_start_map(&writer, 1);
+  mpack_write_cstr(&writer, "objects");
+  mpack_start_array(&writer, list->count);
+
+  for (uint32_t i = 0; i < list->count; i++) {
+    mpack_write_bytes(&writer, list->objects[i].data,
+                      list->objects[i].data_size);
+  }
+
+  mpack_finish_array(&writer);
+  mpack_finish_map(&writer);
+
+  if (mpack_writer_destroy(&writer) != mpack_ok) {
+    fprintf(stderr, "_encode_list_obj: Serializer error\n");
+    sr->response = NULL;
+    sr->response_size = 0;
+    sr->success = false;
+  } else {
+    serializer_encode(SER_RESP_OK, data, data_size, sr);
+  }
+  free(data);
+}
+
 void serializer_encode_api_resp(const api_response_t *api_resp,
                                 serializer_result_t *sr) {
   if (!sr) {
@@ -127,6 +158,8 @@ void serializer_encode_api_resp(const api_response_t *api_resp,
     _encode_list_u32(api_resp, sr);
     break;
   case API_RESP_TYPE_LIST_OBJ:
+    _encode_list_obj(api_resp, sr);
+
     break;
   default:
     sr->err_msg = "Unknown response type";
