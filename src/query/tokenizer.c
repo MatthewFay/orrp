@@ -51,7 +51,7 @@ static bool _max_toks(int num_tokens) { return num_tokens >= MAX_TOKENS; }
 
 // Characters allowed in an unquoted identifier.
 static bool _valid_unenclosed_char(char c) {
-  return isalnum((unsigned char)c) || c == '_' || c == '-';
+  return isalnum((unsigned char)c) || c == '_' || c == '-' || c == '.';
 }
 
 // A whitelist for characters allowed within a quoted string.
