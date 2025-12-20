@@ -14,6 +14,8 @@ typedef struct {
   ast_node_t *where_tag_value;
   ast_node_t *take_tag_value;
   ast_node_t *cursor_tag_value;
+  ast_node_t *from_tag_value;
+  ast_node_t *to_tag_value;
 
   // --- A Single List for All Custom Tags ---
   ast_node_t *custom_tags_head;
@@ -21,10 +23,12 @@ typedef struct {
 
   // Root AST
   ast_node_t *ast;
+
+  int64_t arrival_ts;
 } cmd_ctx_t;
 
 // takes ownership of AST if it succeeds and returns a valid cmd_ctx_t*
-cmd_ctx_t *build_cmd_context(ast_node_t *ast);
+cmd_ctx_t *build_cmd_context(ast_node_t *ast, int64_t arrival_ts);
 
 void cmd_context_free(cmd_ctx_t *command);
 

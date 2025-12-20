@@ -392,6 +392,22 @@ static bool _write_to_event_ent_map(worker_t *worker, char *container_name,
   return true;
 }
 
+static bool _write_to_event_ts_map(worker_t *worker, char *container_name,
+                                   int64_t ts, uint32_t event_id) {
+  worker_user_dc_t *user_dc = NULL;
+  if (!_get_user_dc(worker, container_name, &user_dc)) {
+    LOG_ACTION_ERROR(ACT_CONTAINER_OPEN_FAILED, "container=\"%s\"",
+                     container_name);
+    return false;
+  }
+  if (mmap_array_set(&user_dc->dc->data.usr->event_to_ts_map, event_id, &ts) !=
+      0) {
+    // TODO: error handling
+    return false;
+  }
+  return true;
+}
+
 static bool _send_to_writer(eng_writer_msg_t *writer_msg, worker_t *worker) {
   if (!writer_msg)
     return false;
@@ -434,6 +450,12 @@ static bool _process_msg(worker_t *worker, cmd_queue_msg_t *msg,
 
   if (!_write_to_event_ent_map(worker, container_name, em, event_id)) {
     LOG_ACTION_ERROR(ACT_EVENT_ID_FAILED, "container=\"%s\"", container_name);
+    return false;
+  }
+
+  if (!_write_to_event_ts_map(worker, container_name, msg->command->arrival_ts,
+                              event_id)) {
+    LOG_ACTION_ERROR(ACT_EVENT_TS_FAILED, "container=\"%s\"", container_name);
     return false;
   }
 

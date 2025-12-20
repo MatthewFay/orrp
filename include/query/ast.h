@@ -2,6 +2,7 @@
 #define AST_H
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 typedef struct ast_node_s ast_node_t;
@@ -26,6 +27,8 @@ typedef enum {
   AST_KEY_TAKE,
   AST_KEY_CURSOR,
   AST_KEY_ID, // event id, for idempotency
+  AST_KEY_FROM,
+  AST_KEY_TO
 } ast_reserved_key_t;
 
 typedef enum { AST_TAG_KEY_RESERVED, AST_TAG_KEY_CUSTOM } ast_tag_key_type_t;
@@ -46,7 +49,8 @@ typedef struct {
   ast_literal_type_t type;
   union {
     char *string_value;
-    uint32_t number_value;
+    size_t string_value_len;
+    int64_t number_value;
   };
 } ast_literal_node_t;
 
@@ -115,8 +119,9 @@ void ast_free(ast_node_t *node);
 ast_node_t *ast_create_command_node(ast_command_type_t type, ast_node_t *tags);
 ast_node_t *ast_create_tag_node(ast_reserved_key_t key, ast_node_t *value);
 ast_node_t *ast_create_custom_tag_node(const char *key, ast_node_t *value);
-ast_node_t *ast_create_string_literal_node(const char *value);
-ast_node_t *ast_create_number_literal_node(uint32_t value);
+ast_node_t *ast_create_string_literal_node(const char *value,
+                                           size_t string_value_len);
+ast_node_t *ast_create_number_literal_node(int64_t value);
 ast_node_t *ast_create_comparison_node(ast_comparison_op_t op, ast_node_t *key,
                                        ast_node_t *value);
 ast_node_t *ast_create_logical_node(ast_logical_node_op_t op, ast_node_t *left,

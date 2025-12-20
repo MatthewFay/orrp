@@ -21,7 +21,7 @@ void test_number_literal_node(void) {
   TEST_ASSERT_NOT_NULL(lit);
   TEST_ASSERT_EQUAL(AST_LITERAL_NODE, lit->type);
   TEST_ASSERT_EQUAL(AST_LITERAL_NUMBER, lit->literal.type);
-  TEST_ASSERT_EQUAL_UINT32(42, lit->literal.number_value);
+  TEST_ASSERT_EQUAL_INT64(42, lit->literal.number_value);
   TEST_ASSERT_NULL(lit->next);
   ast_free(lit);
 }

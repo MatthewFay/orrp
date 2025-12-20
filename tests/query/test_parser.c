@@ -85,6 +85,22 @@ void test_event_success_minimal(void) {
   parse_free_result(result);
 }
 
+void test_event_success_numeric_val(void) {
+  parse_result_t *result = _parse_string("event in:metrics entity:5");
+  _assert_success(result);
+  TEST_ASSERT_EQUAL(PARSER_OP_TYPE_WRITE, result->type);
+
+  ast_node_t *in_tag = _find_tag_by_key(result->ast, AST_KEY_IN);
+  TEST_ASSERT_NOT_NULL(in_tag);
+  TEST_ASSERT_EQUAL_STRING("metrics", in_tag->tag.value->literal.string_value);
+
+  ast_node_t *entity_tag = _find_tag_by_key(result->ast, AST_KEY_ENTITY);
+  TEST_ASSERT_NOT_NULL(entity_tag);
+  TEST_ASSERT_EQUAL_INT64(5, entity_tag->tag.value->literal.number_value);
+
+  parse_free_result(result);
+}
+
 void test_event_success_minimal2(void) {
   parse_result_t *result = _parse_string("event IN:abc tag:erc entity:fff");
   _assert_success(result);
@@ -255,6 +271,12 @@ void test_where_single_tag(void) {
   parse_free_result(result);
 }
 
+void test_where_quotes(void) {
+  parse_result_t *result = _parse_string("query in:test_c where:(loc:\"ca\")");
+  _assert_success(result);
+  parse_free_result(result);
+}
+
 void test_where_comparison(void) {
   parse_result_t *result = _parse_string(
       "QUERY in:analytics_2025_01 where:(loc:ca AND (action:login > 3))");
@@ -338,6 +360,7 @@ int main(void) {
 
   // EVENT command tests
   RUN_TEST(test_event_success_minimal);
+  RUN_TEST(test_event_success_numeric_val);
   RUN_TEST(test_event_success_minimal2);
   RUN_TEST(test_event_success_full_different_order);
   RUN_TEST(test_event_fails_missing_in);
@@ -357,6 +380,7 @@ int main(void) {
   RUN_TEST(test_where_parentheses_override);
   RUN_TEST(test_where_not_operator);
   RUN_TEST(test_where_single_tag);
+  RUN_TEST(test_where_quotes);
   RUN_TEST(test_where_fails_mismatched_parens);
   RUN_TEST(test_where_fails_invalid_syntax);
 

@@ -337,6 +337,7 @@ static inline void log_global_shutdown(void) { zlog_fini(); }
 // Entity operations
 #define ACT_ENTITY_MAPPING_FAILED "entity_mapping_failed"
 #define ACT_EVENT_ID_FAILED "event_id_failed"
+#define ACT_EVENT_TS_FAILED "event_ts_failed"
 #define ACT_TAG_COUNTER_FAILED "tag_counter_failed"
 #define ACT_COUNTER_ENTITY_FAILED "counter_entity_failed"
 

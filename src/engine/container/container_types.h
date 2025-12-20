@@ -69,11 +69,12 @@ typedef enum {
  * Stores entity ID mappings and metadata
  */
 typedef struct {
-  // B-Tree to find ID from String efficiently.
+  // B-Tree to find internal entity ID from external id efficiently.
+  // External entity id can be string or numeric.
   // Key: "user-123", Value: uint32_t (e.g. 100)
   MDB_dbi ent_id_to_int_db;
 
-  // MMap Array: Index 100 -> "user-123"
+  // MMap Array: Index entity id (e.g. 100) -> "user-123"
   mmap_array_t entity_id_map;
 
   // Contains atomic counter for generating new entity integer IDs
@@ -98,12 +99,15 @@ typedef struct {
   // Metadata:
   // Contains 1) atomic counter for generating new event integer IDs,
   // and 2) bitmap of all entity ids present in this container (used for
-  // negation logic).
+  // negation logic, i.e. NOT).
   MDB_dbi user_dc_metadata_db;
 
   // Aggregation (GROUP BY)
-  // MMap Array: Index EventID -> EntityID
+  // MMap Array: Index EventID -> internal EntityID
   mmap_array_t event_to_entity_map;
+
+  // MMap Array: Index EventId -> Event Timestamp (int64_t)
+  mmap_array_t event_to_ts_map;
 } eng_user_dc_t;
 
 typedef struct container_cache_node_s container_cache_node_t;

@@ -1,11 +1,12 @@
 #include "query/parser.h"
-#include "core/conversions.h"
+#include "core/data_constants.h"
 #include "core/queue.h"
 #include "core/stack.h"
-#include "engine/engine.h"
 #include "query/ast.h"
 #include "query/tokenizer.h"
 #include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -231,19 +232,14 @@ static ast_node_t *_parse_exp(Queue *tokens, parse_result_t *r) {
           }
 
           char *final_val_str = NULL;
+          size_t final_val_str_len = 0;
+          int64_t final_val_int64 = 0;
           if (val_tok->type == TOKEN_IDENTIFER ||
               val_tok->type == TOKEN_LITERAL_STRING) {
             final_val_str = val_tok->text_value;
+            final_val_str_len = val_tok->text_value_len;
           } else if (val_tok->type == TOKEN_LITERAL_NUMBER) {
-            char str_buff[12];
-            if (conv_uint32_to_string(str_buff, sizeof(str_buff),
-                                      val_tok->number_value) == -1) {
-              tok_free(operand_tok);
-              tok_free(val_tok);
-              r->error_message = "Number conversion error";
-              return cleanup_stacks_and_return_null(value_stack, op_stack);
-            }
-            final_val_str = str_buff;
+            final_val_int64 = val_tok->number_value;
           } else {
             tok_free(operand_tok);
             tok_free(val_tok);
@@ -253,12 +249,16 @@ static ast_node_t *_parse_exp(Queue *tokens, parse_result_t *r) {
           }
 
           ast_node_t *tag_val_node =
-              ast_create_string_literal_node(final_val_str);
+              final_val_str != NULL
+                  ? ast_create_string_literal_node(final_val_str,
+                                                   final_val_str_len)
+                  : ast_create_number_literal_node(final_val_int64);
           node =
               ast_create_custom_tag_node(operand_tok->text_value, tag_val_node);
           tok_free(val_tok);
         } else if (operand_tok->type == TOKEN_IDENTIFER) {
-          node = ast_create_string_literal_node(operand_tok->text_value);
+          node = ast_create_string_literal_node(operand_tok->text_value,
+                                                operand_tok->text_value_len);
         } else {
           node = ast_create_number_literal_node(operand_tok->number_value);
         }
@@ -451,10 +451,17 @@ static bool _is_token_kw(token_t *t) {
   case TOKEN_KW_BY:
   case TOKEN_KW_COUNT:
   case TOKEN_KW_HAVING:
+  case TOKEN_KW_FROM:
+  case TOKEN_KW_TO:
     return true;
   default:
     return false;
   }
+}
+
+static bool _is_literal_or_identifier(token_t *tok) {
+  return tok->type != TOKEN_IDENTIFER && tok->type != TOKEN_LITERAL_STRING &&
+         tok->type != TOKEN_LITERAL_NUMBER;
 }
 
 static ast_node_t *_parse_tag(Queue *tokens, parse_result_t *r) {
@@ -493,6 +500,12 @@ static ast_node_t *_parse_tag(Queue *tokens, parse_result_t *r) {
     // case TOKEN_KW_CURSOR:
     //   kt = AST_KEY_CURSOR;
     //   break;
+    case TOKEN_KW_FROM:
+      kt = AST_KEY_FROM;
+      break;
+    case TOKEN_KW_TO:
+      kt = AST_KEY_TO;
+      break;
     default:
       free(key_token);
       return NULL;
@@ -523,26 +536,32 @@ static ast_node_t *_parse_tag(Queue *tokens, parse_result_t *r) {
     return NULL;
   }
   if (tag->tag.key_type == AST_TAG_KEY_RESERVED) {
-    if (tag->tag.reserved_key == AST_KEY_WHERE) {
+    switch (tag->tag.reserved_key) {
+    case AST_KEY_WHERE:
       // where: must be followed by a parenthesized expression
       if (first_val_token->type != TOKEN_SYM_LPAREN) {
         ast_free(tag);
         return NULL;
       }
-    } else {
-      // All other reserved keys must be followed by a literal or identifier
-      if (first_val_token->type != TOKEN_IDENTIFER &&
-          first_val_token->type != TOKEN_LITERAL_STRING &&
-          first_val_token->type != TOKEN_LITERAL_NUMBER) {
+      break;
+    case AST_KEY_FROM:
+    case AST_KEY_TO:
+      if (first_val_token->type != TOKEN_LITERAL_NUMBER) {
         ast_free(tag);
         return NULL;
       }
+      break;
+    default:
+      // All other reserved keys must be followed by a literal or identifier
+      if (!_is_literal_or_identifier(first_val_token)) {
+        ast_free(tag);
+        return NULL;
+      }
+      break;
     }
   } else {
     // Custom keys: must be followed by a literal or identifier
-    if (first_val_token->type != TOKEN_IDENTIFER &&
-        first_val_token->type != TOKEN_LITERAL_STRING &&
-        first_val_token->type != TOKEN_LITERAL_NUMBER) {
+    if (!_is_literal_or_identifier(first_val_token)) {
       ast_free(tag);
       return NULL;
     }
@@ -551,7 +570,15 @@ static ast_node_t *_parse_tag(Queue *tokens, parse_result_t *r) {
   if (first_val_token->type == TOKEN_IDENTIFER ||
       first_val_token->type == TOKEN_LITERAL_STRING) {
     first_val_token = q_dequeue(tokens);
-    tag_val = ast_create_string_literal_node(first_val_token->text_value);
+    size_t valid_len = tag->tag.reserved_key == AST_KEY_ENTITY
+                           ? MAX_EXT_ENTITY_ID_LEN
+                           : MAX_TEXT_VAL_LEN;
+    if (first_val_token->text_value_len > valid_len) {
+      free(first_val_token);
+      return NULL;
+    }
+    tag_val = ast_create_string_literal_node(first_val_token->text_value,
+                                             first_val_token->text_value_len);
     free(first_val_token);
     if (!tag_val) {
       ast_free(tag);
@@ -560,14 +587,8 @@ static ast_node_t *_parse_tag(Queue *tokens, parse_result_t *r) {
     tag->tag.value = tag_val;
   } else if (first_val_token->type == TOKEN_LITERAL_NUMBER) {
     first_val_token = q_dequeue(tokens);
-    char str_buff[12];
-    if (conv_uint32_to_string(str_buff, sizeof(str_buff),
-                              first_val_token->number_value) <= 0) {
-      free(first_val_token);
-      ast_free(tag);
-      return NULL;
-    }
-    tag_val = ast_create_string_literal_node(strdup(str_buff));
+
+    tag_val = ast_create_number_literal_node(first_val_token->number_value);
     free(first_val_token);
 
     if (!tag_val) {

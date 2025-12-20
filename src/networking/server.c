@@ -10,6 +10,7 @@
  */
 
 #include "networking/server.h"
+#include "core/data_constants.h"
 #include "core/queue.h"
 #include "engine/api.h"
 #include "log/log.h"
@@ -18,6 +19,7 @@
 #include "query/tokenizer.h"
 #include "uv.h"
 #include <signal.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -28,7 +30,6 @@ LOG_INIT(server);
 // TODO: Load from a config file
 #define MAX_CONCURRENT_CONNECTIONS 1024 // Max number of clients
 #define CONNECTION_IDLE_TIMEOUT 600000  // 10 minutes in milliseconds
-#define MAX_COMMAND_LENGTH 8192         // 8KB max command size
 #define READ_BUFFER_SIZE 65536          // 64KB per-client read buffer
 #define SERVER_BACKLOG 511              // Listen backlog connections
 
@@ -66,7 +67,7 @@ typedef struct {
 // Forward declarations for callbacks
 void on_close(uv_handle_t *handle);
 void on_write(uv_write_t *req, int status);
-void process_data_buffer(client_t *client);
+void process_data_buffer(client_t *client, int64_t arrival_ts);
 
 /**
  * @brief Simple write request structure.
@@ -87,6 +88,7 @@ typedef struct {
   char *response;
   // Points to the memory to free (NULL if static, same as response if heap)
   char *response_to_free;
+  int64_t arrival_ts;
 } work_ctx_t;
 
 /**
@@ -279,7 +281,7 @@ static void _work_cb(uv_work_t *req) {
     goto cleanup;
   }
 
-  api_resp = api_exec(parsed->ast);
+  api_resp = api_exec(parsed->ast, ctx->arrival_ts);
 
   if (!api_resp) {
     LOG_ACTION_ERROR(ACT_API_EXEC_FAILED,
@@ -357,7 +359,7 @@ static void _after_work_cb(uv_work_t *req, int status) {
  * @param client The client who sent the command.
  * @param command The null-terminated command string.
  */
-void process_one_command(client_t *client, char *command) {
+void process_one_command(client_t *client, char *command, int64_t arrival_ts) {
   uv_loop_t *loop = client->handle.loop;
   size_t cmd_len = strlen(command);
 
@@ -395,6 +397,7 @@ void process_one_command(client_t *client, char *command) {
 
   ctx->client = client;
   ctx->req.data = ctx;
+  ctx->arrival_ts = arrival_ts;
   client->work_refs++; // This work context now holds a reference to the client.
 
   int rc = uv_queue_work(loop, &ctx->req, _work_cb, _after_work_cb);
@@ -425,7 +428,7 @@ void process_one_command(client_t *client, char *command) {
  *
  * @param client The client whose buffer needs processing.
  */
-void process_data_buffer(client_t *client) {
+void process_data_buffer(client_t *client, int64_t arrival_ts) {
   char *buffer_start = client->read_buffer;
   char *buffer_end = client->read_buffer + client->buffer_len;
 
@@ -437,15 +440,15 @@ void process_data_buffer(client_t *client) {
     *newline_pos = '\0'; // Null-terminate to create a command string.
 
     // Security: Check command length *before* processing.
-    if (newline_pos - buffer_start > MAX_COMMAND_LENGTH) {
+    if (newline_pos - buffer_start > MAX_COMMAND_LEN) {
       LOG_ACTION_ERROR(ACT_CMD_TOO_LONG, "client_id=%lld max_len=%d",
-                       client->client_id, MAX_COMMAND_LENGTH);
+                       client->client_id, MAX_COMMAND_LEN);
       send_response(client, "Error: Command too long\n");
       _close_client_connection(client);
       return;
     }
 
-    process_one_command(client, buffer_start);
+    process_one_command(client, buffer_start, arrival_ts);
 
     // If client was disconnected by `process_one_command`, stop processing its
     // buffer.
@@ -484,17 +487,19 @@ void process_data_buffer(client_t *client) {
  * @param buf The buffer containing the data.
  */
 void on_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
+  struct timespec ts;
+  clock_gettime(CLOCK_REALTIME, &ts);
+  int64_t arrival_ts = (int64_t)ts.tv_sec * 1000000000L + ts.tv_nsec;
+
   (void)buf; // We don't need buf, we use the one from our alloc_buffer.
   client_t *client = stream->data;
 
   if (nread > 0) {
-    // Data received, update buffer length and reset idle timer
     client->buffer_len += nread;
     LOG_ACTION_DEBUG(ACT_DATA_RECEIVED, "client_id=%lld bytes=%zd",
                      client->client_id, nread);
     uv_timer_again(&client->timeout_timer); // Reset idle timer.
-    // Process any complete commands in the buffer
-    process_data_buffer(client);
+    process_data_buffer(client, arrival_ts);
   } else if (nread < 0) {
     if (nread != UV_EOF) {
       LOG_ACTION_ERROR(ACT_READ_FAILED, "client_id=%lld err=\"%s\"",
@@ -555,7 +560,6 @@ void on_new_connection(uv_stream_t *server, int status) {
   client->open_handles = 1;
   client->connected = 1;
 
-  // Accept the connection
   if (uv_accept(server, (uv_stream_t *)&client->handle) == 0) {
     active_connections++;
     LOG_ACTION_INFO(ACT_CLIENT_CONNECTED, "client_id=%lld total_connections=%d",
@@ -669,7 +673,7 @@ void start_server(const char *host, int port, uv_loop_t *loop) {
   LOG_ACTION_INFO(ACT_SERVER_CONFIG,
                   "max_conn=%d timeout_ms=%d max_cmd_len=%d backlog=%d",
                   MAX_CONCURRENT_CONNECTIONS, CONNECTION_IDLE_TIMEOUT,
-                  MAX_COMMAND_LENGTH, SERVER_BACKLOG);
+                  MAX_COMMAND_LEN, SERVER_BACKLOG);
 
   // This call blocks until all handles are closed
   uv_run(loop, UV_RUN_DEFAULT);

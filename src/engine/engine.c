@@ -284,8 +284,8 @@ static bool _eng_enqueue_cmd(cmd_ctx_t *command) {
 }
 
 // Takes ownership of `ast`
-void eng_event(api_response_t *r, ast_node_t *ast) {
-  cmd_ctx_t *cmd_ctx = build_cmd_context(ast);
+void eng_event(api_response_t *r, ast_node_t *ast, int64_t arrival_ts) {
+  cmd_ctx_t *cmd_ctx = build_cmd_context(ast, arrival_ts);
   if (!cmd_ctx) {
     LOG_ACTION_ERROR(ACT_CMD_CTX_BUILD_FAILED, "context=api");
     r->err_msg = "Error generating command context";
@@ -360,7 +360,7 @@ static void _handle_query_result(eng_query_result_t *query_r, api_response_t *r,
 
 // Takes ownership of `ast`
 void eng_query(api_response_t *r, ast_node_t *ast) {
-  cmd_ctx_t *cmd_ctx = build_cmd_context(ast);
+  cmd_ctx_t *cmd_ctx = build_cmd_context(ast, -1);
   if (!cmd_ctx) {
     LOG_ACTION_ERROR(ACT_CMD_CTX_BUILD_FAILED, "context=api");
     r->err_msg = "Error generating command context";

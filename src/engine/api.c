@@ -1,14 +1,13 @@
 #include "engine/api.h"
+#include "core/data_constants.h"
 #include "engine.h"
 #include "query/ast.h"
 #include "uthash.h"
 #include <ctype.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-
-const int MAX_NS_LEN = 128;
-const int MAX_KEY_LEN = 128;
-const int MAX_ID_LEN = 128;
+#include <time.h>
 
 typedef struct {
   char *key;
@@ -40,6 +39,16 @@ static bool _is_valid_container_name(const char *name) {
   return _is_valid_filename(name);
 }
 
+static bool _validate_time_range(const int64_t *from, const int64_t *to) {
+  // We use difftime to be safe across different C implementations
+  // difftime(end, start) returns negative if end < start
+  if (difftime(*to, *from) < 0) {
+    return false;
+  }
+
+  return true;
+}
+
 static bool _validate_ast(ast_node_t *ast, custom_key **c_keys) {
   if (!ast)
     return false;
@@ -49,6 +58,8 @@ static bool _validate_ast(ast_node_t *ast, custom_key **c_keys) {
   bool seen_entity = false;
   bool seen_take = false;
   bool seen_cursor = false;
+  int64_t *from = NULL;
+  int64_t *to = NULL;
 
   if (ast->type != AST_COMMAND_NODE || !ast->command.tags ||
       ast->command.tags->type != AST_TAG_NODE)
@@ -83,6 +94,10 @@ static bool _validate_ast(ast_node_t *ast, custom_key **c_keys) {
         if (seen_entity)
           return false;
         seen_entity = true;
+        if (t_node.value->literal.type == AST_LITERAL_STRING &&
+            t_node.value->literal.string_value_len > MAX_EXT_ENTITY_ID_LEN) {
+          return false;
+        }
         break;
       case AST_KEY_TAKE:
         if (seen_take)
@@ -93,6 +108,17 @@ static bool _validate_ast(ast_node_t *ast, custom_key **c_keys) {
         if (seen_cursor)
           return false;
         seen_cursor = true;
+        break;
+      case AST_KEY_FROM:
+        if (from)
+          return false;
+        *from = t_node.value->literal.number_value;
+        break;
+      case AST_KEY_TO:
+        if (to)
+          return false;
+        *to = t_node.value->literal.number_value;
+
         break;
       default:
         return false;
@@ -111,19 +137,26 @@ static bool _validate_ast(ast_node_t *ast, custom_key **c_keys) {
     }
     tag = tag->next;
   }
+
   if (!seen_in) {
     return false;
   }
+
   if (cmd_type == AST_CMD_EVENT && !seen_entity) {
     return false;
   }
-  if (cmd_type == AST_CMD_EVENT && seen_where)
+  if (cmd_type == AST_CMD_EVENT && (seen_where || from || to))
     return false;
+
   if (cmd_type == AST_CMD_QUERY && !seen_where) {
     return false;
   }
   if (cmd_type == AST_CMD_QUERY && seen_entity)
     return false;
+
+  if (from && to && !_validate_time_range(from, to)) {
+    return false;
+  }
   return true;
 }
 
@@ -135,6 +168,13 @@ void free_api_response(api_response_t *r) {
     free(r->payload.list_u32.int32s);
     break;
   case API_RESP_TYPE_LIST_OBJ:
+    for (unsigned int i = 0; i < r->payload.list_obj.count; i++) {
+      api_obj_t *o = &r->payload.list_obj.objects[i];
+      if (o) {
+        free(o->data);
+      }
+    }
+    free(r->payload.list_obj.objects);
     break;
   default:
     break;
@@ -153,10 +193,11 @@ static api_response_t *_create_api_resp(enum api_op_type op_type) {
   return r;
 }
 
-static api_response_t *_api_event(ast_node_t *ast, api_response_t *r) {
+static api_response_t *_api_event(ast_node_t *ast, api_response_t *r,
+                                  int64_t arrival_ts) {
   r->op_type = API_EVENT;
 
-  eng_event(r, ast);
+  eng_event(r, ast, arrival_ts);
   return r;
 }
 
@@ -170,7 +211,7 @@ static api_response_t *_api_query(ast_node_t *ast, api_response_t *r) {
 // The single entry point into the API/Engine layer.
 // Validates the AST before passing it into the core engine for execution.
 // `api_exec` takes ownership of `ast`.
-api_response_t *api_exec(ast_node_t *ast) {
+api_response_t *api_exec(ast_node_t *ast, int64_t arrival_ts) {
   api_response_t *r = _create_api_resp(API_INVALID);
   if (!r) {
     ast_free(ast);
@@ -194,7 +235,7 @@ api_response_t *api_exec(ast_node_t *ast) {
 
   switch (ast->command.type) {
   case AST_CMD_EVENT:
-    _api_event(ast, r);
+    _api_event(ast, r, arrival_ts);
     break;
 
   case AST_CMD_QUERY:

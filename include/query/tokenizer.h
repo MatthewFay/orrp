@@ -2,12 +2,8 @@
 #define TOKENZ_H
 
 #include "core/queue.h"
+#include <stddef.h>
 #include <stdint.h>
-
-extern const int MAX_TOKENS;
-extern const int MAX_TEXT_VAL_LEN;
-extern const int MAX_NUMBERS_SEQ;
-extern const int MAX_TOTAL_CHARS;
 
 typedef enum {
   // --- Commands ---
@@ -24,6 +20,10 @@ typedef enum {
   TOKEN_KW_BY,
   TOKEN_KW_HAVING,
   TOKEN_KW_COUNT,
+
+  // Time
+  TOKEN_KW_FROM,
+  TOKEN_KW_TO,
 
   TOKEN_IDENTIFER, // unquoted text
 
@@ -49,7 +49,8 @@ typedef enum {
 typedef struct token_s {
   token_type type;
   char *text_value;
-  uint32_t number_value;
+  size_t text_value_len;
+  int64_t number_value;
 } token_t;
 
 Queue *tok_tokenize(char *input);

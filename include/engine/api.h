@@ -55,6 +55,6 @@ void api_stop_eng(void);
 
 // The single entry point into the API/Engine layer for executing commands.
 // Takes ownership of ast - caller must not free
-api_response_t *api_exec(ast_node_t *ast);
+api_response_t *api_exec(ast_node_t *ast, int64_t arrival_ts);
 
 #endif // API_H

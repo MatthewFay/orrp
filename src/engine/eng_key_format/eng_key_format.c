@@ -15,8 +15,8 @@ bool custom_tag_into(char *out_buf, size_t size, ast_node_t *custom_tag) {
       r = snprintf(out_buf, size, "%s:%s", custom_tag->tag.custom_key,
                    literal->string_value);
     } else if (literal->type == AST_LITERAL_NUMBER) {
-      r = snprintf(out_buf, size, "%s:%d", custom_tag->tag.custom_key,
-                   (int)literal->number_value);
+      r = snprintf(out_buf, size, "%s:%llu", custom_tag->tag.custom_key,
+                   (int64_t)literal->number_value);
     }
 
     if (r < 0 || (size_t)r >= size) {

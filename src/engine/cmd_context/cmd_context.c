@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-cmd_ctx_t *build_cmd_context(ast_node_t *ast) {
+cmd_ctx_t *build_cmd_context(ast_node_t *ast, int64_t arrival_ts) {
   cmd_ctx_t *ctx = calloc(1, sizeof(cmd_ctx_t));
   if (!ctx)
     return NULL;
@@ -36,6 +36,14 @@ cmd_ctx_t *build_cmd_context(ast_node_t *ast) {
           break;
         case AST_KEY_ID:
           break;
+        case AST_KEY_FROM:
+          ctx->from_tag_value = tag->value;
+          break;
+        case AST_KEY_TO:
+          ctx->to_tag_value = tag->value;
+          break;
+        default:
+          break;
         }
       } else {
         // Custom tag
@@ -56,6 +64,8 @@ cmd_ctx_t *build_cmd_context(ast_node_t *ast) {
   if (custom_tags_tail != NULL) {
     custom_tags_tail->next = NULL;
   }
+
+  ctx->arrival_ts = arrival_ts;
 
   return ctx;
 }

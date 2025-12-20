@@ -1,4 +1,5 @@
 #include "query/ast.h"
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -125,7 +126,8 @@ ast_node_t *ast_create_custom_tag_node(const char *key, ast_node_t *value) {
   return node;
 }
 
-ast_node_t *ast_create_string_literal_node(const char *value) {
+ast_node_t *ast_create_string_literal_node(const char *value,
+                                           size_t string_value_len) {
   ast_node_t *node = malloc(sizeof(ast_node_t));
   if (!node) {
     return NULL;
@@ -139,10 +141,11 @@ ast_node_t *ast_create_string_literal_node(const char *value) {
     free(node);
     return NULL;
   }
+  node->literal.string_value_len = string_value_len;
   return node;
 }
 
-ast_node_t *ast_create_number_literal_node(uint32_t value) {
+ast_node_t *ast_create_number_literal_node(int64_t value) {
   ast_node_t *node = malloc(sizeof(ast_node_t));
   if (!node) {
     return NULL;

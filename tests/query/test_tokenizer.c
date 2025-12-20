@@ -1,3 +1,4 @@
+#include "core/data_constants.h"
 #include "core/queue.h"
 #include "query/tokenizer.h"
 #include "unity.h"
@@ -24,7 +25,7 @@ static void assert_next_token(Queue *tokens, token_type expected_type,
 
   // If the token is a number, check its value
   if (expected_type == TOKEN_LITERAL_NUMBER) {
-    TEST_ASSERT_EQUAL_UINT32(expected_number, token->number_value);
+    TEST_ASSERT_EQUAL_INT64(expected_number, token->number_value);
   }
 
   free(token->text_value);
@@ -243,10 +244,10 @@ void test_tokenize_identifier_length_limits(void) {
 // Test total character limit
 void test_tokenize_total_char_limit(void) {
   // Create a string that is one character too long
-  char *big_input = malloc(MAX_TOTAL_CHARS + 2);
+  char *big_input = malloc(MAX_COMMAND_LEN + 2);
   TEST_ASSERT_NOT_NULL(big_input);
-  memset(big_input, 'a', MAX_TOTAL_CHARS + 1);
-  big_input[MAX_TOTAL_CHARS + 1] = '\0';
+  memset(big_input, 'a', MAX_COMMAND_LEN + 1);
+  big_input[MAX_COMMAND_LEN + 1] = '\0';
 
   TEST_ASSERT_NULL(tok_tokenize(big_input));
 

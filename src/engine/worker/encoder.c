@@ -1,5 +1,6 @@
 #include "encoder.h"
 #include "mpack.h"
+#include "query/ast.h"
 #include <stdio.h>
 
 bool encode_event(cmd_ctx_t *cmd_ctx, uint32_t event_id, char **data_out,
@@ -22,9 +23,9 @@ bool encode_event(cmd_ctx_t *cmd_ctx, uint32_t event_id, char **data_out,
   }
 
   // `mpack_start_map` requires exact element count upfront.
-  // 'id', 'in', and 'entity' are always present (3), plus the count of
+  // 'id', 'in', 'entity', and `ts` are always present (4), plus the count of
   // custom tags.
-  uint32_t map_count = 3 + cmd_ctx->num_custom_tags;
+  uint32_t map_count = 4 + cmd_ctx->num_custom_tags;
 
   mpack_writer_t writer;
   // Initialize growable buffer. mpack handles realloc; caller must free
@@ -40,7 +41,15 @@ bool encode_event(cmd_ctx_t *cmd_ctx, uint32_t event_id, char **data_out,
   mpack_write_cstr(&writer, cmd_ctx->in_tag_value->literal.string_value);
 
   mpack_write_cstr(&writer, "entity");
-  mpack_write_cstr(&writer, cmd_ctx->entity_tag_value->literal.string_value);
+  if (cmd_ctx->entity_tag_value->literal.type == AST_LITERAL_STRING) {
+    mpack_write_cstr(&writer, cmd_ctx->entity_tag_value->literal.string_value);
+  } else {
+    mpack_write_i64(&writer, cmd_ctx->entity_tag_value->literal.number_value);
+  }
+
+  mpack_write_cstr(&writer, "ts");
+  int64_t ts_ms = cmd_ctx->arrival_ts / 1000000L;
+  mpack_write_i64(&writer, ts_ms);
 
   ast_node_t *node = cmd_ctx->custom_tags_head;
   while (node) {
@@ -67,7 +76,7 @@ bool encode_event(cmd_ctx_t *cmd_ctx, uint32_t event_id, char **data_out,
       if (node->tag.value->literal.type == AST_LITERAL_STRING) {
         mpack_write_cstr(&writer, node->tag.value->literal.string_value);
       } else if (node->tag.value->literal.type == AST_LITERAL_NUMBER) {
-        mpack_write_u32(&writer, node->tag.value->literal.number_value);
+        mpack_write_i64(&writer, node->tag.value->literal.number_value);
       } else {
         mpack_write_nil(&writer);
       }
