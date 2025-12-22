@@ -15,7 +15,7 @@ static struct {
   uv_rwlock_t cache_rwlock;
   eng_container_t *system_container;
   char *data_dir;
-  size_t initial_container_size;
+  size_t max_container_size;
 } g_container_state = {0};
 
 static bool _ensure_data_dir_exists(const char *dir) {
@@ -33,12 +33,12 @@ static bool _ensure_data_dir_exists(const char *dir) {
 // ============================================================================
 
 bool container_init(size_t cache_capacity, const char *data_dir,
-                    size_t initial_container_size_bytes) {
+                    size_t max_container_size_bytes) {
   if (g_container_state.initialized) {
     return false;
   }
 
-  if (!data_dir || cache_capacity == 0 || initial_container_size_bytes == 0) {
+  if (!data_dir || cache_capacity == 0 || max_container_size_bytes == 0) {
     return false;
   }
 
@@ -55,7 +55,7 @@ bool container_init(size_t cache_capacity, const char *data_dir,
     return false;
   }
 
-  g_container_state.initial_container_size = initial_container_size_bytes;
+  g_container_state.max_container_size = max_container_size_bytes;
 
   g_container_state.cache = container_cache_create(cache_capacity);
   if (!g_container_state.cache) {
@@ -64,7 +64,7 @@ bool container_init(size_t cache_capacity, const char *data_dir,
   }
 
   container_result_t sys_result = create_system_container(
-      g_container_state.data_dir, g_container_state.initial_container_size);
+      g_container_state.data_dir, g_container_state.max_container_size);
   if (!sys_result.success) {
     container_cache_destroy(g_container_state.cache);
     free(g_container_state.data_dir);
@@ -184,9 +184,8 @@ container_result_t container_get_or_create_user(const char *name) {
     _container_evict_lru(g_container_state.cache);
   }
 
-  container_result_t create_result =
-      create_user_container(name, g_container_state.data_dir,
-                            g_container_state.initial_container_size);
+  container_result_t create_result = create_user_container(
+      name, g_container_state.data_dir, g_container_state.max_container_size);
   if (!create_result.success) {
     uv_rwlock_wrunlock(&g_container_state.cache_rwlock);
     return create_result;

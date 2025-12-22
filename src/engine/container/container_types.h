@@ -17,7 +17,8 @@
 // Constants - System Database Names
 // ============================================================================
 
-#define SYS_DB_ENT_ID_TO_INT_NAME "ent_id_to_int_db"
+#define SYS_DB_STR_TO_ENTITY_NAME "str_to_entity_id_db"
+#define SYS_DB_INT_TO_ENTITY_NAME "int_to_entity_id_db"
 #define SYS_DB_METADATA_NAME "sys_dc_metadata_db"
 
 // ============================================================================
@@ -39,8 +40,6 @@
 #define USR_NEXT_EVENT_ID_INIT_VAL 1
 #define USR_ENTITIES_KEY "entities"
 
-#define MAX_CONTAINER_PATH_LENGTH 128
-
 // ============================================================================
 // Enums - Container & Database Types
 // ============================================================================
@@ -48,7 +47,8 @@
 typedef enum { CONTAINER_TYPE_SYS, CONTAINER_TYPE_USR } eng_dc_type_t;
 
 typedef enum {
-  SYS_DB_ENT_ID_TO_INT = 0,
+  SYS_DB_STR_TO_ENTITY_ID = 0,
+  SYS_DB_INT_TO_ENTITY_ID,
   SYS_DB_METADATA,
   SYS_DB_COUNT
 } eng_dc_sys_db_type_t;
@@ -69,10 +69,12 @@ typedef enum {
  * Stores entity ID mappings and metadata
  */
 typedef struct {
-  // B-Tree to find internal entity ID from external id efficiently.
-  // External entity id can be string or numeric.
-  // Key: "user-123", Value: uint32_t (e.g. 100)
-  MDB_dbi ent_id_to_int_db;
+  // B-Trees to find internal entity IDs from external ids efficiently.
+  // example Key: "user-123", Value: uint32_t (e.g. 100)
+  MDB_dbi str_to_entity_id_db;
+  // Key: int64_t, Value: uint32_t
+  // Note: we don't use an mmap here because keys are sparse.
+  MDB_dbi int_to_entity_id_db;
 
   // MMap Array: Index entity id (e.g. 100) -> "user-123"
   mmap_array_t entity_id_map;
@@ -93,7 +95,7 @@ typedef struct {
   MDB_dbi inverted_event_index_db;
 
   // Data retrieval (SELECT)
-  // Key = event id, Value = MsgPack Blob
+  // Key = event id (uint32_t), Value = MsgPack Blob
   MDB_dbi events_db;
 
   // Metadata:

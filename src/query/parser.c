@@ -571,7 +571,7 @@ static ast_node_t *_parse_tag(Queue *tokens, parse_result_t *r) {
       first_val_token->type == TOKEN_LITERAL_STRING) {
     first_val_token = q_dequeue(tokens);
     size_t valid_len = tag->tag.reserved_key == AST_KEY_ENTITY
-                           ? MAX_EXT_ENTITY_ID_LEN
+                           ? MAX_ENTITY_STR_LEN
                            : MAX_TEXT_VAL_LEN;
     if (first_val_token->text_value_len > valid_len) {
       free(first_val_token);

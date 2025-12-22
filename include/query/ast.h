@@ -49,9 +49,9 @@ typedef struct {
   ast_literal_type_t type;
   union {
     char *string_value;
-    size_t string_value_len;
     int64_t number_value;
   };
+  size_t string_value_len;
 } ast_literal_node_t;
 
 typedef enum {

@@ -1,4 +1,5 @@
 #include "worker.h"
+#include "core/data_constants.h"
 #include "core/db.h"
 #include "core/lock_striped_ht.h"
 #include "core/mmap_array.h"
@@ -17,7 +18,7 @@
 #include "log/log.h"
 #include "query/ast.h"
 #include "uthash.h"
-#include "uv.h"
+#include "worker_log.h"
 #include <sched.h>
 #include <stdatomic.h>
 #include <stdbool.h>
@@ -54,39 +55,49 @@ static bool _ensure_sys_container(eng_container_t **sys_c_ptr) {
   return true;
 }
 
-static bool
-_get_entity_mapping_by_str(worker_t *worker, eng_container_t **sys_c_ptr,
-                           MDB_txn **sys_txn_ptr, char *entity_id_str,
-                           worker_entity_mapping_t **mapping_out,
-                           bool *is_new_ent_out, bool *created_sys_txn) {
-  worker_entity_mapping_t *em = NULL;
+static bool _get_entity_mapping(worker_t *worker, eng_container_t **sys_c_ptr,
+                                MDB_txn **sys_txn_ptr,
+                                ast_literal_node_t *ent_node,
+                                uint32_t *ent_id_out, bool *is_new_ent_out,
+                                bool *created_sys_txn) {
   *is_new_ent_out = false;
-  *mapping_out = NULL;
+  bool ent_is_str = ent_node->type == AST_LITERAL_STRING;
 
-  HASH_FIND_STR(worker->entity_mappings, entity_id_str, em);
-  if (em) {
-    LOG_ACTION_DEBUG(
-        ACT_CACHE_HIT,
-        "context=\"entity_mapping\" entity_id=\"%s\" ent_int_id=%u",
-        entity_id_str, em->ent_int_id);
-    *mapping_out = em;
-    return true;
+  if (ent_is_str) {
+    khint_t k =
+        kh_get(str_u32, worker->str_to_entity_id, ent_node->string_value);
+    if (k != kh_end(worker->str_to_entity_id)) {
+      *ent_id_out = kh_value(worker->str_to_entity_id, k);
+      LOG_ACTION_DEBUG(ACT_CACHE_HIT,
+                       "context=entity_mapping entity=\"%s\" ent_int_id=%u",
+                       ent_node->string_value, *ent_id_out);
+      return true;
+    }
+  } else {
+    khint_t k =
+        kh_get(i64_u32, worker->int_to_entity_id, ent_node->number_value);
+    if (k != kh_end(worker->int_to_entity_id)) {
+      *ent_id_out = kh_value(worker->int_to_entity_id, k);
+      LOG_ACTION_DEBUG(ACT_CACHE_HIT,
+                       "context=entity_mapping entity=%lld ent_int_id=%u",
+                       (long long)ent_node->number_value, *ent_id_out);
+      return true;
+    }
   }
 
-  LOG_ACTION_DEBUG(ACT_CACHE_MISS,
-                   "context=\"entity_mapping\" entity_id=\"%s\"",
-                   entity_id_str);
+  LOG_ENT_DEBUG(ACT_CACHE_MISS, ent_node, "context=entity_mapping");
 
   if (!_ensure_sys_container(sys_c_ptr)) {
+    LOG_ENT_ERROR(ACT_CONTAINER_OPEN_FAILED, ent_node,
+                  "context=entity_mapping err=\"No system container\"");
     return false;
   }
   if (!*sys_txn_ptr) {
     MDB_txn *txn = db_create_txn((*sys_c_ptr)->env, true);
     if (!txn) {
-      LOG_ACTION_ERROR(ACT_TXN_FAILED,
-                       "context=\"entity_mapping_lookup\" entity_id=\"%s\" "
-                       "err=\"failed to create transaction\"",
-                       entity_id_str);
+      LOG_ENT_ERROR(
+          ACT_TXN_FAILED, ent_node,
+          "context=entity_mapping err=\"failed to create sys transaction\"");
       return false;
     }
     *sys_txn_ptr = txn;
@@ -95,66 +106,60 @@ _get_entity_mapping_by_str(worker_t *worker, eng_container_t **sys_c_ptr,
 
   db_get_result_t r = {0};
   db_key_t db_key;
-  db_key.type = DB_KEY_STRING;
-  db_key.key.s = entity_id_str;
+  if (ent_is_str) {
+    db_key.type = DB_KEY_STRING;
+    db_key.key.s = ent_node->string_value;
+  } else {
+    db_key.type = DB_KEY_I64;
+    db_key.key.i64 = ent_node->number_value;
+  }
 
   if (!db_get((*sys_c_ptr)->data.sys->sys_dc_metadata_db, *sys_txn_ptr, &db_key,
               &r)) {
-    LOG_ACTION_ERROR(
-        ACT_DB_READ_FAILED,
-        "context=\"entity_metadata\" entity_id=\"%s\" db=sys_dc_metadata",
-        entity_id_str);
-    return false;
-  }
-
-  em = malloc(sizeof(worker_entity_mapping_t));
-  if (!em) {
-    LOG_ACTION_ERROR(
-        ACT_MEMORY_ALLOC_FAILED,
-        "context=\"entity_mapping\" entity_id=\"%s\" size_bytes=%zu err=\"%s\"",
-        entity_id_str, sizeof(worker_entity_mapping_t), strerror(errno));
-    db_get_result_clear(&r);
-    return false;
-  }
-
-  em->ent_str_id = strdup(entity_id_str);
-  if (!em->ent_str_id) {
-    LOG_ACTION_ERROR(
-        ACT_MEMORY_ALLOC_FAILED,
-        "context=\"entity_str_id_dup\" entity_id=\"%s\" err=\"%s\"",
-        entity_id_str, strerror(errno));
-    free(em);
-    db_get_result_clear(&r);
+    LOG_ENT_ERROR(ACT_DB_READ_FAILED, ent_node,
+                  "context=entity_metadata db=sys_dc_metadata");
     return false;
   }
 
   if (r.status == DB_GET_OK) {
-    em->ent_int_id = *(uint32_t *)r.value;
-    LOG_ACTION_DEBUG(ACT_DB_READ,
-                     "context=\"entity_mapping\" entity_id=\"%s\" "
-                     "ent_int_id=%u status=existing",
-                     entity_id_str, em->ent_int_id);
+    *ent_id_out = *(uint32_t *)r.value;
+    LOG_ENT_DEBUG(ACT_DB_READ, ent_node,
+                  "context=entity_mapping ent_int_id=%u status=existing",
+                  *ent_id_out);
   } else {
-    em->ent_int_id = _get_next_entity_id();
+    *ent_id_out = _get_next_entity_id();
     *is_new_ent_out = true;
-    LOG_ACTION_INFO(
-        ACT_CACHE_ENTRY_CREATED,
-        "context=\"entity_mapping\" entity_id=\"%s\" ent_int_id=%u status=new",
-        entity_id_str, em->ent_int_id);
+    LOG_ENT_INFO(ACT_CACHE_ENTRY_CREATED, ent_node,
+                 "context=entity_mapping ent_int_id=%u status=new",
+                 *ent_id_out);
   }
 
   db_get_result_clear(&r);
 
-  HASH_ADD_KEYPTR(hh, worker->entity_mappings, em->ent_str_id,
-                  strlen(em->ent_str_id), em);
+  int ret;
+  khiter_t k;
 
-  *mapping_out = em;
+  if (ent_is_str) {
+    k = kh_put(str_u32, worker->str_to_entity_id,
+               strdup(ent_node->string_value), &ret);
+    kh_value(worker->str_to_entity_id, k) = *ent_id_out;
+  } else {
+    k = kh_put(i64_u32, worker->int_to_entity_id, ent_node->number_value, &ret);
+    kh_value(worker->int_to_entity_id, k) = *ent_id_out;
+  }
 
-  char buffer[64] = {0};
-  // `sizeof(buffer) - 1` To guarantee Null Termination
-  strncpy(buffer, em->ent_str_id, sizeof(buffer) - 1);
-
-  if (mmap_array_set(&(*sys_c_ptr)->data.sys->entity_id_map, em->ent_int_id,
+  char buffer[SLOT_SIZE] = {0};
+  if (ent_is_str) {
+    buffer[0] = VAL_TYPE_STR;
+    strncpy(buffer + TAG_UNION_SIZE, ent_node->string_value,
+            MAX_ENTITY_STR_LEN);
+    buffer[SLOT_SIZE - 1] = '\0';
+  } else {
+    buffer[0] = VAL_TYPE_I64;
+    // Use memcpy to avoid memory alignment bus errors
+    memcpy(buffer + TAG_UNION_SIZE, &ent_node->number_value, sizeof(int64_t));
+  }
+  if (mmap_array_set(&(*sys_c_ptr)->data.sys->entity_id_map, *ent_id_out,
                      buffer) != 0) {
     // TODO: error handling
     return false;
@@ -376,8 +381,7 @@ static bool _queue_up_ops(worker_t *worker, worker_ops_t *ops) {
 }
 
 static bool _write_to_event_ent_map(worker_t *worker, char *container_name,
-                                    worker_entity_mapping_t *em,
-                                    uint32_t event_id) {
+                                    uint32_t ent_id, uint32_t event_id) {
   worker_user_dc_t *user_dc = NULL;
   if (!_get_user_dc(worker, container_name, &user_dc)) {
     LOG_ACTION_ERROR(ACT_CONTAINER_OPEN_FAILED, "container=\"%s\"",
@@ -385,7 +389,7 @@ static bool _write_to_event_ent_map(worker_t *worker, char *container_name,
     return false;
   }
   if (mmap_array_set(&user_dc->dc->data.usr->event_to_entity_map, event_id,
-                     &em->ent_int_id) != 0) {
+                     &ent_id) != 0) {
     // TODO: error handling
     return false;
   }
@@ -426,45 +430,47 @@ static bool _process_msg(worker_t *worker, cmd_queue_msg_t *msg,
                          eng_container_t **sys_c_ptr, MDB_txn **sys_txn_ptr,
                          bool *created_sys_txn_out) {
   if (!msg || !msg->command) {
-    LOG_ACTION_WARN(ACT_MSG_INVALID, "err=\"null_command\"");
+    LOG_ACTION_WARN(ACT_MSG_INVALID, "err=null_command");
     return false;
   }
 
+  uint32_t ent_int_id = 0;
   bool is_new_ent = false;
-  char *entity_id_str = msg->command->entity_tag_value->literal.string_value;
-  worker_entity_mapping_t *em = NULL;
+  ast_literal_node_t *ent_node = &msg->command->entity_tag_value->literal;
+  char *container_name = msg->command->in_tag_value->literal.string_value;
 
-  if (!_get_entity_mapping_by_str(worker, sys_c_ptr, sys_txn_ptr, entity_id_str,
-                                  &em, &is_new_ent, created_sys_txn_out)) {
-    LOG_ACTION_ERROR(ACT_ENTITY_MAPPING_FAILED, "entity_id=\"%s\"",
-                     entity_id_str);
+  if (!_get_entity_mapping(worker, sys_c_ptr, sys_txn_ptr, ent_node,
+                           &ent_int_id, &is_new_ent, created_sys_txn_out)) {
+    LOG_ENT_ERROR(ACT_ENTITY_MAPPING_FAILED, ent_node,
+                  "context=process_msg container=\"%s\"", container_name);
     return false;
   }
 
-  char *container_name = msg->command->in_tag_value->literal.string_value;
   uint32_t event_id = 0;
   if (!_get_next_event_id_for_container(worker, container_name, &event_id)) {
-    LOG_ACTION_ERROR(ACT_EVENT_ID_FAILED, "container=\"%s\"", container_name);
+    LOG_ENT_ERROR(ACT_EVENT_ID_FAILED, ent_node, "container=\"%s\"",
+                  container_name);
     return false;
   }
 
-  if (!_write_to_event_ent_map(worker, container_name, em, event_id)) {
-    LOG_ACTION_ERROR(ACT_EVENT_ID_FAILED, "container=\"%s\"", container_name);
+  if (!_write_to_event_ent_map(worker, container_name, ent_int_id, event_id)) {
+    LOG_ENT_ERROR(ACT_EVENT_ID_FAILED, ent_node, "container=\"%s\"",
+                  container_name);
     return false;
   }
 
   if (!_write_to_event_ts_map(worker, container_name, msg->command->arrival_ts,
                               event_id)) {
-    LOG_ACTION_ERROR(ACT_EVENT_TS_FAILED, "container=\"%s\"", container_name);
+    LOG_ENT_ERROR(ACT_EVENT_TS_FAILED, ent_node, "container=\"%s\"",
+                  container_name);
     return false;
   }
 
-  eng_writer_msg_t *writer_msg =
-      worker_create_writer_msg(msg, container_name, event_id, em->ent_int_id,
-                               em->ent_str_id, is_new_ent);
+  eng_writer_msg_t *writer_msg = worker_create_writer_msg(
+      msg, container_name, event_id, ent_int_id, ent_node, is_new_ent);
   if (!writer_msg) {
-    LOG_ACTION_ERROR(ACT_WORKER_WRITER_MSG_FAILED, "container=\"%s\"",
-                     container_name);
+    LOG_ENT_ERROR(ACT_WORKER_WRITER_MSG_FAILED, ent_node, "container=\"%s\"",
+                  container_name);
     return false;
   }
 
@@ -476,19 +482,17 @@ static bool _process_msg(worker_t *worker, cmd_queue_msg_t *msg,
 
   worker_ops_t ops = {0};
   worker_ops_result_t ops_result =
-      worker_create_ops(msg, container_name, em->ent_int_id, event_id, &ops);
+      worker_create_ops(msg, container_name, ent_int_id, event_id, &ops);
 
   if (!ops_result.success) {
-    LOG_ACTION_ERROR(
-        ACT_OP_CREATE_FAILED,
-        "entity_id=\"%s\" container=\"%s\", err=\"%s\" context=\"%s\"",
-        entity_id_str, container_name, ops_result.error_msg,
-        ops_result.context);
+    LOG_ENT_ERROR(ACT_OP_CREATE_FAILED, ent_node,
+                  "container=\"%s\", err=\"%s\" context=\"%s\"", container_name,
+                  ops_result.error_msg, ops_result.context);
     return false;
   }
 
-  LOG_ACTION_DEBUG(ACT_OP_CREATED, "num_ops=%u entity_id=%u event_id=%u",
-                   ops.num_ops, em->ent_int_id, event_id);
+  LOG_ENT_DEBUG(ACT_OP_CREATED, ent_node, "num_ops=%u event_id=%u", ops.num_ops,
+                event_id);
 
   bool success = _queue_up_ops(worker, &ops);
 
@@ -532,20 +536,33 @@ static void _worker_cleanup(worker_t *worker) {
   if (!worker) {
     return;
   }
-
-  worker_entity_mapping_t *current, *tmp;
   size_t freed_count = 0;
 
-  HASH_ITER(hh, worker->entity_mappings, current, tmp) {
-    HASH_DEL(worker->entity_mappings, current);
-    free(current->ent_str_id);
-    free(current);
-    freed_count++;
-  }
-  worker->entity_mappings = NULL;
+  if (worker->str_to_entity_id) {
+    khint_t k;
+    // kh_begin returns 0
+    // kh_end returns the size of the bucket array (capacity)
+    for (k = kh_begin(worker->str_to_entity_id);
+         k != kh_end(worker->str_to_entity_id); ++k) {
+      // kh_exist checks if this specific bucket is occupied
+      // (buckets can be empty or deleted)
+      if (kh_exist(worker->str_to_entity_id, k)) {
+        const char *key_ptr = kh_key(worker->str_to_entity_id, k);
+        if (key_ptr) {
+          free((void *)key_ptr);
+          freed_count++;
+        }
+      }
+    }
 
-  LOG_ACTION_INFO(ACT_CLEANUP_COMPLETE,
-                  "context=worker entity_mappings_freed=%zu", freed_count);
+    kh_destroy(str_u32, worker->str_to_entity_id);
+    kh_destroy(i64_u32, worker->int_to_entity_id);
+    worker->str_to_entity_id = NULL;
+    worker->int_to_entity_id = NULL;
+
+    LOG_ACTION_INFO(ACT_CLEANUP_COMPLETE,
+                    "context=worker entity_mappings_freed=%zu", freed_count);
+  }
 }
 
 static void _worker_thread_func(void *arg) {
@@ -629,7 +646,8 @@ worker_result_t worker_start(worker_t *worker, const worker_config_t *config) {
   worker->config = *config;
   worker->should_stop = false;
   worker->messages_processed = 0;
-  worker->entity_mappings = NULL;
+  worker->str_to_entity_id = kh_init(str_u32);
+  worker->int_to_entity_id = kh_init(i64_u32);
 
   if (uv_thread_create(&worker->thread, _worker_thread_func, worker) != 0) {
     return (worker_result_t){.success = false,

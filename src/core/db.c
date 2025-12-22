@@ -2,20 +2,10 @@
 #include "lmdb.h"
 
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-/*
- * On POSIX systems, this header provides htonl.
- * Windows requires Winsock2.h for this function.
- */
-#if defined(_WIN32) || defined(_WIN64)
-#include <winsock2.h>
-#pragma comment(lib, "ws2_32.lib")
-#else
-#include <arpa/inet.h>
-#endif
 
 MDB_env *db_create_env(const char *path, size_t map_size, int max_num_dbs) {
   if (!path || !map_size || !max_num_dbs)
@@ -30,7 +20,7 @@ MDB_env *db_create_env(const char *path, size_t map_size, int max_num_dbs) {
     return NULL;
   }
 
-  // Set map size (maximum size of the database)
+  // Set map size (maximum size of the database before resize required)
   rc = mdb_env_set_mapsize(env, map_size);
   if (rc != 0) {
     fprintf(stderr, "mdb_env_set_mapsize failed: %s\n", mdb_strerror(rc));
@@ -57,7 +47,8 @@ MDB_env *db_create_env(const char *path, size_t map_size, int max_num_dbs) {
   return env;
 }
 
-bool db_open(MDB_env *env, const char *db_name, MDB_dbi *db_out) {
+bool db_open(MDB_env *env, const char *db_name, bool int_only_keys,
+             MDB_dbi *db_out) {
   if (!env || !db_name || !db_out)
     return false;
   int rc;
@@ -69,9 +60,11 @@ bool db_open(MDB_env *env, const char *db_name, MDB_dbi *db_out) {
     return false;
   }
 
+  unsigned int flags = int_only_keys ? MDB_CREATE & MDB_INTEGERKEY : MDB_CREATE;
+
   // Open a database (dbi) - will be created if it doesn't exist (MDB_CREATE
   // flag)
-  rc = mdb_dbi_open(txn, db_name, MDB_CREATE, &db);
+  rc = mdb_dbi_open(txn, db_name, flags, &db);
   if (rc != 0) {
     fprintf(stderr, "mdb_dbi_open failed: %s\n", mdb_strerror(rc));
     mdb_txn_abort(txn);
@@ -95,9 +88,6 @@ bool db_put(MDB_dbi db, MDB_txn *txn, db_key_t *key, const void *value,
 
   MDB_val mdb_key, mdb_value;
   int rc;
-  // For int keys: This variable holds the 32-bit integer key in a consistent
-  // network byte order (big-endian) for storage and sorting.
-  uint32_t key_in_network_order;
 
   switch (key->type) {
   case DB_KEY_STRING:
@@ -106,18 +96,14 @@ bool db_put(MDB_dbi db, MDB_txn *txn, db_key_t *key, const void *value,
     mdb_key.mv_size = strlen(key->key.s);
     break;
 
-  case DB_KEY_INTEGER:
-    /*
-     * For 32-bit integers, we use htonl() (Host To Network Long) to
-     * convert from the host machine's byte order to big-endian.
-     * This is the standard and portable way to ensure that LMDB's
-     * lexicographical sort matches the numerical sort order.
-     */
-    key_in_network_order = htonl(key->key.i);
+  case DB_KEY_U32:
+    mdb_key.mv_data = &key->key.u32;
+    mdb_key.mv_size = sizeof(uint32_t);
+    break;
 
-    // The data points to our converted integer, and the size is fixed.
-    mdb_key.mv_data = &key_in_network_order;
-    mdb_key.mv_size = sizeof(key_in_network_order);
+  case DB_KEY_I64:
+    mdb_key.mv_data = &key->key.i64;
+    mdb_key.mv_size = sizeof(int64_t);
     break;
 
   default:
@@ -161,7 +147,6 @@ bool db_get(MDB_dbi db, MDB_txn *txn, db_key_t *key,
   MDB_val mdb_key, mdb_value;
   int rc;
   void *result = NULL;
-  uint32_t key_in_network_order;
 
   switch (key->type) {
   case DB_KEY_STRING:
@@ -169,10 +154,14 @@ bool db_get(MDB_dbi db, MDB_txn *txn, db_key_t *key,
     mdb_key.mv_size = strlen(key->key.s);
     break;
 
-  case DB_KEY_INTEGER:
-    key_in_network_order = htonl(key->key.i);
-    mdb_key.mv_data = &key_in_network_order;
-    mdb_key.mv_size = sizeof(key_in_network_order);
+  case DB_KEY_U32:
+    mdb_key.mv_data = &key->key.u32;
+    mdb_key.mv_size = sizeof(uint32_t);
+    break;
+
+  case DB_KEY_I64:
+    mdb_key.mv_data = &key->key.i64;
+    mdb_key.mv_size = sizeof(int64_t);
     break;
 
   default:

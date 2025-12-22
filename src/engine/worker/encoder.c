@@ -48,6 +48,7 @@ bool encode_event(cmd_ctx_t *cmd_ctx, uint32_t event_id, char **data_out,
   }
 
   mpack_write_cstr(&writer, "ts");
+  // we use milliseconds for compatability
   int64_t ts_ms = cmd_ctx->arrival_ts / 1000000L;
   mpack_write_i64(&writer, ts_ms);
 

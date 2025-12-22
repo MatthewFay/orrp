@@ -1,4 +1,5 @@
 #include "container_db.h"
+#include "core/data_constants.h"
 #include "core/db.h"
 #include "core/mmap_array.h"
 #include "engine/container/container_types.h"
@@ -34,7 +35,8 @@ void container_close(eng_container_t *c) {
       free(c->data.usr);
     } else {
       db_close(c->env, c->data.sys->sys_dc_metadata_db);
-      db_close(c->env, c->data.sys->ent_id_to_int_db);
+      db_close(c->env, c->data.sys->int_to_entity_id_db);
+      db_close(c->env, c->data.sys->str_to_entity_id_db);
       mmap_array_close(&c->data.sys->entity_id_map);
       free(c->data.sys);
     }
@@ -73,7 +75,7 @@ eng_container_t *create_container_struct(eng_dc_type_t type) {
 }
 
 container_result_t create_user_container(const char *name, const char *data_dir,
-                                         size_t initial_container_size) {
+                                         size_t max_container_size) {
   container_result_t result = {0};
 
   char c_path[MAX_CONTAINER_PATH_LENGTH];
@@ -98,7 +100,7 @@ container_result_t create_user_container(const char *name, const char *data_dir,
     return result;
   }
 
-  c->env = db_create_env(c_path, initial_container_size, USR_DB_COUNT);
+  c->env = db_create_env(c_path, max_container_size, USR_DB_COUNT);
   if (!c->env) {
     container_close(c);
     result.error_code = CONTAINER_ERR_ENV_CREATE;
@@ -107,12 +109,12 @@ container_result_t create_user_container(const char *name, const char *data_dir,
   }
 
   // Open all user databases
-  bool iei = db_open(c->env, USR_DB_INVERTED_EVENT_INDEX_NAME,
+  bool iei = db_open(c->env, USR_DB_INVERTED_EVENT_INDEX_NAME, false,
                      &c->data.usr->inverted_event_index_db);
-  bool meta =
-      db_open(c->env, USR_DB_METADATA_NAME, &c->data.usr->user_dc_metadata_db);
+  bool meta = db_open(c->env, USR_DB_METADATA_NAME, false,
+                      &c->data.usr->user_dc_metadata_db);
 
-  bool edb = db_open(c->env, USR_DB_EVENTS_NAME, &c->data.usr->events_db);
+  bool edb = db_open(c->env, USR_DB_EVENTS_NAME, true, &c->data.usr->events_db);
 
   if (!(iei && meta && edb)) {
     container_close(c);
@@ -161,7 +163,7 @@ container_result_t create_user_container(const char *name, const char *data_dir,
 }
 
 container_result_t create_system_container(const char *data_dir,
-                                           size_t initial_container_size) {
+                                           size_t max_container_size) {
   container_result_t result = {0};
 
   char sys_path[MAX_CONTAINER_PATH_LENGTH];
@@ -187,7 +189,7 @@ container_result_t create_system_container(const char *data_dir,
     return result;
   }
 
-  c->env = db_create_env(sys_path, initial_container_size, SYS_DB_COUNT);
+  c->env = db_create_env(sys_path, max_container_size, SYS_DB_COUNT);
   if (!c->env) {
     container_close(c);
     result.error_code = CONTAINER_ERR_ENV_CREATE;
@@ -195,12 +197,15 @@ container_result_t create_system_container(const char *data_dir,
     return result;
   }
 
-  bool id_to_int = db_open(c->env, SYS_DB_ENT_ID_TO_INT_NAME,
-                           &c->data.sys->ent_id_to_int_db);
-  bool meta =
-      db_open(c->env, SYS_DB_METADATA_NAME, &c->data.sys->sys_dc_metadata_db);
+  bool ent_str_to_id = db_open(c->env, SYS_DB_STR_TO_ENTITY_NAME, false,
+                               &c->data.sys->str_to_entity_id_db);
+  bool ent_int_to_id = db_open(c->env, SYS_DB_INT_TO_ENTITY_NAME, true,
+                               &c->data.sys->int_to_entity_id_db);
 
-  if (!(id_to_int && meta)) {
+  bool meta = db_open(c->env, SYS_DB_METADATA_NAME, false,
+                      &c->data.sys->sys_dc_metadata_db);
+
+  if (!(ent_str_to_id && ent_int_to_id && meta)) {
     container_close(c);
     result.error_code = CONTAINER_ERR_DB_OPEN;
     result.error_msg = "Failed to open system databases";
@@ -256,8 +261,12 @@ bool cdb_get_system_db_handle(eng_container_t *c, eng_dc_sys_db_type_t db_type,
   }
 
   switch (db_type) {
-  case SYS_DB_ENT_ID_TO_INT:
-    *db_out = c->data.sys->ent_id_to_int_db;
+  case SYS_DB_STR_TO_ENTITY_ID:
+    *db_out = c->data.sys->str_to_entity_id_db;
+    break;
+
+  case SYS_DB_INT_TO_ENTITY_ID:
+    *db_out = c->data.sys->int_to_entity_id_db;
     break;
 
   case SYS_DB_METADATA:

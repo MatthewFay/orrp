@@ -95,7 +95,7 @@ static bool _validate_ast(ast_node_t *ast, custom_key **c_keys) {
           return false;
         seen_entity = true;
         if (t_node.value->literal.type == AST_LITERAL_STRING &&
-            t_node.value->literal.string_value_len > MAX_EXT_ENTITY_ID_LEN) {
+            t_node.value->literal.string_value_len > MAX_ENTITY_STR_LEN) {
           return false;
         }
         break;

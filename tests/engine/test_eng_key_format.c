@@ -71,7 +71,7 @@ void test_db_key_into_user_integer_success(void) {
       .dc_type = CONTAINER_TYPE_USR,
       .usr_db_type = 42,
       .container_name = "users",
-      .db_key = {.type = DB_KEY_INTEGER, .key = {.i = 12345}}};
+      .db_key = {.type = DB_KEY_U32, .key = {.i = 12345}}};
 
   TEST_ASSERT_TRUE(db_key_into(buffer, sizeof(buffer), &db_key));
   TEST_ASSERT_EQUAL_STRING("users|42|12345", buffer);

@@ -1,20 +1,15 @@
 #ifndef WORKER_H
 #define WORKER_H
 
+#include "core/map.h" // IWYU pragma: keep
 #include "engine/cmd_queue/cmd_queue.h"
 #include "engine/container/container_types.h"
 #include "engine/engine_writer/engine_writer.h"
 #include "engine/op_queue/op_queue.h"
+#include "khash.h"
 #include "lmdb.h"
-#include "uthash.h"
 #include "uv.h" // IWYU pragma: keep
 #include <stdint.h>
-
-typedef struct worker_entity_mapping_s {
-  UT_hash_handle hh;
-  char *ent_str_id;
-  uint32_t ent_int_id;
-} worker_entity_mapping_t;
 
 // user data containers cached across batch of cmd msgs
 typedef struct worker_user_dc_s {
@@ -36,8 +31,10 @@ typedef struct worker_config_s {
 typedef struct worker_s {
   worker_config_t config;
   uv_thread_t thread;
-  // we keep one per thread because each thread is entity-scoped
-  worker_entity_mapping_t *entity_mappings;
+  // we keep entity maps per thread because each thread is entity-scoped.
+  // using 2 maps because we accept both str and int external entity ids.
+  khash_t(str_u32) * str_to_entity_id;
+  khash_t(i64_u32) * int_to_entity_id;
   worker_user_dc_t *user_dcs;
   volatile bool should_stop;
   uint64_t messages_processed; // Stats

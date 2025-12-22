@@ -11,6 +11,7 @@ typedef struct cmd_queue_msg_s {
 // Takes ownership of `command`
 cmd_queue_msg_t *cmd_queue_create_msg(cmd_ctx_t *command);
 
+// Frees command context too
 void cmd_queue_free_msg(cmd_queue_msg_t *msg);
 
 #endif

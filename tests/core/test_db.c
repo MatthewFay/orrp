@@ -141,7 +141,7 @@ void test_db_put_integer_key_success(void) {
   MDB_txn *txn = db_create_txn(test_env, false);
   TEST_ASSERT_NOT_NULL(txn);
 
-  db_key_t key = {.type = DB_KEY_INTEGER, .key.i = 42};
+  db_key_t key = {.type = DB_KEY_U32, .key.i = 42};
   const char *value = "integer_key_value";
 
   bool result = db_put(test_db, txn, &key, value, strlen(value), false);
@@ -234,7 +234,7 @@ void test_db_get_integer_key_found(void) {
   MDB_txn *put_txn = db_create_txn(test_env, false);
   TEST_ASSERT_NOT_NULL(put_txn);
 
-  db_key_t key = {.type = DB_KEY_INTEGER, .key.i = 123};
+  db_key_t key = {.type = DB_KEY_U32, .key.i = 123};
   const char *expected_value = "integer_value";
 
   bool put_result = db_put(test_db, put_txn, &key, expected_value,
@@ -353,7 +353,7 @@ void test_db_integer_key_ordering(void) {
   size_t num_keys = sizeof(keys) / sizeof(keys[0]);
 
   for (size_t i = 0; i < num_keys; i++) {
-    db_key_t key = {.type = DB_KEY_INTEGER, .key.i = keys[i]};
+    db_key_t key = {.type = DB_KEY_U32, .key.i = keys[i]};
     bool result =
         db_put(test_db, put_txn, &key, values[i], strlen(values[i]), false);
     TEST_ASSERT_TRUE(result);
@@ -367,7 +367,7 @@ void test_db_integer_key_ordering(void) {
   TEST_ASSERT_NOT_NULL(get_txn);
 
   for (size_t i = 0; i < num_keys; i++) {
-    db_key_t key = {.type = DB_KEY_INTEGER, .key.i = keys[i]};
+    db_key_t key = {.type = DB_KEY_U32, .key.i = keys[i]};
     db_get_result_t result;
 
     bool get_result = db_get(test_db, get_txn, &key, &result);

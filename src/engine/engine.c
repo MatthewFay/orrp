@@ -2,6 +2,7 @@
 #include "cmd_context/cmd_context.h"
 #include "container/container.h"
 #include "core/bitmaps.h"
+#include "core/data_constants.h"
 #include "core/db.h"
 #include "core/hash.h"
 #include "engine/api.h"
@@ -27,7 +28,6 @@ LOG_INIT(engine);
 
 #define CONTAINER_FOLDER "data"
 #define DC_CACHE_CAPACITY 128
-const size_t INITIAL_CONTAINER_SIZE = 1048576;
 
 #define NUM_CMD_QUEUEs 16
 #define CMD_QUEUE_MASK (NUM_CMD_QUEUEs - 1)
@@ -63,7 +63,7 @@ bool eng_init(void) {
 
   // Initialize container subsystem
   if (!container_init(DC_CACHE_CAPACITY, CONTAINER_FOLDER,
-                      INITIAL_CONTAINER_SIZE)) {
+                      MAX_CONTAINER_SIZE)) {
     LOG_ACTION_FATAL(ACT_SUBSYSTEM_INIT_FAILED, "subsystem=container");
     return NULL;
   }
@@ -253,14 +253,18 @@ static bool _eng_enqueue_cmd(cmd_ctx_t *command) {
     return false;
   }
 
-  const char *entity_id = command->entity_tag_value->literal.string_value;
-  unsigned long hash =
-      xxhash64(entity_id, strlen(entity_id), CMD_QUEUE_HASH_SEED);
+  unsigned long hash = 0;
+  if (command->entity_tag_value->literal.type == AST_LITERAL_STRING) {
+    const char *entity_id = command->entity_tag_value->literal.string_value;
+    hash = xxhash64(entity_id, strlen(entity_id), CMD_QUEUE_HASH_SEED);
+  } else {
+    int64_t entity_id = command->entity_tag_value->literal.number_value;
+    hash = xxhash64(&entity_id, sizeof(int64_t), CMD_QUEUE_HASH_SEED);
+  }
+
   int queue_idx = hash & CMD_QUEUE_MASK;
 
-  LOG_ACTION_DEBUG(ACT_MSG_ENQUEUED,
-                   "msg_type=cmd entity_id=\"%s\" queue_id=%d", entity_id,
-                   queue_idx);
+  LOG_ACTION_DEBUG(ACT_MSG_ENQUEUED, "msg_type=cmd queue_id=%d", queue_idx);
 
   cmd_queue_t *queue = &g_cmd_queues[queue_idx];
   if (!queue) {
@@ -271,9 +275,7 @@ static bool _eng_enqueue_cmd(cmd_ctx_t *command) {
   }
 
   if (!cmd_queue_enqueue(queue, msg)) {
-    LOG_ACTION_WARN(ACT_QUEUE_FULL,
-                    "queue_type=cmd queue_id=%d entity_id=\"%s\"", queue_idx,
-                    entity_id);
+    LOG_ACTION_WARN(ACT_QUEUE_FULL, "queue_type=cmd queue_id=%d", queue_idx);
     cmd_queue_free_msg(msg);
     return false;
   }
@@ -331,12 +333,12 @@ static void _handle_query_result(eng_query_result_t *query_r, api_response_t *r,
   }
 
   db_get_result_t db_r = {0};
-  db_key_t db_k = {.type = DB_KEY_INTEGER, .key = {.i = 0}};
+  db_key_t db_k = {.type = DB_KEY_U32, .key = {.u32 = 0}};
   MDB_dbi db = usr_c->data.usr->events_db;
   int i = 0;
   while (it->has_value) {
     uint32_t event_id = it->current_value;
-    db_k.key.i = event_id;
+    db_k.key.u32 = event_id;
     if (!db_get(db, usr_txn, &db_k, &db_r) || db_r.status != DB_GET_OK) {
       // TODO: handle error better, skip for now
       roaring_uint32_iterator_advance(it);

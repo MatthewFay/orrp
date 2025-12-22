@@ -6,6 +6,7 @@
 #include "engine/eng_key_format/eng_key_format.h"
 #include "engine/engine_writer/engine_writer_queue_msg.h"
 #include "engine/worker/encoder.h"
+#include "query/ast.h"
 #include <stdint.h>
 #include <string.h>
 
@@ -33,8 +34,8 @@ static bool _create_mpack_entry(cmd_queue_msg_t *cmd_msg, char *container_name,
   }
 
   db_key.usr_db_type = USR_DB_EVENTS;
-  db_key.db_key.type = DB_KEY_INTEGER;
-  db_key.db_key.key.i = event_id;
+  db_key.db_key.type = DB_KEY_U32;
+  db_key.db_key.key.u32 = event_id;
 
   if (!db_key_into(key_buffer, sizeof(key_buffer), &db_key)) {
     free(db_key.container_name);
@@ -118,8 +119,8 @@ static bool _create_ent_counter_entry(uint32_t ent_id,
   return entry;
 }
 
-static bool _create_ent_str_entry(uint32_t ent_id, char *ent_str_id,
-                                  eng_writer_entry_t *entry) {
+static bool _create_ent_entry(uint32_t ent_id, ast_literal_node_t *ent_node,
+                              eng_writer_entry_t *entry) {
   char key_buffer[512] = {0};
 
   eng_container_db_key_t db_key;
@@ -130,12 +131,18 @@ static bool _create_ent_str_entry(uint32_t ent_id, char *ent_str_id,
     return false;
   }
 
-  db_key.sys_db_type = SYS_DB_ENT_ID_TO_INT;
-  db_key.db_key.type = DB_KEY_STRING;
-  db_key.db_key.key.s = strdup(ent_str_id);
-  if (!db_key.db_key.key.s) {
-    free(db_key.container_name);
-    return false;
+  bool ent_is_str = ent_node->type == AST_LITERAL_STRING;
+  db_key.sys_db_type =
+      ent_is_str ? SYS_DB_STR_TO_ENTITY_ID : SYS_DB_INT_TO_ENTITY_ID;
+  db_key.db_key.type = ent_is_str ? DB_KEY_STRING : DB_KEY_I64;
+  if (ent_is_str) {
+    db_key.db_key.key.s = strdup(ent_node->string_value);
+    if (!db_key.db_key.key.s) {
+      free(db_key.container_name);
+      return false;
+    }
+  } else {
+    db_key.db_key.key.i64 = ent_node->number_value;
   }
 
   if (!db_key_into(key_buffer, sizeof(key_buffer), &db_key)) {
@@ -155,14 +162,14 @@ static bool _create_ent_str_entry(uint32_t ent_id, char *ent_str_id,
 eng_writer_msg_t *worker_create_writer_msg(cmd_queue_msg_t *cmd_msg,
                                            char *container_name,
                                            uint32_t event_id, uint32_t ent_id,
-                                           char *entity_str_id,
+                                           ast_literal_node_t *ent_node,
                                            bool is_new_ent) {
   eng_writer_msg_t *msg = malloc(sizeof(eng_writer_msg_t));
   if (!msg) {
     return NULL;
   }
   // Greedy: At most 4 entries (sys entity counter, usr event counter, event
-  // data, entity str -> int)
+  // data, entity external id -> int)
   msg->entries = calloc(4, sizeof(eng_writer_entry_t));
   if (!msg->entries) {
     free(msg);
@@ -192,8 +199,7 @@ eng_writer_msg_t *worker_create_writer_msg(cmd_queue_msg_t *cmd_msg,
     return NULL;
   }
 
-  if (!_create_ent_str_entry(ent_id, entity_str_id,
-                             &msg->entries[msg->count++])) {
+  if (!_create_ent_entry(ent_id, ent_node, &msg->entries[msg->count++])) {
     eng_writer_queue_free_msg(msg);
     return NULL;
   }

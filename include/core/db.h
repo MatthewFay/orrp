@@ -4,13 +4,14 @@
 #include "lmdb.h"
 #include <stdbool.h>
 
-typedef enum { DB_KEY_STRING, DB_KEY_INTEGER } db_key_type_t;
+typedef enum { DB_KEY_STRING, DB_KEY_U32, DB_KEY_I64 } db_key_type_t;
 
 typedef struct {
   db_key_type_t type;
   union {
-    char *s;    // For string keys
-    uint32_t i; // For integer keys
+    char *s;
+    uint32_t u32;
+    int64_t i64;
   } key;
 } db_key_t;
 
@@ -43,7 +44,8 @@ bool db_commit_txn(MDB_txn *txn);
 MDB_env *db_create_env(const char *path, size_t map_size, int max_num_dbs);
 
 // Function to open a database
-bool db_open(MDB_env *env, const char *db_name, MDB_dbi *db_out);
+bool db_open(MDB_env *env, const char *db_name, bool int_only_keys,
+             MDB_dbi *db_out);
 
 // Function to put a key-value pair into the database
 bool db_put(MDB_dbi db, MDB_txn *txn, db_key_t *key, const void *value,

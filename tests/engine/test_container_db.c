@@ -226,11 +226,9 @@ void test_cdb_get_user_db_handle_all_db_types(void) {
   TEST_ASSERT_EQUAL(result.container->data.usr->inverted_event_index_db,
                     db_out);
 
-
   TEST_ASSERT_TRUE(
       cdb_get_user_db_handle(result.container, USR_DB_METADATA, &db_out));
   TEST_ASSERT_EQUAL(result.container->data.usr->user_dc_metadata_db, db_out);
-
 
   container_close(result.container);
 }
@@ -294,7 +292,6 @@ void test_cdb_get_system_db_handle_all_db_types(void) {
                                             SYS_DB_ENT_ID_TO_INT, &db_out));
   TEST_ASSERT_EQUAL(result.container->data.sys->ent_id_to_int_db, db_out);
 
-
   TEST_ASSERT_TRUE(
       cdb_get_system_db_handle(result.container, SYS_DB_METADATA, &db_out));
   TEST_ASSERT_EQUAL(result.container->data.sys->sys_dc_metadata_db, db_out);
@@ -338,7 +335,7 @@ void test_cdb_free_db_key_contents_with_string_key(void) {
 void test_cdb_free_db_key_contents_with_int_key(void) {
   eng_container_db_key_t db_key = {0};
   db_key.container_name = strdup("test_container");
-  db_key.db_key.type = DB_KEY_INTEGER;
+  db_key.db_key.type = DB_KEY_U32;
   db_key.db_key.key.i = 42;
 
   // Should free without error (string key should not be freed)

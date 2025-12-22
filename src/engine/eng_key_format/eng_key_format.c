@@ -1,4 +1,5 @@
 #include "eng_key_format.h"
+#include "core/db.h"
 #include <stdint.h>
 #include <stdio.h>
 
@@ -15,8 +16,8 @@ bool custom_tag_into(char *out_buf, size_t size, ast_node_t *custom_tag) {
       r = snprintf(out_buf, size, "%s:%s", custom_tag->tag.custom_key,
                    literal->string_value);
     } else if (literal->type == AST_LITERAL_NUMBER) {
-      r = snprintf(out_buf, size, "%s:%llu", custom_tag->tag.custom_key,
-                   (int64_t)literal->number_value);
+      r = snprintf(out_buf, size, "%s:%lld", custom_tag->tag.custom_key,
+                   (long long)literal->number_value);
     }
 
     if (r < 0 || (size_t)r >= size) {
@@ -66,9 +67,12 @@ bool db_key_into(char *buffer, size_t buffer_size,
     db_type = db_key->usr_db_type;
     container_name = db_key->container_name;
   }
-  if (db_key->db_key.type == DB_KEY_INTEGER) {
+  if (db_key->db_key.type == DB_KEY_U32) {
     r = snprintf(buffer, buffer_size, "%s|%d|%u", container_name, (int)db_type,
-                 db_key->db_key.key.i);
+                 db_key->db_key.key.u32);
+  } else if (db_key->db_key.type == DB_KEY_I64) {
+    r = snprintf(buffer, buffer_size, "%s|%d|%lld", container_name,
+                 (int)db_type, (long long)db_key->db_key.key.i64);
   } else if (db_key->db_key.type == DB_KEY_STRING) {
     if (db_key->db_key.key.s == NULL) {
       return false;
