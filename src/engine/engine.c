@@ -264,8 +264,6 @@ static bool _eng_enqueue_cmd(cmd_ctx_t *command) {
 
   int queue_idx = hash & CMD_QUEUE_MASK;
 
-  LOG_ACTION_DEBUG(ACT_MSG_ENQUEUED, "msg_type=cmd queue_id=%d", queue_idx);
-
   cmd_queue_t *queue = &g_cmd_queues[queue_idx];
   if (!queue) {
     LOG_ACTION_ERROR(ACT_QUEUE_INVALID, "queue_type=cmd queue_id=%d",
@@ -323,7 +321,6 @@ static void _handle_query_result(eng_query_result_t *query_r, api_response_t *r,
     bitmap_free(query_r->events);
     return;
   }
-  r->payload.list_obj.count = count;
 
   roaring_uint32_iterator_t *it = bitmap_iterator_create(query_r->events);
   if (!it) {
@@ -336,10 +333,16 @@ static void _handle_query_result(eng_query_result_t *query_r, api_response_t *r,
   db_key_t db_k = {.type = DB_KEY_U32, .key = {.u32 = 0}};
   MDB_dbi db = usr_c->data.usr->events_db;
   int i = 0;
+  r->payload.list_obj.count = 0;
+
   while (it->has_value) {
     uint32_t event_id = it->current_value;
     db_k.key.u32 = event_id;
     if (!db_get(db, usr_txn, &db_k, &db_r) || db_r.status != DB_GET_OK) {
+      LOG_ACTION_WARN(
+          ACT_QUERY_ERROR,
+          "context=handle_query_result err=\"missing event\" event_id=%d",
+          event_id);
       // TODO: handle error better, skip for now
       roaring_uint32_iterator_advance(it);
       continue;
@@ -356,6 +359,7 @@ static void _handle_query_result(eng_query_result_t *query_r, api_response_t *r,
   }
 
   r->is_ok = true;
+  // set to `i` instead of `count` in case some events are missing
   r->payload.list_obj.count = i;
   bitmap_free(query_r->events);
 }

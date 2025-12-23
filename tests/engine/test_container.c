@@ -125,7 +125,10 @@ void test_system_container_has_all_databases(void) {
 
   MDB_dbi db_out;
   TEST_ASSERT_TRUE(container_get_system_db_handle(
-      result.container, SYS_DB_ENT_ID_TO_INT, &db_out));
+      result.container, SYS_DB_INT_TO_ENTITY_ID, &db_out));
+  TEST_ASSERT_TRUE(container_get_system_db_handle(
+      result.container, SYS_DB_STR_TO_ENTITY_ID, &db_out));
+
   TEST_ASSERT_TRUE(container_get_system_db_handle(result.container,
                                                   SYS_DB_METADATA, &db_out));
 }
@@ -371,7 +374,10 @@ void test_all_system_db_types_accessible(void) {
 
   MDB_dbi db_out;
   TEST_ASSERT_TRUE(container_get_system_db_handle(
-      result.container, SYS_DB_ENT_ID_TO_INT, &db_out));
+      result.container, SYS_DB_STR_TO_ENTITY_ID, &db_out));
+  TEST_ASSERT_TRUE(container_get_system_db_handle(
+      result.container, SYS_DB_INT_TO_ENTITY_ID, &db_out));
+
   TEST_ASSERT_TRUE(container_get_system_db_handle(result.container,
                                                   SYS_DB_METADATA, &db_out));
 }
@@ -398,7 +404,7 @@ void test_free_db_key_with_int_key(void) {
   eng_container_db_key_t db_key = {0};
   db_key.container_name = strdup("test");
   db_key.db_key.type = DB_KEY_U32;
-  db_key.db_key.key.i = 42;
+  db_key.db_key.key.u32 = 42;
 
   container_free_db_key_contents(&db_key);
   TEST_ASSERT_TRUE(true);

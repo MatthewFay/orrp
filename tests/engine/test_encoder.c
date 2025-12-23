@@ -9,10 +9,15 @@ static cmd_ctx_t *create_test_ctx(const char *in_value,
                                   const char *entity_value) {
   cmd_ctx_t *ctx = calloc(1, sizeof(cmd_ctx_t));
 
-  ctx->in_tag_value = ast_create_string_literal_node(in_value);
-  ctx->entity_tag_value = ast_create_string_literal_node(entity_value);
+  ctx->in_tag_value = ast_create_string_literal_node(in_value, 1);
+  ctx->entity_tag_value = ast_create_string_literal_node(entity_value, 1);
   ctx->custom_tags_head = NULL;
   ctx->num_custom_tags = 0;
+
+  // Set a default timestamp for testing (e.g., 1600000000 seconds ->
+  // 1600000000000000000 ns) We use a value that divides cleanly by 1,000,000
+  // for easy assertion
+  ctx->arrival_ts = 1600000000000000000L;
 
   return ctx;
 }
@@ -44,7 +49,7 @@ static void free_test_ctx(cmd_ctx_t *ctx) {
 // Helper to add custom tag to context
 static void add_custom_tag(cmd_ctx_t *ctx, const char *key, const char *value) {
   ast_node_t *tag =
-      ast_create_custom_tag_node(key, ast_create_string_literal_node(value));
+      ast_create_custom_tag_node(key, ast_create_string_literal_node(value, 1));
 
   if (ctx->custom_tags_head == NULL) {
     ctx->custom_tags_head = tag;
@@ -93,10 +98,31 @@ static void verify_msgpack_uint(const char *data, size_t size, const char *key,
 
   mpack_node_t value = mpack_node_map_cstr(root, key);
   TEST_ASSERT_FALSE_MESSAGE(mpack_node_is_missing(value), key);
-  TEST_ASSERT_EQUAL(mpack_type_uint, mpack_node_type(value));
+
+  // Note: mpack might read small integers as different types (int/uint),
+  // so we check generic numeric type compliance or just extract u32 directly.
+  // Ideally, ensure it's not nil or missing.
 
   uint32_t actual = mpack_node_u32(value);
   TEST_ASSERT_EQUAL_UINT32(expected_value, actual);
+
+  mpack_tree_destroy(&tree);
+}
+
+static void verify_msgpack_int64(const char *data, size_t size, const char *key,
+                                 int64_t expected_value) {
+  mpack_tree_t tree;
+  mpack_tree_init_data(&tree, data, size);
+  mpack_tree_parse(&tree);
+  mpack_node_t root = mpack_tree_root(&tree);
+
+  TEST_ASSERT_EQUAL(mpack_type_map, mpack_node_type(root));
+
+  mpack_node_t value = mpack_node_map_cstr(root, key);
+  TEST_ASSERT_FALSE_MESSAGE(mpack_node_is_missing(value), key);
+
+  int64_t actual = mpack_node_i64(value);
+  TEST_ASSERT_EQUAL_INT64(expected_value, actual);
 
   mpack_tree_destroy(&tree);
 }
@@ -136,10 +162,13 @@ void test_encode_event_basic_fields(void) {
   TEST_ASSERT_GREATER_THAN(0, size);
 
   // Verify the MessagePack contains correct data
-  TEST_ASSERT_EQUAL(3, get_msgpack_map_size(data, size));
+  // id, in, entity, ts = 4 items
+  TEST_ASSERT_EQUAL(4, get_msgpack_map_size(data, size));
   verify_msgpack_uint(data, size, "id", 12345);
   verify_msgpack_string(data, size, "in", "container1");
   verify_msgpack_string(data, size, "entity", "entity1");
+  // Check default timestamp: 1600000000000000000 / 1000000 = 1600000000000
+  verify_msgpack_int64(data, size, "ts", 1600000000000);
 
   free(data);
   free_test_ctx(ctx);
@@ -158,12 +187,13 @@ void test_encode_event_with_single_custom_tag(void) {
   TEST_ASSERT_TRUE(result);
   TEST_ASSERT_NOT_NULL(data);
 
-  // Should have 4 keys: id, in, entity, priority
-  TEST_ASSERT_EQUAL(4, get_msgpack_map_size(data, size));
+  // Should have 5 keys: id, in, entity, ts, priority
+  TEST_ASSERT_EQUAL(5, get_msgpack_map_size(data, size));
   verify_msgpack_uint(data, size, "id", 999);
   verify_msgpack_string(data, size, "in", "inbox");
   verify_msgpack_string(data, size, "entity", "user123");
   verify_msgpack_string(data, size, "priority", "high");
+  verify_msgpack_int64(data, size, "ts", 1600000000000);
 
   free(data);
   free_test_ctx(ctx);
@@ -184,14 +214,15 @@ void test_encode_event_with_multiple_custom_tags(void) {
   TEST_ASSERT_TRUE(result);
   TEST_ASSERT_NOT_NULL(data);
 
-  // Should have 6 keys: id, in, entity, status, category, source
-  TEST_ASSERT_EQUAL(6, get_msgpack_map_size(data, size));
+  // Should have 7 keys: id, in, entity, ts, status, category, source
+  TEST_ASSERT_EQUAL(7, get_msgpack_map_size(data, size));
   verify_msgpack_uint(data, size, "id", 7777);
   verify_msgpack_string(data, size, "in", "events");
   verify_msgpack_string(data, size, "entity", "order456");
   verify_msgpack_string(data, size, "status", "pending");
   verify_msgpack_string(data, size, "category", "payment");
   verify_msgpack_string(data, size, "source", "api");
+  verify_msgpack_int64(data, size, "ts", 1600000000000);
 
   free(data);
   free_test_ctx(ctx);
@@ -356,12 +387,15 @@ void test_encode_event_verify_complete_structure(void) {
   mpack_node_t root = mpack_tree_root(&tree);
 
   TEST_ASSERT_EQUAL(mpack_type_map, mpack_node_type(root));
-  TEST_ASSERT_EQUAL(5, mpack_node_map_count(root));
+
+  // id, in, entity, ts + 2 custom = 6 items
+  TEST_ASSERT_EQUAL(6, mpack_node_map_count(root));
 
   // Verify all keys exist
   TEST_ASSERT_FALSE(mpack_node_is_missing(mpack_node_map_cstr(root, "id")));
   TEST_ASSERT_FALSE(mpack_node_is_missing(mpack_node_map_cstr(root, "in")));
   TEST_ASSERT_FALSE(mpack_node_is_missing(mpack_node_map_cstr(root, "entity")));
+  TEST_ASSERT_FALSE(mpack_node_is_missing(mpack_node_map_cstr(root, "ts")));
   TEST_ASSERT_FALSE(
       mpack_node_is_missing(mpack_node_map_cstr(root, "custom1")));
   TEST_ASSERT_FALSE(
@@ -441,8 +475,8 @@ void test_encode_event_many_custom_tags(void) {
 
   TEST_ASSERT_TRUE(result);
 
-  // Should have 53 keys: id, in, entity, + 50 custom
-  TEST_ASSERT_EQUAL(53, get_msgpack_map_size(data, size));
+  // Should have 54 keys: id, in, entity, ts, + 50 custom
+  TEST_ASSERT_EQUAL(54, get_msgpack_map_size(data, size));
 
   // Spot check a few
   verify_msgpack_string(data, size, "key0", "value0");

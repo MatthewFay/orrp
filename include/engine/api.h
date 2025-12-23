@@ -25,7 +25,7 @@ typedef struct api_obj_s {
 } api_obj_t;
 
 typedef struct api_response_type_list_obj_s {
-  api_obj_t type;
+  enum api_obj_type type;
   api_obj_t *objects;
   uint32_t count;
 } api_response_type_list_obj_t;

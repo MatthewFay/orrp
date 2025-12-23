@@ -60,10 +60,14 @@ bool db_open(MDB_env *env, const char *db_name, bool int_only_keys,
     return false;
   }
 
-  unsigned int flags = int_only_keys ? MDB_CREATE & MDB_INTEGERKEY : MDB_CREATE;
+  // DB will be created if it doesn't exist
+  unsigned int flags = MDB_CREATE;
 
-  // Open a database (dbi) - will be created if it doesn't exist (MDB_CREATE
-  // flag)
+  if (int_only_keys) {
+    // we use MDB_INTEGERKEY for performance
+    flags |= MDB_INTEGERKEY;
+  }
+
   rc = mdb_dbi_open(txn, db_name, flags, &db);
   if (rc != 0) {
     fprintf(stderr, "mdb_dbi_open failed: %s\n", mdb_strerror(rc));

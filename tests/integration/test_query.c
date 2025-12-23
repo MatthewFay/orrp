@@ -52,7 +52,7 @@ static api_response_t *run_command(const char *command_string) {
     return err_res;
   }
 
-  api_response_t *api_res = api_exec(parse_res->ast);
+  api_response_t *api_res = api_exec(parse_res->ast, 1);
   parse_free_result(parse_res);
   return api_res;
 }

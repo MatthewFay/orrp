@@ -86,6 +86,11 @@ void test_create_user_container_success(void) {
   // Verify all user databases are opened
   TEST_ASSERT_NOT_EQUAL(0, result.container->data.usr->inverted_event_index_db);
   TEST_ASSERT_NOT_EQUAL(0, result.container->data.usr->user_dc_metadata_db);
+  TEST_ASSERT_NOT_EQUAL(0, result.container->data.usr->events_db);
+
+  // Note: We assume mmap arrays are initialized successfully if result.success
+  // is true because the create function validates the mmap_array_open return
+  // code.
 
   container_close(result.container);
 }
@@ -148,7 +153,9 @@ void test_create_system_container_success(void) {
   TEST_ASSERT_NOT_NULL(result.container->data.sys);
 
   // Verify all system databases are opened
-  TEST_ASSERT_NOT_EQUAL(0, result.container->data.sys->ent_id_to_int_db);
+  // Updated to match new struct members
+  TEST_ASSERT_NOT_EQUAL(0, result.container->data.sys->int_to_entity_id_db);
+  TEST_ASSERT_NOT_EQUAL(0, result.container->data.sys->str_to_entity_id_db);
   TEST_ASSERT_NOT_EQUAL(0, result.container->data.sys->sys_dc_metadata_db);
 
   container_close(result.container);
@@ -220,15 +227,21 @@ void test_cdb_get_user_db_handle_all_db_types(void) {
 
   MDB_dbi db_out;
 
-  // Test each database type
+  // Test Inverted Index
   TEST_ASSERT_TRUE(cdb_get_user_db_handle(
       result.container, USR_DB_INVERTED_EVENT_INDEX, &db_out));
   TEST_ASSERT_EQUAL(result.container->data.usr->inverted_event_index_db,
                     db_out);
 
+  // Test Metadata
   TEST_ASSERT_TRUE(
       cdb_get_user_db_handle(result.container, USR_DB_METADATA, &db_out));
   TEST_ASSERT_EQUAL(result.container->data.usr->user_dc_metadata_db, db_out);
+
+  // Test Events DB (Newly added check)
+  TEST_ASSERT_TRUE(
+      cdb_get_user_db_handle(result.container, USR_DB_EVENTS, &db_out));
+  TEST_ASSERT_EQUAL(result.container->data.usr->events_db, db_out);
 
   container_close(result.container);
 }
@@ -251,7 +264,8 @@ void test_cdb_get_user_db_handle_invalid_db_type(void) {
 
 void test_cdb_get_system_db_handle_null_container(void) {
   MDB_dbi db_out;
-  bool result = cdb_get_system_db_handle(NULL, SYS_DB_ENT_ID_TO_INT, &db_out);
+  bool result =
+      cdb_get_system_db_handle(NULL, SYS_DB_INT_TO_ENTITY_ID, &db_out);
   TEST_ASSERT_FALSE(result);
 }
 
@@ -261,7 +275,7 @@ void test_cdb_get_system_db_handle_null_output(void) {
   TEST_ASSERT_TRUE(result.success);
 
   bool get_result =
-      cdb_get_system_db_handle(result.container, SYS_DB_ENT_ID_TO_INT, NULL);
+      cdb_get_system_db_handle(result.container, SYS_DB_INT_TO_ENTITY_ID, NULL);
   TEST_ASSERT_FALSE(get_result);
 
   container_close(result.container);
@@ -273,8 +287,8 @@ void test_cdb_get_system_db_handle_wrong_container_type(void) {
   TEST_ASSERT_TRUE(result.success);
 
   MDB_dbi db_out;
-  bool get_result =
-      cdb_get_system_db_handle(result.container, SYS_DB_ENT_ID_TO_INT, &db_out);
+  bool get_result = cdb_get_system_db_handle(result.container,
+                                             SYS_DB_INT_TO_ENTITY_ID, &db_out);
   TEST_ASSERT_FALSE(get_result);
 
   container_close(result.container);
@@ -287,11 +301,17 @@ void test_cdb_get_system_db_handle_all_db_types(void) {
 
   MDB_dbi db_out;
 
-  // Test each database type
+  // Test Int to Entity ID
   TEST_ASSERT_TRUE(cdb_get_system_db_handle(result.container,
-                                            SYS_DB_ENT_ID_TO_INT, &db_out));
-  TEST_ASSERT_EQUAL(result.container->data.sys->ent_id_to_int_db, db_out);
+                                            SYS_DB_INT_TO_ENTITY_ID, &db_out));
+  TEST_ASSERT_EQUAL(result.container->data.sys->int_to_entity_id_db, db_out);
 
+  // Test String to Entity ID
+  TEST_ASSERT_TRUE(cdb_get_system_db_handle(result.container,
+                                            SYS_DB_STR_TO_ENTITY_ID, &db_out));
+  TEST_ASSERT_EQUAL(result.container->data.sys->str_to_entity_id_db, db_out);
+
+  // Test Metadata
   TEST_ASSERT_TRUE(
       cdb_get_system_db_handle(result.container, SYS_DB_METADATA, &db_out));
   TEST_ASSERT_EQUAL(result.container->data.sys->sys_dc_metadata_db, db_out);
@@ -336,7 +356,7 @@ void test_cdb_free_db_key_contents_with_int_key(void) {
   eng_container_db_key_t db_key = {0};
   db_key.container_name = strdup("test_container");
   db_key.db_key.type = DB_KEY_U32;
-  db_key.db_key.key.i = 42;
+  db_key.db_key.key.u32 = 42; // Fixed: accessing correct union member u32
 
   // Should free without error (string key should not be freed)
   cdb_free_db_key_contents(&db_key);

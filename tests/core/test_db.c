@@ -27,7 +27,7 @@ void setUp(void) {
   TEST_ASSERT_NOT_NULL(test_env);
 
   // Open test database
-  bool result = db_open(test_env, "test_db", &test_db);
+  bool result = db_open(test_env, "test_db", false, &test_db);
   TEST_ASSERT_TRUE(result);
 }
 
@@ -42,6 +42,10 @@ void tearDown(void) {
   // Clean up test file
   unlink(test_db_path);
 }
+
+// ============================================================================
+// ORIGINAL TESTS (DO NOT REMOVE)
+// ============================================================================
 
 // Test db_create_env
 void test_db_create_env_success(void) {
@@ -74,7 +78,7 @@ void test_db_create_env_zero_map_size(void) {
 // Test db_open
 void test_db_open_success(void) {
   MDB_dbi db;
-  bool result = db_open(test_env, "new_test_db", &db);
+  bool result = db_open(test_env, "new_test_db", false, &db);
   TEST_ASSERT_TRUE(result);
 
   db_close(test_env, db);
@@ -82,12 +86,12 @@ void test_db_open_success(void) {
 
 void test_db_open_null_env(void) {
   MDB_dbi db;
-  bool result = db_open(NULL, "test_db", &db);
+  bool result = db_open(NULL, "test_db", false, &db);
   TEST_ASSERT_FALSE(result);
 }
 
 void test_db_open_null_db_out(void) {
-  bool result = db_open(test_env, "test_db", NULL);
+  bool result = db_open(test_env, "test_db", false, NULL);
   TEST_ASSERT_FALSE(result);
 }
 
@@ -141,7 +145,7 @@ void test_db_put_integer_key_success(void) {
   MDB_txn *txn = db_create_txn(test_env, false);
   TEST_ASSERT_NOT_NULL(txn);
 
-  db_key_t key = {.type = DB_KEY_U32, .key.i = 42};
+  db_key_t key = {.type = DB_KEY_U32, .key.u32 = 42};
   const char *value = "integer_key_value";
 
   bool result = db_put(test_db, txn, &key, value, strlen(value), false);
@@ -234,7 +238,7 @@ void test_db_get_integer_key_found(void) {
   MDB_txn *put_txn = db_create_txn(test_env, false);
   TEST_ASSERT_NOT_NULL(put_txn);
 
-  db_key_t key = {.type = DB_KEY_U32, .key.i = 123};
+  db_key_t key = {.type = DB_KEY_U32, .key.u32 = 123};
   const char *expected_value = "integer_value";
 
   bool put_result = db_put(test_db, put_txn, &key, expected_value,
@@ -353,7 +357,7 @@ void test_db_integer_key_ordering(void) {
   size_t num_keys = sizeof(keys) / sizeof(keys[0]);
 
   for (size_t i = 0; i < num_keys; i++) {
-    db_key_t key = {.type = DB_KEY_U32, .key.i = keys[i]};
+    db_key_t key = {.type = DB_KEY_U32, .key.u32 = keys[i]};
     bool result =
         db_put(test_db, put_txn, &key, values[i], strlen(values[i]), false);
     TEST_ASSERT_TRUE(result);
@@ -367,7 +371,7 @@ void test_db_integer_key_ordering(void) {
   TEST_ASSERT_NOT_NULL(get_txn);
 
   for (size_t i = 0; i < num_keys; i++) {
-    db_key_t key = {.type = DB_KEY_U32, .key.i = keys[i]};
+    db_key_t key = {.type = DB_KEY_U32, .key.u32 = keys[i]};
     db_get_result_t result;
 
     bool get_result = db_get(test_db, get_txn, &key, &result);
@@ -505,6 +509,166 @@ void test_db_env_close_null(void) {
   TEST_ASSERT_TRUE(true);
 }
 
+// ============================================================================
+// NEW TESTS FOR CURSOR & FOREACH
+// ============================================================================
+
+void test_db_cursor_basic(void) {
+  // 1. Populate DB
+  MDB_txn *put_txn = db_create_txn(test_env, false);
+  const char *keys[] = {"a_key", "b_key", "c_key"};
+  const char *vals[] = {"val_a", "val_b", "val_c"};
+
+  for (int i = 0; i < 3; i++) {
+    db_key_t k = {.type = DB_KEY_STRING, .key.s = (char *)keys[i]};
+    TEST_ASSERT_TRUE(
+        db_put(test_db, put_txn, &k, vals[i], strlen(vals[i]), false));
+  }
+  TEST_ASSERT_TRUE(db_commit_txn(put_txn));
+
+  // 2. Open Cursor
+  MDB_txn *read_txn = db_create_txn(test_env, true);
+  MDB_cursor *cursor = db_cursor_open(read_txn, test_db);
+  TEST_ASSERT_NOT_NULL(cursor);
+
+  // 3. Iterate
+  db_cursor_entry_t entry;
+  int count = 0;
+
+  while (db_cursor_next(cursor, &entry)) {
+    // Check keys are in order (a, b, c) because MDB_NEXT iterates sequentially
+    // Since we inserted strings, LMDB sorts them lexically.
+    // Note: LMDB returns the raw key bytes, not a null-terminated string if we
+    // didn't store null. In db_put for string, we used strlen(), so no null
+    // terminator in DB.
+
+    TEST_ASSERT_EQUAL(strlen(keys[count]), entry.key_len);
+    TEST_ASSERT_EQUAL_MEMORY(keys[count], entry.key, entry.key_len);
+
+    TEST_ASSERT_EQUAL(strlen(vals[count]), entry.value_len);
+    TEST_ASSERT_EQUAL_MEMORY(vals[count], entry.value, entry.value_len);
+
+    count++;
+  }
+
+  TEST_ASSERT_EQUAL(3, count);
+
+  db_cursor_close(cursor);
+  db_abort_txn(read_txn);
+}
+
+void test_db_cursor_empty(void) {
+  MDB_txn *txn = db_create_txn(test_env, true);
+  MDB_cursor *cursor = db_cursor_open(txn, test_db);
+  TEST_ASSERT_NOT_NULL(cursor);
+
+  db_cursor_entry_t entry;
+  bool has_next = db_cursor_next(cursor, &entry);
+  TEST_ASSERT_FALSE(has_next);
+
+  db_cursor_close(cursor);
+  db_abort_txn(txn);
+}
+
+void test_db_cursor_invalid(void) {
+  MDB_cursor *cursor = db_cursor_open(NULL, test_db);
+  TEST_ASSERT_NULL(cursor);
+
+  // db_cursor_next with NULL inputs
+  db_cursor_entry_t entry;
+  TEST_ASSERT_FALSE(db_cursor_next(NULL, &entry));
+
+  // Clean close should handle NULL
+  db_cursor_close(NULL);
+}
+
+// Callback for foreach test
+typedef struct {
+  int count;
+  int stop_at_index; // If -1, don't stop early
+} foreach_ctx_t;
+
+bool test_foreach_cb(const db_cursor_entry_t *entry, void *user_data) {
+  (void)entry;
+  foreach_ctx_t *ctx = (foreach_ctx_t *)user_data;
+  ctx->count++;
+
+  if (ctx->stop_at_index != -1 && ctx->count >= ctx->stop_at_index) {
+    return false; // Stop iteration
+  }
+  return true;
+}
+
+void test_db_foreach_full_scan(void) {
+  // Populate
+  MDB_txn *put_txn = db_create_txn(test_env, false);
+  for (int i = 0; i < 5; i++) {
+    char kbuf[16];
+    snprintf(kbuf, sizeof(kbuf), "key%d", i);
+    db_key_t k = {.type = DB_KEY_STRING, .key.s = kbuf};
+    db_put(test_db, put_txn, &k, "val", 3, false);
+  }
+  db_commit_txn(put_txn);
+
+  // Foreach
+  MDB_txn *read_txn = db_create_txn(test_env, true);
+  foreach_ctx_t ctx = {.count = 0, .stop_at_index = -1};
+
+  bool result = db_foreach(read_txn, test_db, test_foreach_cb, &ctx);
+
+  TEST_ASSERT_TRUE(result);
+  TEST_ASSERT_EQUAL(5, ctx.count);
+
+  db_abort_txn(read_txn);
+}
+
+void test_db_foreach_early_exit(void) {
+  // Populate
+  MDB_txn *put_txn = db_create_txn(test_env, false);
+  for (int i = 0; i < 5; i++) {
+    char kbuf[16];
+    snprintf(kbuf, sizeof(kbuf), "key%d", i);
+    db_key_t k = {.type = DB_KEY_STRING, .key.s = kbuf};
+    db_put(test_db, put_txn, &k, "val", 3, false);
+  }
+  db_commit_txn(put_txn);
+
+  // Foreach with stop
+  MDB_txn *read_txn = db_create_txn(test_env, true);
+  foreach_ctx_t ctx = {.count = 0, .stop_at_index = 2}; // Stop after 2 items
+
+  bool result = db_foreach(read_txn, test_db, test_foreach_cb, &ctx);
+
+  TEST_ASSERT_TRUE(
+      result); // Function should still succeed even if stopped early
+  TEST_ASSERT_EQUAL(2, ctx.count);
+
+  db_abort_txn(read_txn);
+}
+
+void test_db_foreach_empty(void) {
+  MDB_txn *read_txn = db_create_txn(test_env, true);
+  foreach_ctx_t ctx = {.count = 0, .stop_at_index = -1};
+
+  bool result = db_foreach(read_txn, test_db, test_foreach_cb, &ctx);
+
+  TEST_ASSERT_TRUE(result);
+  TEST_ASSERT_EQUAL(0, ctx.count);
+
+  db_abort_txn(read_txn);
+}
+
+void test_db_foreach_invalid(void) {
+  foreach_ctx_t ctx = {0};
+  // Null txn
+  TEST_ASSERT_FALSE(db_foreach(NULL, test_db, test_foreach_cb, &ctx));
+
+  // Null callback
+  MDB_txn *txn = db_create_txn(test_env, true);
+  TEST_ASSERT_FALSE(db_foreach(txn, test_db, NULL, &ctx));
+  db_abort_txn(txn);
+}
+
 // Main test runner
 int main(void) {
   UNITY_BEGIN();
@@ -556,6 +720,18 @@ int main(void) {
   // Cleanup tests
   RUN_TEST(test_db_close_null_inputs);
   RUN_TEST(test_db_env_close_null);
+
+  // --- NEW TESTS ---
+  // Cursor tests
+  RUN_TEST(test_db_cursor_basic);
+  RUN_TEST(test_db_cursor_empty);
+  RUN_TEST(test_db_cursor_invalid);
+
+  // Foreach tests
+  RUN_TEST(test_db_foreach_full_scan);
+  RUN_TEST(test_db_foreach_early_exit);
+  RUN_TEST(test_db_foreach_empty);
+  RUN_TEST(test_db_foreach_invalid);
 
   return UNITY_END();
 }

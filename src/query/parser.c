@@ -460,8 +460,8 @@ static bool _is_token_kw(token_t *t) {
 }
 
 static bool _is_literal_or_identifier(token_t *tok) {
-  return tok->type != TOKEN_IDENTIFER && tok->type != TOKEN_LITERAL_STRING &&
-         tok->type != TOKEN_LITERAL_NUMBER;
+  return tok->type == TOKEN_IDENTIFER || tok->type == TOKEN_LITERAL_STRING ||
+         tok->type == TOKEN_LITERAL_NUMBER;
 }
 
 static ast_node_t *_parse_tag(Queue *tokens, parse_result_t *r) {

@@ -2,13 +2,14 @@
 #include "core/queue.h"
 #include "query/tokenizer.h"
 #include "unity.h"
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
 // Helper function to dequeue the next token and assert its properties
 static void assert_next_token(Queue *tokens, token_type expected_type,
                               const char *expected_text,
-                              uint32_t expected_number) {
+                              int64_t expected_number) {
   token_t *token = q_dequeue(tokens);
   TEST_ASSERT_NOT_NULL(token);
 
@@ -198,17 +199,18 @@ void test_tokenize_operator_at_end_of_string(void) {
 }
 
 // Test number length limits
+// UPDATED: Logic updated to support int64 (19 digits)
 void test_tokenize_number_length_limits(void) {
-  // MAX_NUMBERS_SEQ is 9, so a 9-digit number is fine
-  char input_ok[] = "999999999";
+  // A 19-digit number should pass (max int64 is 19 chars)
+  char input_ok[] = "9223372036854775807"; // INT64_MAX
   Queue *tokens_ok = tok_tokenize(input_ok);
   TEST_ASSERT_NOT_NULL(tokens_ok);
-  assert_next_token(tokens_ok, TOKEN_LITERAL_NUMBER, NULL, 999999999);
+  assert_next_token(tokens_ok, TOKEN_LITERAL_NUMBER, NULL, INT64_MAX);
   tok_clear_all(tokens_ok);
   q_destroy(tokens_ok);
 
-  // A 10-digit number should fail because it exceeds MAX_NUMBERS_SEQ
-  char input_fail[] = "1000000000";
+  // A 20-digit number should fail because it exceeds 19 chars
+  char input_fail[] = "10000000000000000000";
   Queue *tokens_fail = tok_tokenize(input_fail);
   TEST_ASSERT_NULL(tokens_fail);
 }
@@ -326,6 +328,78 @@ void test_tokenize_whitespace_only(void) {
   TEST_ASSERT_NULL(tokens);
 }
 
+// --- NEW TESTS FOR ADDED FUNCTIONALITY ---
+
+// Test newly added keywords: entity, take, cursor, where, by, having, count,
+// from, to
+void test_tokenize_new_keywords(void) {
+  char input[] = "entity take cursor where by having count from to";
+  Queue *tokens = tok_tokenize(input);
+
+  TEST_ASSERT_NOT_NULL(tokens);
+
+  assert_next_token(tokens, TOKEN_KW_ENTITY, NULL, 0);
+  assert_next_token(tokens, TOKEN_KW_TAKE, NULL, 0);
+  assert_next_token(tokens, TOKEN_KW_CURSOR, NULL, 0);
+  assert_next_token(tokens, TOKEN_KW_WHERE, NULL, 0);
+  assert_next_token(tokens, TOKEN_KW_BY, NULL, 0);
+  assert_next_token(tokens, TOKEN_KW_HAVING, NULL, 0);
+  assert_next_token(tokens, TOKEN_KW_COUNT, NULL, 0);
+  assert_next_token(tokens, TOKEN_KW_FROM, NULL, 0);
+  assert_next_token(tokens, TOKEN_KW_TO, NULL, 0);
+
+  tok_clear_all(tokens);
+  q_destroy(tokens);
+}
+
+// Test mixed case for new keywords (tokenizer should normalize to lowercase for
+// keywords)
+void test_tokenize_new_keywords_mixed_case(void) {
+  char input[] = "Entity TAKE CurSor WHERE BY HaViNg COUNT From TO";
+  Queue *tokens = tok_tokenize(input);
+
+  TEST_ASSERT_NOT_NULL(tokens);
+
+  assert_next_token(tokens, TOKEN_KW_ENTITY, NULL, 0);
+  assert_next_token(tokens, TOKEN_KW_TAKE, NULL, 0);
+  assert_next_token(tokens, TOKEN_KW_CURSOR, NULL, 0);
+  assert_next_token(tokens, TOKEN_KW_WHERE, NULL, 0);
+  assert_next_token(tokens, TOKEN_KW_BY, NULL, 0);
+  assert_next_token(tokens, TOKEN_KW_HAVING, NULL, 0);
+  assert_next_token(tokens, TOKEN_KW_COUNT, NULL, 0);
+  assert_next_token(tokens, TOKEN_KW_FROM, NULL, 0);
+  assert_next_token(tokens, TOKEN_KW_TO, NULL, 0);
+
+  tok_clear_all(tokens);
+  q_destroy(tokens);
+}
+
+// Test int64 support (timestamps, large integers)
+void test_tokenize_large_int64_values(void) {
+  // 1734567890123456 is a sample microsecond timestamp
+  char input[] = "100 1734567890123456";
+  Queue *tokens = tok_tokenize(input);
+
+  TEST_ASSERT_NOT_NULL(tokens);
+
+  assert_next_token(tokens, TOKEN_LITERAL_NUMBER, NULL, 100);
+  assert_next_token(tokens, TOKEN_LITERAL_NUMBER, NULL, 1734567890123456LL);
+
+  tok_clear_all(tokens);
+  q_destroy(tokens);
+}
+
+// Test integer overflow handling
+void test_tokenize_int64_overflow(void) {
+  // Max int64 is 9223372036854775807
+  // Input: 9223372036854775808 (Overflow by 1)
+  char input[] = "9223372036854775808";
+
+  // Should return NULL due to parse error/overflow logic
+  Queue *tokens = tok_tokenize(input);
+  TEST_ASSERT_NULL(tokens);
+}
+
 // Main function to run the tests
 int main(void) {
   UNITY_BEGIN();
@@ -347,6 +421,10 @@ int main(void) {
   RUN_TEST(test_tokenize_all_token_types);
   RUN_TEST(test_tokenize_quoted_digits);
   RUN_TEST(test_tokenize_whitespace_only);
+  RUN_TEST(test_tokenize_new_keywords);
+  RUN_TEST(test_tokenize_new_keywords_mixed_case);
+  RUN_TEST(test_tokenize_large_int64_values);
+  RUN_TEST(test_tokenize_int64_overflow);
 
   return UNITY_END();
 }

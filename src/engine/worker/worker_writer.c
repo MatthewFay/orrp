@@ -1,9 +1,7 @@
 #include "worker_writer.h"
 #include "core/db.h"
 #include "engine/cmd_queue/cmd_queue_msg.h"
-#include "engine/container/container.h"
 #include "engine/container/container_types.h"
-#include "engine/eng_key_format/eng_key_format.h"
 #include "engine/engine_writer/engine_writer_queue_msg.h"
 #include "engine/worker/encoder.h"
 #include "query/ast.h"
@@ -22,8 +20,6 @@ static bool _create_mpack_entry(cmd_queue_msg_t *cmd_msg, char *container_name,
     ;
   }
 
-  char key_buffer[512] = {0};
-
   eng_container_db_key_t db_key;
   db_key.dc_type = CONTAINER_TYPE_USR;
 
@@ -37,12 +33,6 @@ static bool _create_mpack_entry(cmd_queue_msg_t *cmd_msg, char *container_name,
   db_key.db_key.type = DB_KEY_U32;
   db_key.db_key.key.u32 = event_id;
 
-  if (!db_key_into(key_buffer, sizeof(key_buffer), &db_key)) {
-    free(db_key.container_name);
-    free(msgpack);
-    return false;
-  }
-
   entry->db_key = db_key;
   entry->bump_flush_version = false;
   entry->value = msgpack;
@@ -53,8 +43,6 @@ static bool _create_mpack_entry(cmd_queue_msg_t *cmd_msg, char *container_name,
 
 static bool _create_event_counter_entry(char *container_name, uint32_t event_id,
                                         eng_writer_entry_t *entry) {
-  char key_buffer[512] = {0};
-
   eng_container_db_key_t db_key;
   db_key.dc_type = CONTAINER_TYPE_USR;
 
@@ -63,16 +51,11 @@ static bool _create_event_counter_entry(char *container_name, uint32_t event_id,
     return false;
   }
 
-  db_key.usr_db_type = USR_DB_EVENTS;
+  db_key.usr_db_type = USR_DB_METADATA;
   db_key.db_key.type = DB_KEY_STRING;
   db_key.db_key.key.s = strdup(USR_NEXT_EVENT_ID_KEY);
   if (!db_key.db_key.key.s) {
     free(db_key.container_name);
-    return false;
-  }
-
-  if (!db_key_into(key_buffer, sizeof(key_buffer), &db_key)) {
-    container_free_db_key_contents(&db_key);
     return false;
   }
 
@@ -87,8 +70,6 @@ static bool _create_event_counter_entry(char *container_name, uint32_t event_id,
 
 static bool _create_ent_counter_entry(uint32_t ent_id,
                                       eng_writer_entry_t *entry) {
-  char key_buffer[512] = {0};
-
   eng_container_db_key_t db_key;
   db_key.dc_type = CONTAINER_TYPE_SYS;
 
@@ -105,11 +86,6 @@ static bool _create_ent_counter_entry(uint32_t ent_id,
     return false;
   }
 
-  if (!db_key_into(key_buffer, sizeof(key_buffer), &db_key)) {
-    container_free_db_key_contents(&db_key);
-    return false;
-  }
-
   entry->db_key = db_key;
   entry->bump_flush_version = false;
   entry->value = malloc(sizeof(uint32_t));
@@ -121,8 +97,6 @@ static bool _create_ent_counter_entry(uint32_t ent_id,
 
 static bool _create_ent_entry(uint32_t ent_id, ast_literal_node_t *ent_node,
                               eng_writer_entry_t *entry) {
-  char key_buffer[512] = {0};
-
   eng_container_db_key_t db_key;
   db_key.dc_type = CONTAINER_TYPE_SYS;
 
@@ -143,11 +117,6 @@ static bool _create_ent_entry(uint32_t ent_id, ast_literal_node_t *ent_node,
     }
   } else {
     db_key.db_key.key.i64 = ent_node->number_value;
-  }
-
-  if (!db_key_into(key_buffer, sizeof(key_buffer), &db_key)) {
-    container_free_db_key_contents(&db_key);
-    return false;
   }
 
   entry->db_key = db_key;

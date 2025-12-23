@@ -40,12 +40,9 @@ static bool _is_valid_container_name(const char *name) {
 }
 
 static bool _validate_time_range(const int64_t *from, const int64_t *to) {
-  // We use difftime to be safe across different C implementations
-  // difftime(end, start) returns negative if end < start
-  if (difftime(*to, *from) < 0) {
+  if (*to < *from) {
     return false;
   }
-
   return true;
 }
 
@@ -112,13 +109,12 @@ static bool _validate_ast(ast_node_t *ast, custom_key **c_keys) {
       case AST_KEY_FROM:
         if (from)
           return false;
-        *from = t_node.value->literal.number_value;
+        from = &t_node.value->literal.number_value;
         break;
       case AST_KEY_TO:
         if (to)
           return false;
-        *to = t_node.value->literal.number_value;
-
+        to = &t_node.value->literal.number_value;
         break;
       default:
         return false;

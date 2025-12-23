@@ -2,6 +2,7 @@
 #include "query/ast.h"
 #include "unity.h"
 #include <stdlib.h>
+#include <string.h>
 
 // Globals to hold AST and command context for cleanup
 static ast_node_t *g_cmd_ast = NULL;
@@ -15,17 +16,20 @@ void setUp(void) {
 
 void tearDown(void) {
   // This is run after EACH test.
-  // cmd_context_free is responsible for freeing the g_cmd_ctx struct
-  // and the g_cmd_ast that it now owns.
   if (g_cmd_ctx) {
     cmd_context_free(g_cmd_ctx);
     g_cmd_ctx = NULL;
     g_cmd_ast = NULL; // The AST is freed inside cmd_context_free
   } else if (g_cmd_ast) {
-    // If context building failed, we still need to clean up the AST.
     ast_free(g_cmd_ast);
     g_cmd_ast = NULL;
   }
+}
+
+// Helper for string literals in tests
+// Pass strlen(s) as the length argument to match AST API requirements
+static ast_node_t *make_str(const char *s) {
+  return ast_create_string_literal_node(s, strlen(s));
 }
 
 // --- Test Cases ---
@@ -33,14 +37,13 @@ void tearDown(void) {
 void test_build_cmd_context_simple_event(void) {
   // AST: EVENT in:"metrics" entity:"user1"
   g_cmd_ast = ast_create_command_node(AST_CMD_EVENT, NULL);
-  ast_node_t *in_tag = ast_create_tag_node(
-      AST_KEY_IN, ast_create_string_literal_node("metrics"));
-  ast_node_t *entity_tag = ast_create_tag_node(
-      AST_KEY_ENTITY, ast_create_string_literal_node("user1"));
+  ast_node_t *in_tag = ast_create_tag_node(AST_KEY_IN, make_str("metrics"));
+  ast_node_t *entity_tag =
+      ast_create_tag_node(AST_KEY_ENTITY, make_str("user1"));
   ast_append_node(&g_cmd_ast->command.tags, in_tag);
   ast_append_node(&g_cmd_ast->command.tags, entity_tag);
 
-  g_cmd_ctx = build_cmd_context(g_cmd_ast);
+  g_cmd_ctx = build_cmd_context(g_cmd_ast, 0);
 
   TEST_ASSERT_NOT_NULL(g_cmd_ctx);
   TEST_ASSERT_NOT_NULL(g_cmd_ctx->in_tag_value);
@@ -57,21 +60,16 @@ void test_build_cmd_context_simple_event(void) {
 void test_build_cmd_context_with_custom_tags(void) {
   // AST: EVENT in:"logs" entity:"req-abc" region:"us-east" status:"ok"
   g_cmd_ast = ast_create_command_node(AST_CMD_EVENT, NULL);
-  ast_append_node(
-      &g_cmd_ast->command.tags,
-      ast_create_tag_node(AST_KEY_IN, ast_create_string_literal_node("logs")));
-  ast_append_node(
-      &g_cmd_ast->command.tags,
-      ast_create_tag_node(AST_KEY_ENTITY,
-                          ast_create_string_literal_node("req-abc")));
   ast_append_node(&g_cmd_ast->command.tags,
-                  ast_create_custom_tag_node(
-                      "region", ast_create_string_literal_node("us-east")));
+                  ast_create_tag_node(AST_KEY_IN, make_str("logs")));
   ast_append_node(&g_cmd_ast->command.tags,
-                  ast_create_custom_tag_node(
-                      "status", ast_create_string_literal_node("ok")));
+                  ast_create_tag_node(AST_KEY_ENTITY, make_str("req-abc")));
+  ast_append_node(&g_cmd_ast->command.tags,
+                  ast_create_custom_tag_node("region", make_str("us-east")));
+  ast_append_node(&g_cmd_ast->command.tags,
+                  ast_create_custom_tag_node("status", make_str("ok")));
 
-  g_cmd_ctx = build_cmd_context(g_cmd_ast);
+  g_cmd_ctx = build_cmd_context(g_cmd_ast, 0);
 
   TEST_ASSERT_NOT_NULL(g_cmd_ctx);
   TEST_ASSERT_NOT_NULL(g_cmd_ctx->in_tag_value);
@@ -96,21 +94,17 @@ void test_build_cmd_context_with_custom_tags(void) {
 void test_build_cmd_context_with_counter(void) {
   // AST: EVENT in:"stats" entity:"page-view" path:"/home" +count:1
   g_cmd_ast = ast_create_command_node(AST_CMD_EVENT, NULL);
-  ast_append_node(
-      &g_cmd_ast->command.tags,
-      ast_create_tag_node(AST_KEY_IN, ast_create_string_literal_node("stats")));
-  ast_append_node(
-      &g_cmd_ast->command.tags,
-      ast_create_tag_node(AST_KEY_ENTITY,
-                          ast_create_string_literal_node("page-view")));
   ast_append_node(&g_cmd_ast->command.tags,
-                  ast_create_custom_tag_node(
-                      "path", ast_create_string_literal_node("/home")));
+                  ast_create_tag_node(AST_KEY_IN, make_str("stats")));
+  ast_append_node(&g_cmd_ast->command.tags,
+                  ast_create_tag_node(AST_KEY_ENTITY, make_str("page-view")));
+  ast_append_node(&g_cmd_ast->command.tags,
+                  ast_create_custom_tag_node("path", make_str("/home")));
   ast_append_node(
       &g_cmd_ast->command.tags,
       ast_create_custom_tag_node("count", ast_create_number_literal_node(1)));
 
-  g_cmd_ctx = build_cmd_context(g_cmd_ast);
+  g_cmd_ctx = build_cmd_context(g_cmd_ast, 0);
 
   TEST_ASSERT_NOT_NULL(g_cmd_ctx);
   TEST_ASSERT_EQUAL_UINT32(2, g_cmd_ctx->num_custom_tags);
@@ -120,20 +114,17 @@ void test_build_cmd_context_query(void) {
   // AST: QUERY in:"errors" where:"type:segfault" take:50 cursor:"abc"
   g_cmd_ast = ast_create_command_node(AST_CMD_QUERY, NULL);
   ast_append_node(&g_cmd_ast->command.tags,
-                  ast_create_tag_node(
-                      AST_KEY_IN, ast_create_string_literal_node("errors")));
+                  ast_create_tag_node(AST_KEY_IN, make_str("errors")));
   ast_append_node(
       &g_cmd_ast->command.tags,
-      ast_create_tag_node(AST_KEY_WHERE,
-                          ast_create_string_literal_node("type:segfault")));
+      ast_create_tag_node(AST_KEY_WHERE, make_str("type:segfault")));
   ast_append_node(
       &g_cmd_ast->command.tags,
       ast_create_tag_node(AST_KEY_TAKE, ast_create_number_literal_node(50)));
   ast_append_node(&g_cmd_ast->command.tags,
-                  ast_create_tag_node(AST_KEY_CURSOR,
-                                      ast_create_string_literal_node("abc")));
+                  ast_create_tag_node(AST_KEY_CURSOR, make_str("abc")));
 
-  g_cmd_ctx = build_cmd_context(g_cmd_ast);
+  g_cmd_ctx = build_cmd_context(g_cmd_ast, 0);
 
   TEST_ASSERT_NOT_NULL(g_cmd_ctx);
   TEST_ASSERT_NOT_NULL(g_cmd_ctx->in_tag_value);
@@ -152,26 +143,47 @@ void test_build_cmd_context_query(void) {
 void test_build_cmd_context_mixed_tags(void) {
   // AST: EVENT in:"mixed" entity:"test" +c1:1 t2:"v2" +c3:1
   g_cmd_ast = ast_create_command_node(AST_CMD_EVENT, NULL);
-  ast_append_node(
-      &g_cmd_ast->command.tags,
-      ast_create_tag_node(AST_KEY_IN, ast_create_string_literal_node("mixed")));
   ast_append_node(&g_cmd_ast->command.tags,
-                  ast_create_tag_node(AST_KEY_ENTITY,
-                                      ast_create_string_literal_node("test")));
+                  ast_create_tag_node(AST_KEY_IN, make_str("mixed")));
+  ast_append_node(&g_cmd_ast->command.tags,
+                  ast_create_tag_node(AST_KEY_ENTITY, make_str("test")));
   ast_append_node(
       &g_cmd_ast->command.tags,
       ast_create_custom_tag_node("c1", ast_create_number_literal_node(1)));
-  ast_append_node(
-      &g_cmd_ast->command.tags,
-      ast_create_custom_tag_node("t2", ast_create_string_literal_node("v2")));
+  ast_append_node(&g_cmd_ast->command.tags,
+                  ast_create_custom_tag_node("t2", make_str("v2")));
   ast_append_node(
       &g_cmd_ast->command.tags,
       ast_create_custom_tag_node("c3", ast_create_number_literal_node(1)));
 
-  g_cmd_ctx = build_cmd_context(g_cmd_ast);
+  g_cmd_ctx = build_cmd_context(g_cmd_ast, 0);
 
   TEST_ASSERT_NOT_NULL(g_cmd_ctx);
   TEST_ASSERT_EQUAL_UINT32(3, g_cmd_ctx->num_custom_tags);
+}
+
+// --- NEW TEST FOR TIME RANGE ---
+void test_build_cmd_context_time_range(void) {
+  // AST: QUERY in:"logs" from:1000 to:2000
+  g_cmd_ast = ast_create_command_node(AST_CMD_QUERY, NULL);
+  ast_append_node(&g_cmd_ast->command.tags,
+                  ast_create_tag_node(AST_KEY_IN, make_str("logs")));
+  ast_append_node(
+      &g_cmd_ast->command.tags,
+      ast_create_tag_node(AST_KEY_FROM, ast_create_number_literal_node(1000)));
+  ast_append_node(
+      &g_cmd_ast->command.tags,
+      ast_create_tag_node(AST_KEY_TO, ast_create_number_literal_node(2000)));
+
+  g_cmd_ctx = build_cmd_context(g_cmd_ast, 0);
+
+  TEST_ASSERT_NOT_NULL(g_cmd_ctx);
+  TEST_ASSERT_NOT_NULL(g_cmd_ctx->from_tag_value);
+  TEST_ASSERT_NOT_NULL(g_cmd_ctx->to_tag_value);
+
+  TEST_ASSERT_EQUAL_INT64(1000,
+                          g_cmd_ctx->from_tag_value->literal.number_value);
+  TEST_ASSERT_EQUAL_INT64(2000, g_cmd_ctx->to_tag_value->literal.number_value);
 }
 
 // --- Test Runner ---
@@ -183,5 +195,6 @@ int main(void) {
   RUN_TEST(test_build_cmd_context_with_counter);
   RUN_TEST(test_build_cmd_context_query);
   RUN_TEST(test_build_cmd_context_mixed_tags);
+  RUN_TEST(test_build_cmd_context_time_range);
   return UNITY_END();
 }

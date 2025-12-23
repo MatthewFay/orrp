@@ -31,7 +31,7 @@ static api_response_t *run_command(const char *command_string) {
   }
 
   // 3. Execute
-  api_response_t *api_res = api_exec(parse_res->ast);
+  api_response_t *api_res = api_exec(parse_res->ast, 1);
   parse_free_result(parse_res); // Clean up parse result and AST
   return api_res;
 }
@@ -211,8 +211,7 @@ void test_EVENT_InvalidContainerName_ShouldFail(void) {
                      "8901234567890 entity:u1"; // Too long
 
   api_response_t *r1 = run_command(cmd1);
-  // tokenizer fails, returning null
-  TEST_ASSERT_NULL(r1);
+  TEST_ASSERT_FALSE(r1->is_ok);
 
   free_api_response(r1);
 }

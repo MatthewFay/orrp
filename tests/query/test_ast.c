@@ -7,12 +7,17 @@ void setUp(void) {}
 void tearDown(void) {}
 
 void test_string_literal_node(void) {
-  ast_node_t *lit = ast_create_string_literal_node("foo");
+  const char *val = "foo";
+  ast_node_t *lit = ast_create_string_literal_node(val, strlen(val));
+
   TEST_ASSERT_NOT_NULL(lit);
   TEST_ASSERT_EQUAL(AST_LITERAL_NODE, lit->type);
   TEST_ASSERT_EQUAL(AST_LITERAL_STRING, lit->literal.type);
-  TEST_ASSERT_EQUAL_STRING("foo", lit->literal.string_value);
+  TEST_ASSERT_EQUAL_STRING(val, lit->literal.string_value);
+  // Verify length was stored correctly
+  TEST_ASSERT_EQUAL_UINT64(strlen(val), lit->literal.string_value_len);
   TEST_ASSERT_NULL(lit->next);
+
   ast_free(lit);
 }
 
@@ -27,7 +32,8 @@ void test_number_literal_node(void) {
 }
 
 void test_tag_node_reserved(void) {
-  ast_node_t *val = ast_create_string_literal_node("events");
+  const char *str = "events";
+  ast_node_t *val = ast_create_string_literal_node(str, strlen(str));
   ast_node_t *tag = ast_create_tag_node(AST_KEY_IN, val);
 
   TEST_ASSERT_NOT_NULL(tag);
@@ -40,7 +46,8 @@ void test_tag_node_reserved(void) {
 }
 
 void test_tag_node_custom(void) {
-  ast_node_t *val = ast_create_string_literal_node("US");
+  const char *str = "US";
+  ast_node_t *val = ast_create_string_literal_node(str, strlen(str));
   ast_node_t *tag = ast_create_custom_tag_node("country", val);
 
   TEST_ASSERT_NOT_NULL(tag);
@@ -65,8 +72,8 @@ void test_comparison_node(void) {
 }
 
 void test_logical_node(void) {
-  ast_node_t *left = ast_create_string_literal_node("left");
-  ast_node_t *right = ast_create_string_literal_node("right");
+  ast_node_t *left = ast_create_string_literal_node("left", 4);
+  ast_node_t *right = ast_create_string_literal_node("right", 5);
   ast_node_t *logical =
       ast_create_logical_node(AST_LOGIC_NODE_AND, left, right);
 
@@ -79,7 +86,7 @@ void test_logical_node(void) {
 }
 
 void test_not_node(void) {
-  ast_node_t *operand = ast_create_string_literal_node("notme");
+  ast_node_t *operand = ast_create_string_literal_node("notme", 5);
   ast_node_t *not_node = ast_create_not_node(operand);
 
   TEST_ASSERT_NOT_NULL(not_node);
@@ -90,9 +97,9 @@ void test_not_node(void) {
 
 void test_append_multiple_nodes(void) {
   ast_node_t *list = NULL;
-  ast_node_t *item1 = ast_create_string_literal_node("a");
-  ast_node_t *item2 = ast_create_string_literal_node("b");
-  ast_node_t *item3 = ast_create_string_literal_node("c");
+  ast_node_t *item1 = ast_create_string_literal_node("a", 1);
+  ast_node_t *item2 = ast_create_string_literal_node("b", 1);
+  ast_node_t *item3 = ast_create_string_literal_node("c", 1);
 
   ast_append_node(&list, item1);
   ast_append_node(&list, item2);
@@ -117,10 +124,10 @@ void test_append_multiple_nodes(void) {
 void test_command_node(void) {
   // Build a list of tags
   ast_node_t *tags_list = NULL;
-  ast_node_t *tag1 =
-      ast_create_tag_node(AST_KEY_IN, ast_create_string_literal_node("users"));
+  ast_node_t *tag1 = ast_create_tag_node(
+      AST_KEY_IN, ast_create_string_literal_node("users", 5));
   ast_node_t *tag2 = ast_create_custom_tag_node(
-      "country", ast_create_string_literal_node("US"));
+      "country", ast_create_string_literal_node("US", 2));
   ast_append_node(&tags_list, tag1);
   ast_append_node(&tags_list, tag2);
 
@@ -146,14 +153,13 @@ void test_command_node(void) {
 
 void test_free_deep_tree(void) {
   // This test primarily checks that ast_free doesn't crash on a nested
-  // structure. Running this with a memory checker (like Valgrind) would confirm
-  // no leaks.
+  // structure.
   ast_node_t *root = ast_create_logical_node(
       AST_LOGIC_NODE_AND,
       ast_create_not_node(ast_create_logical_node(
-          AST_LOGIC_NODE_OR, ast_create_string_literal_node("a"),
-          ast_create_string_literal_node("b"))),
-      ast_create_string_literal_node("c"));
+          AST_LOGIC_NODE_OR, ast_create_string_literal_node("a", 1),
+          ast_create_string_literal_node("b", 1))),
+      ast_create_string_literal_node("c", 1));
 
   TEST_ASSERT_NOT_NULL(root);
   ast_free(root);
@@ -161,7 +167,7 @@ void test_free_deep_tree(void) {
 
 void test_append_node_to_null_list(void) {
   ast_node_t *list = NULL;
-  ast_node_t *item = ast_create_string_literal_node("first");
+  ast_node_t *item = ast_create_string_literal_node("first", 5);
   ast_append_node(&list, item);
 
   TEST_ASSERT_NOT_NULL(list);

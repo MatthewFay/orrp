@@ -1,3 +1,4 @@
+#include "core/db.h"
 #include "engine/eng_key_format/eng_key_format.h"
 #include "query/ast.h"
 #include "unity.h"
@@ -23,7 +24,7 @@ void tearDown(void) {
  */
 void test_custom_tag_into_success(void) {
   char buffer[64];
-  ast_node_t *value = ast_create_string_literal_node("my_value");
+  ast_node_t *value = ast_create_string_literal_node("my_value", 1);
   ast_node_t custom_tag = {.tag = {.custom_key = "my_key", .value = value}};
 
   TEST_ASSERT_TRUE(custom_tag_into(buffer, sizeof(buffer), &custom_tag));
@@ -36,7 +37,7 @@ void test_custom_tag_into_success(void) {
  */
 void test_custom_tag_into_buffer_too_small(void) {
   char buffer[10]; // Too small for "long_key:long_value"
-  ast_node_t *value = ast_create_string_literal_node("long_value");
+  ast_node_t *value = ast_create_string_literal_node("long_value", 1);
 
   ast_node_t custom_tag = {.tag = {.custom_key = "long_key", .value = value}};
 
@@ -49,7 +50,7 @@ void test_custom_tag_into_buffer_too_small(void) {
  */
 void test_custom_tag_into_zero_size(void) {
   char buffer[1];
-  ast_node_t *value = ast_create_string_literal_node("v");
+  ast_node_t *value = ast_create_string_literal_node("v", 1);
 
   ast_node_t custom_tag = {.tag = {.custom_key = "k", .value = value}};
 
@@ -62,7 +63,7 @@ void test_custom_tag_into_zero_size(void) {
 // ====================================================================
 
 /**
- * Test case for a successful USER key with an INTEGER key type.
+ * Test case for a successful USER key with an INTEGER U32 key type.
  * Expected format: "container_name|user_db_type|integer_key"
  */
 void test_db_key_into_user_integer_success(void) {
@@ -71,7 +72,19 @@ void test_db_key_into_user_integer_success(void) {
       .dc_type = CONTAINER_TYPE_USR,
       .usr_db_type = 42,
       .container_name = "users",
-      .db_key = {.type = DB_KEY_U32, .key = {.i = 12345}}};
+      .db_key = {.type = DB_KEY_U32, .key = {.u32 = 12345}}};
+
+  TEST_ASSERT_TRUE(db_key_into(buffer, sizeof(buffer), &db_key));
+  TEST_ASSERT_EQUAL_STRING("users|42|12345", buffer);
+}
+
+void test_db_key_into_user_integer64_success(void) {
+  char buffer[64];
+  eng_container_db_key_t db_key = {
+      .dc_type = CONTAINER_TYPE_USR,
+      .usr_db_type = 42,
+      .container_name = "users",
+      .db_key = {.type = DB_KEY_I64, .key = {.i64 = 12345}}};
 
   TEST_ASSERT_TRUE(db_key_into(buffer, sizeof(buffer), &db_key));
   TEST_ASSERT_EQUAL_STRING("users|42|12345", buffer);
@@ -118,7 +131,7 @@ void test_db_key_into_invalid_type(void) {
       .usr_db_type = 10,
       .container_name = "temp",
       .db_key = {.type = (db_key_type_t)999, // Invalid/unhandled type
-                 .key = {.i = 100}}};
+                 .key = {.u32 = 100}}};
 
   TEST_ASSERT_FALSE(db_key_into(buffer, sizeof(buffer), &db_key));
 }
@@ -134,6 +147,7 @@ int main(void) {
 
   // db_key_into tests
   RUN_TEST(test_db_key_into_user_integer_success);
+  RUN_TEST(test_db_key_into_user_integer64_success);
   RUN_TEST(test_db_key_into_system_string_success);
   RUN_TEST(test_db_key_into_buffer_too_small);
   RUN_TEST(test_db_key_into_invalid_type);

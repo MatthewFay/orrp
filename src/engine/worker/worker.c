@@ -238,7 +238,8 @@ static bool _get_next_event_id_for_container(worker_t *worker,
     return true;
   }
 
-  LOG_ACTION_DEBUG(ACT_CACHE_MISS, "context=\"event_id\" container=\"%s\"",
+  LOG_ACTION_DEBUG(ACT_CACHE_MISS,
+                   "context=get_next_event_id_for_container container=\"%s\"",
                    container_name);
 
   // Cache miss - need to load from DB

@@ -13,8 +13,9 @@ void tearDown(void) {}
 
 // Helper to run the tokenizer and parser on a raw string.
 static parse_result_t *_parse_string(const char *input_str) {
+  // Tokenize creates a heap-allocated queue
   Queue *tokens = tok_tokenize((char *)input_str);
-  // The parser takes ownership of and frees the tokens queue
+  // Parse takes ownership of the tokens queue and frees it
   return parse(tokens);
 }
 
@@ -38,7 +39,9 @@ static void _assert_error(parse_result_t *result) {
 
 // Finds a tag in an AST by its reserved key.
 static ast_node_t *_find_tag_by_key(ast_node_t *ast, ast_reserved_key_t key) {
-  TEST_ASSERT_NOT_NULL(ast);
+  if (!ast || !ast->command.tags)
+    return NULL;
+
   ast_node_t *tag = ast->command.tags;
   while (tag) {
     if (tag->tag.key_type == AST_TAG_KEY_RESERVED &&
@@ -53,7 +56,9 @@ static ast_node_t *_find_tag_by_key(ast_node_t *ast, ast_reserved_key_t key) {
 // Finds a tag in an AST by its custom key name.
 static ast_node_t *_find_tag_by_custom_key(ast_node_t *ast,
                                            const char *key_name) {
-  TEST_ASSERT_NOT_NULL(ast);
+  if (!ast || !ast->command.tags)
+    return NULL;
+
   ast_node_t *tag = ast->command.tags;
   while (tag) {
     if (tag->tag.key_type == AST_TAG_KEY_CUSTOM &&
@@ -102,6 +107,7 @@ void test_event_success_numeric_val(void) {
 }
 
 void test_event_success_minimal2(void) {
+  // Mixed case keywords are handled by tokenizer, parser sees tokens
   parse_result_t *result = _parse_string("event IN:abc tag:erc entity:fff");
   _assert_success(result);
   TEST_ASSERT_EQUAL(PARSER_OP_TYPE_WRITE, result->type);
@@ -132,40 +138,39 @@ void test_event_success_full_different_order(void) {
   parse_free_result(result);
 }
 
-void test_event_fails_missing_in(void) {
-  // This is now a semantic error, not a parser error. Parser should succeed.
+// NOTE: The following tests verify that the PARSER succeeds.
+// Semantic validation (missing required keys) is handled by the
+// Engine/Validation layer, not the Parser.
+
+void test_event_success_missing_in(void) {
   parse_result_t *result = _parse_string("event entity:\"user-123\"");
-  _assert_success(result);
+  _assert_success(result); // Parser should succeed, validator will fail later
   parse_free_result(result);
 }
 
-void test_event_fails_missing_entity(void) {
-  // This is now a semantic error, not a parser error. Parser should succeed.
+void test_event_success_missing_entity(void) {
   parse_result_t *result = _parse_string("event in:\"metrics\"");
-  _assert_success(result);
+  _assert_success(result); // Parser should succeed
   parse_free_result(result);
 }
 
-void test_event_fails_duplicate_custom_tag(void) {
-  // This is now a semantic error, not a parser error. Parser should succeed.
+void test_event_success_duplicate_custom_tag(void) {
   parse_result_t *result =
       _parse_string("event in:\"metrics\" entity:\"u1\" loc:\"us\" loc:\"ca\"");
-  _assert_success(result);
+  _assert_success(result); // Parser should succeed
   parse_free_result(result);
 }
 
-void test_event_fails_invalid_container_name(void) {
-  // This is now a semantic error, not a parser error. Parser should succeed.
+void test_event_success_invalid_container_name(void) {
   parse_result_t *result = _parse_string("event in:\"db\" entity:\"u1\"");
-  _assert_success(result);
+  _assert_success(result); // Parser should succeed
   parse_free_result(result);
 }
 
-void test_event_fails_with_query_only_tag(void) {
-  // This is now a semantic error, not a parser error. Parser should succeed.
+void test_event_success_with_query_tag(void) {
   parse_result_t *result =
       _parse_string("event in:\"m\" entity:\"e\" where:(a)");
-  _assert_success(result);
+  _assert_success(result); // Parser should succeed (AST is created)
   parse_free_result(result);
 }
 
@@ -182,6 +187,7 @@ void test_query_success_minimal(void) {
 
   ast_node_t *where_tag = _find_tag_by_key(result->ast, AST_KEY_WHERE);
   TEST_ASSERT_NOT_NULL(where_tag);
+  // The 'value' of the where tag is the root of the expression tree
   TEST_ASSERT_EQUAL(AST_LOGICAL_NODE, where_tag->tag.value->type);
 
   parse_free_result(result);
@@ -198,16 +204,14 @@ void test_query_success_full_different_order(void) {
 }
 
 void test_query_fails_missing_where(void) {
-  // This is now a semantic error, not a parser error. Parser should succeed.
   parse_result_t *result = _parse_string("query in:\"logs\"");
-  _assert_success(result);
+  _assert_success(result); // Parser succeeds (semantics checked later)
   parse_free_result(result);
 }
 
 void test_query_fails_duplicate_in(void) {
-  // This is now a semantic error, not a parser error. Parser should succeed.
   parse_result_t *result = _parse_string("query in:\"abc\" in:\"b\" where:(c)");
-  _assert_success(result);
+  _assert_success(result); // Parser succeeds
   parse_free_result(result);
 }
 
@@ -220,11 +224,15 @@ void test_where_precedence(void) {
 
   ast_node_t *where = _find_tag_by_key(result->ast, AST_KEY_WHERE)->tag.value;
   TEST_ASSERT_EQUAL(AST_LOGICAL_NODE, where->type);
-  TEST_ASSERT_EQUAL(AST_LOGIC_NODE_OR,
-                    where->logical.op); // OR is at the top level
+  TEST_ASSERT_EQUAL(
+      AST_LOGIC_NODE_OR,
+      where->logical.op); // OR is lower precedence, so it's the root
+
+  // Left is 'a'
   TEST_ASSERT_EQUAL(AST_LITERAL_NODE, where->logical.left_operand->type);
-  TEST_ASSERT_EQUAL(AST_LOGICAL_NODE,
-                    where->logical.right_operand->type); // AND is nested
+
+  // Right is 'b and c'
+  TEST_ASSERT_EQUAL(AST_LOGICAL_NODE, where->logical.right_operand->type);
   TEST_ASSERT_EQUAL(AST_LOGIC_NODE_AND,
                     where->logical.right_operand->logical.op);
 
@@ -239,9 +247,13 @@ void test_where_parentheses_override(void) {
   ast_node_t *where = _find_tag_by_key(result->ast, AST_KEY_WHERE)->tag.value;
   TEST_ASSERT_EQUAL(AST_LOGICAL_NODE, where->type);
   TEST_ASSERT_EQUAL(AST_LOGIC_NODE_AND,
-                    where->logical.op); // AND is at the top level
+                    where->logical.op); // AND is the root
+
+  // Left is '(a or b)'
   TEST_ASSERT_EQUAL(AST_LOGICAL_NODE, where->logical.left_operand->type);
   TEST_ASSERT_EQUAL(AST_LOGIC_NODE_OR, where->logical.left_operand->logical.op);
+
+  // Right is 'c'
   TEST_ASSERT_EQUAL(AST_LITERAL_NODE, where->logical.right_operand->type);
 
   parse_free_result(result);
@@ -255,6 +267,7 @@ void test_where_not_operator(void) {
   ast_node_t *where = _find_tag_by_key(result->ast, AST_KEY_WHERE)->tag.value;
   TEST_ASSERT_EQUAL(AST_LOGICAL_NODE, where->type);
   TEST_ASSERT_EQUAL(AST_LOGIC_NODE_AND, where->logical.op);
+
   TEST_ASSERT_EQUAL(AST_NOT_NODE, where->logical.left_operand->type);
   TEST_ASSERT_EQUAL(AST_NOT_NODE, where->logical.right_operand->type);
 
@@ -266,7 +279,10 @@ void test_where_single_tag(void) {
   _assert_success(result);
 
   ast_node_t *where = _find_tag_by_key(result->ast, AST_KEY_WHERE)->tag.value;
+  // Parser converts "key:val" inside expression to a Custom Tag Node
   TEST_ASSERT_EQUAL(AST_TAG_NODE, where->type);
+  TEST_ASSERT_EQUAL(AST_TAG_KEY_CUSTOM, where->tag.key_type);
+  TEST_ASSERT_EQUAL_STRING("loc", where->tag.custom_key);
 
   parse_free_result(result);
 }
@@ -274,10 +290,17 @@ void test_where_single_tag(void) {
 void test_where_quotes(void) {
   parse_result_t *result = _parse_string("query in:test_c where:(loc:\"ca\")");
   _assert_success(result);
+
+  ast_node_t *where = _find_tag_by_key(result->ast, AST_KEY_WHERE)->tag.value;
+  TEST_ASSERT_EQUAL(AST_TAG_NODE, where->type);
+  TEST_ASSERT_EQUAL_STRING("loc", where->tag.custom_key);
+  TEST_ASSERT_EQUAL_STRING("ca", where->tag.value->literal.string_value);
+
   parse_free_result(result);
 }
 
 void test_where_comparison(void) {
+  // Added closing paren at the end to make it valid syntax
   parse_result_t *result = _parse_string(
       "QUERY in:analytics_2025_01 where:(loc:ca AND (action:login > 3))");
   _assert_success(result);
@@ -287,19 +310,22 @@ void test_where_comparison(void) {
   TEST_ASSERT_EQUAL(AST_LOGIC_NODE_AND,
                     where->logical.op); // AND is at the top level
 
+  // Left: loc:ca (Tag Node)
   TEST_ASSERT_EQUAL(AST_TAG_NODE, where->logical.left_operand->type);
 
-  TEST_ASSERT_EQUAL(AST_COMPARISON_NODE, where->logical.right_operand->type);
-  TEST_ASSERT_EQUAL(AST_OP_GT, where->logical.right_operand->comparison.op);
-  TEST_ASSERT_EQUAL(AST_TAG_NODE,
-                    where->logical.right_operand->comparison.left->type);
-  TEST_ASSERT_EQUAL(AST_LITERAL_NODE,
-                    where->logical.right_operand->comparison.right->type);
-  TEST_ASSERT_EQUAL(
-      AST_LITERAL_NUMBER,
-      where->logical.right_operand->comparison.right->literal.type);
-  TEST_ASSERT_EQUAL(
-      3, where->logical.right_operand->comparison.right->literal.number_value);
+  // Right: (action:login > 3) (Comparison Node)
+  ast_node_t *right = where->logical.right_operand;
+  TEST_ASSERT_EQUAL(AST_COMPARISON_NODE, right->type);
+  TEST_ASSERT_EQUAL(AST_OP_GT, right->comparison.op);
+
+  // Right->Left: action:login (Tag Node)
+  TEST_ASSERT_EQUAL(AST_TAG_NODE, right->comparison.left->type);
+  TEST_ASSERT_EQUAL_STRING("action", right->comparison.left->tag.custom_key);
+
+  // Right->Right: 3 (Literal Node)
+  TEST_ASSERT_EQUAL(AST_LITERAL_NODE, right->comparison.right->type);
+  TEST_ASSERT_EQUAL(AST_LITERAL_NUMBER, right->comparison.right->literal.type);
+  TEST_ASSERT_EQUAL_INT64(3, right->comparison.right->literal.number_value);
 
   parse_free_result(result);
 }
@@ -350,6 +376,7 @@ void test_parser_fails_on_missing_tag_value(void) {
 }
 
 void test_parser_fails_on_where_missing_paren(void) {
+  // The parser strictly requires '(' immediately after 'where:'
   parse_result_t *result = _parse_string("query in:\"abc\" where:a and b");
   _assert_error(result);
   parse_free_result(result);
@@ -363,11 +390,11 @@ int main(void) {
   RUN_TEST(test_event_success_numeric_val);
   RUN_TEST(test_event_success_minimal2);
   RUN_TEST(test_event_success_full_different_order);
-  RUN_TEST(test_event_fails_missing_in);
-  RUN_TEST(test_event_fails_missing_entity);
-  RUN_TEST(test_event_fails_duplicate_custom_tag);
-  RUN_TEST(test_event_fails_invalid_container_name);
-  RUN_TEST(test_event_fails_with_query_only_tag);
+  RUN_TEST(test_event_success_missing_in);
+  RUN_TEST(test_event_success_missing_entity);
+  RUN_TEST(test_event_success_duplicate_custom_tag);
+  RUN_TEST(test_event_success_invalid_container_name);
+  RUN_TEST(test_event_success_with_query_tag);
 
   // QUERY command tests
   RUN_TEST(test_query_success_minimal);
@@ -381,6 +408,7 @@ int main(void) {
   RUN_TEST(test_where_not_operator);
   RUN_TEST(test_where_single_tag);
   RUN_TEST(test_where_quotes);
+  RUN_TEST(test_where_comparison);
   RUN_TEST(test_where_fails_mismatched_parens);
   RUN_TEST(test_where_fails_invalid_syntax);
 

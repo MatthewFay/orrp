@@ -146,7 +146,7 @@ void setup_db_max_id(uint32_t max_id) {
 
 // Helper to make test code less verbose while using real AST API
 ast_node_t *make_test_tag(const char *k, const char *v) {
-  return ast_create_custom_tag_node(k, ast_create_string_literal_node(v));
+  return ast_create_custom_tag_node(k, ast_create_string_literal_node(v, 1));
 }
 
 // --- Setup / Teardown ---
