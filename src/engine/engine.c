@@ -339,10 +339,10 @@ static void _handle_query_result(eng_query_result_t *query_r, api_response_t *r,
     uint32_t event_id = it->current_value;
     db_k.key.u32 = event_id;
     if (!db_get(db, usr_txn, &db_k, &db_r) || db_r.status != DB_GET_OK) {
-      LOG_ACTION_WARN(
-          ACT_QUERY_ERROR,
-          "context=handle_query_result err=\"missing event\" event_id=%d",
-          event_id);
+      LOG_ACTION_DEBUG(ACT_RACE_CONDITION,
+                       "context=handle_query_result msg=\"Event ID indexed but "
+                       "msgpack isn't in LMDB yet\" event_id=%d",
+                       event_id);
       // TODO: handle error better, skip for now
       roaring_uint32_iterator_advance(it);
       continue;

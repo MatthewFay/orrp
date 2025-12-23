@@ -38,7 +38,7 @@ static bool _create_mpack_entry(cmd_queue_msg_t *cmd_msg, char *container_name,
   entry->value = msgpack;
   entry->value_size = msgpack_size;
   entry->write_condition = WRITE_COND_ALWAYS;
-  return entry;
+  return true;
 }
 
 static bool _create_event_counter_entry(char *container_name, uint32_t event_id,
