@@ -5,13 +5,14 @@ import (
 	"log"
 	"math/rand"
 	"os"
+	"strings"
 	"time"
 )
 
 // Step represents a single interaction with the DB
 type Step struct {
 	Command   string
-	Validator func(response interface{}) error
+	Validator func(response any) error
 }
 
 type TestCase struct {
@@ -21,9 +22,6 @@ type TestCase struct {
 
 func RunE2ETests(addr string) {
 	log.Println("🚀 Starting E2E Test Suite...")
-
-	// Seed random for unique namespaces
-	rand.Seed(time.Now().UnixNano())
 
 	// We generate namespaces dynamically so tests never collide with previous runs
 	nsStatus := uniqueNamespace("status")
@@ -53,9 +51,8 @@ func RunE2ETests(addr string) {
 				},
 				{Command: "SLEEP 200ms"},
 				{
-					// We query the specific namespace for this test run
 					Command: fmt.Sprintf("QUERY in:%s where:(loc:ca)", nsMatch),
-					Validator: func(res interface{}) error {
+					Validator: func(res any) error {
 						objects, err := extractObjects(res)
 						if err != nil {
 							return err
@@ -81,13 +78,40 @@ func RunE2ETests(addr string) {
 				{Command: "SLEEP 200ms"},
 				{
 					Command: fmt.Sprintf("QUERY in:%s where:(loc:fl)", nsNoMatch),
-					Validator: func(res interface{}) error {
+					Validator: func(res any) error {
 						objects, err := extractObjects(res)
 						if err != nil {
 							return err
 						}
 						if len(objects) != 0 {
 							return fmt.Errorf("expected 0 objects, got %d", len(objects))
+						}
+						return nil
+					},
+				},
+			},
+		},
+		{
+			Name: "Query numeric entity",
+			Steps: []Step{
+				{
+					Command:   fmt.Sprintf("EVENT in:%s entity:100 loc:CA type:user.purchase test:numeric_entity", nsMatch),
+					Validator: expectOK,
+				},
+				{Command: "SLEEP 200ms"},
+				{
+					Command: fmt.Sprintf("QUERY in:%s where:(test:numeric_entity)", nsMatch),
+					Validator: func(res any) error {
+						objects, err := extractObjects(res)
+						if err != nil {
+							return err
+						}
+						if len(objects) != 1 {
+							return fmt.Errorf("expected 1 object, got %d", len(objects))
+						}
+						ent, _ := asInt64(objects[0]["entity"])
+						if ent != 100 {
+							return fmt.Errorf("expected entity 100, got '%v'", objects[0]["entity"])
 						}
 						return nil
 					},
@@ -131,9 +155,14 @@ func uniqueNamespace(prefix string) string {
 
 func runSingleTest(c *DBClient, t TestCase) error {
 	for _, step := range t.Steps {
-		if step.Command == "SLEEP 200ms" {
-			time.Sleep(200 * time.Millisecond)
-			continue
+		if after, ok := strings.CutPrefix(step.Command, "SLEEP "); ok {
+			// Remove "SLEEP " to get just the duration part (e.g., "200ms")
+			durationStr := after
+			d, err := time.ParseDuration(durationStr)
+			if err == nil {
+				time.Sleep(d)
+				continue
+			}
 		}
 
 		if err := c.SendCommand(step.Command); err != nil {
@@ -154,33 +183,58 @@ func runSingleTest(c *DBClient, t TestCase) error {
 	return nil
 }
 
-func expectOK(res interface{}) error {
-	m, ok := res.(map[string]interface{})
+func expectOK(res any) error {
+	m, ok := res.(map[string]any)
 	if !ok || m["status"] != "OK" {
 		return fmt.Errorf("expected status OK, got %v", res)
 	}
 	return nil
 }
 
-func extractObjects(res interface{}) ([]map[string]interface{}, error) {
-	root, ok := res.(map[string]interface{})
+func extractObjects(res any) ([]map[string]any, error) {
+	root, ok := res.(map[string]any)
 	if !ok {
 		return nil, fmt.Errorf("invalid root")
 	}
 
-	data, ok := root["data"].(map[string]interface{})
+	data, ok := root["data"].(map[string]any)
 	if !ok {
 		return nil, fmt.Errorf("invalid data field")
 	}
 
-	list, ok := data["objects"].([]interface{})
+	list, ok := data["objects"].([]any)
 	if !ok {
 		return nil, fmt.Errorf("invalid objects field")
 	}
 
-	result := make([]map[string]interface{}, len(list))
+	result := make([]map[string]any, len(list))
 	for i, v := range list {
-		result[i] = v.(map[string]interface{})
+		result[i] = v.(map[string]any)
 	}
 	return result, nil
+}
+
+func asInt64(v any) (int64, error) {
+	switch n := v.(type) {
+	case int:
+		return int64(n), nil
+	case int8:
+		return int64(n), nil
+	case int16:
+		return int64(n), nil
+	case int32:
+		return int64(n), nil
+	case int64:
+		return n, nil
+	case uint:
+		return int64(n), nil
+	case uint8:
+		return int64(n), nil
+	case uint16:
+		return int64(n), nil
+	case uint32:
+		return int64(n), nil
+	default:
+		return 0, fmt.Errorf("unsupported type: %T", v)
+	}
 }

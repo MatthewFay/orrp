@@ -47,8 +47,8 @@ func (c *DBClient) SendCommand(cmd string) error {
 
 // ReadResponse decodes the next MsgPack object from the stream
 // and returns it as a generic interface (map or slice)
-func (c *DBClient) ReadResponse() (interface{}, error) {
-	var result interface{}
+func (c *DBClient) ReadResponse() (any, error) {
+	var result any
 	err := c.decoder.Decode(&result)
 	if err != nil {
 		return nil, err
@@ -57,7 +57,7 @@ func (c *DBClient) ReadResponse() (interface{}, error) {
 }
 
 // PrettyPrint converts the generic interface to indented JSON for display
-func PrettyPrint(v interface{}) string {
+func PrettyPrint(v any) string {
 	b, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
 		return fmt.Sprintf("error marshalling json: %v", err)

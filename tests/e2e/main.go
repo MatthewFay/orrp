@@ -18,7 +18,6 @@ func main() {
 		return
 	}
 
-	// Interactive Mode
 	runInteractive(*addr)
 }
 
@@ -49,7 +48,6 @@ func runInteractive(addr string) {
 			continue
 		}
 
-		// 1. Send Command
 		err := client.SendCommand(text)
 		if err != nil {
 			fmt.Printf("Error sending command: %v\n", err)
@@ -57,14 +55,12 @@ func runInteractive(addr string) {
 			break
 		}
 
-		// 2. Read MsgPack Response
 		response, err := client.ReadResponse()
 		if err != nil {
 			fmt.Printf("Error reading response: %v\n", err)
 			break
 		}
 
-		// 3. Print as JSON
 		fmt.Println(PrettyPrint(response))
 	}
 }
