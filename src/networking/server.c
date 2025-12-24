@@ -33,7 +33,14 @@ LOG_INIT(server);
 #define READ_BUFFER_SIZE 65536          // 64KB per-client read buffer
 #define SERVER_BACKLOG 511              // Listen backlog connections
 
-#define INTERNAL_SERVER_ERROR_MSG "Error: Internal server error\n"
+#define INTERNAL_SERVER_ERROR_MSG "[E0] Error: Internal server error\n"
+static const char *internal_server_error_msg = INTERNAL_SERVER_ERROR_MSG;
+static const size_t internal_server_error_msg_len =
+    strlen(INTERNAL_SERVER_ERROR_MSG);
+
+#define BAD_REQUEST_ERROR_MSG "[E1] Error: Bad Request\n"
+static const char *bad_request_error_msg = BAD_REQUEST_ERROR_MSG;
+static const size_t bad_request_error_msg_len = strlen(BAD_REQUEST_ERROR_MSG);
 
 // --- Globals ---
 static uv_tcp_t server_handle;    // Main server handle
@@ -86,6 +93,7 @@ typedef struct {
   client_t *client;
   char *command;
   char *response;
+  size_t response_size;
   // Points to the memory to free (NULL if static, same as response if heap)
   char *response_to_free;
   int64_t arrival_ts;
@@ -185,16 +193,16 @@ void on_close(uv_handle_t *handle) {
  * @param client The client to respond to.
  * @param response The null-terminated string to send.
  */
-void send_response(client_t *client, const char *response) {
+void send_response(client_t *client, const char *response,
+                   size_t response_size) {
   if (!client || !client->connected || !response)
     return;
 
-  size_t len = strlen(response);
-  if (len == 0)
+  if (response_size == 0)
     return;
 
   // Use flexible array member (FAM) for a single allocation.
-  write_req_t *wr = malloc(sizeof(write_req_t) + len);
+  write_req_t *wr = malloc(sizeof(write_req_t) + response_size);
   if (!wr) {
     LOG_ACTION_ERROR(ACT_MEMORY_ALLOC_FAILED,
                      "context=\"write_request\" client_id=%lld",
@@ -202,8 +210,8 @@ void send_response(client_t *client, const char *response) {
     return;
   }
 
-  memcpy(wr->write_buf, response, len);
-  wr->buf = uv_buf_init(wr->write_buf, (unsigned int)len);
+  memcpy(wr->write_buf, response, response_size);
+  wr->buf = uv_buf_init(wr->write_buf, (unsigned int)response_size);
 
   int r =
       uv_write(&wr->req, (uv_stream_t *)&client->handle, &wr->buf, 1, on_write);
@@ -304,6 +312,7 @@ static void _work_cb(uv_work_t *req) {
       _encode_err(ctx, &sr, INTERNAL_SERVER_ERROR_MSG);
     } else {
       ctx->response = ctx->response_to_free = sr.response;
+      ctx->response_size = sr.response_size;
     }
   }
 
@@ -338,13 +347,15 @@ static void _after_work_cb(uv_work_t *req, int status) {
     // System-level error from libuv
     LOG_ACTION_ERROR(ACT_WORK_QUEUE_FAILED, "client_id=%lld err=\"%s\"",
                      client->client_id, uv_strerror(status));
-    send_response(client, INTERNAL_SERVER_ERROR_MSG);
+    send_response(client, internal_server_error_msg,
+                  internal_server_error_msg_len);
   } else if (ctx->response) {
-    send_response(client, ctx->response);
+    send_response(client, ctx->response, ctx->response_size);
   } else {
     LOG_ACTION_ERROR(ACT_WORK_QUEUE_FAILED, "client_id=%lld err=\"%s\"",
                      client->client_id, "Missing response");
-    send_response(client, INTERNAL_SERVER_ERROR_MSG);
+    send_response(client, internal_server_error_msg,
+                  internal_server_error_msg_len);
   }
 
   _decrement_work_and_cleanup(client);
@@ -380,7 +391,8 @@ void process_one_command(client_t *client, char *command, int64_t arrival_ts) {
     LOG_ACTION_ERROR(ACT_MEMORY_ALLOC_FAILED,
                      "context=\"work_context\" client_id=%lld",
                      client->client_id);
-    send_response(client, "Error: Internal server error (OOM)\n");
+    send_response(client, internal_server_error_msg,
+                  internal_server_error_msg_len);
     return;
   }
 
@@ -390,7 +402,8 @@ void process_one_command(client_t *client, char *command, int64_t arrival_ts) {
                      "context=\"command_buffer\" client_id=%lld",
                      client->client_id);
     free(ctx);
-    send_response(client, "Error: Internal server error (OOM)\n");
+    send_response(client, internal_server_error_msg,
+                  internal_server_error_msg_len);
     return;
   }
   memcpy(ctx->command, command, cmd_len + 1);
@@ -408,7 +421,8 @@ void process_one_command(client_t *client, char *command, int64_t arrival_ts) {
     client->work_refs--;
     free(ctx->command);
     free(ctx);
-    send_response(client, "Error: Failed to queue work\n");
+    send_response(client, internal_server_error_msg,
+                  internal_server_error_msg_len);
   }
 }
 
@@ -443,7 +457,7 @@ void process_data_buffer(client_t *client, int64_t arrival_ts) {
     if (newline_pos - buffer_start > MAX_COMMAND_LEN) {
       LOG_ACTION_ERROR(ACT_CMD_TOO_LONG, "client_id=%lld max_len=%d",
                        client->client_id, MAX_COMMAND_LEN);
-      send_response(client, "Error: Command too long\n");
+      send_response(client, bad_request_error_msg, bad_request_error_msg_len);
       _close_client_connection(client);
       return;
     }
@@ -470,7 +484,7 @@ void process_data_buffer(client_t *client, int64_t arrival_ts) {
   if (client->buffer_len == READ_BUFFER_SIZE) {
     LOG_ACTION_ERROR(ACT_BUFFER_OVERFLOW, "client_id=%lld buffer_size=%d",
                      client->client_id, READ_BUFFER_SIZE);
-    send_response(client, "Error: Command buffer overflow\n");
+    send_response(client, bad_request_error_msg, bad_request_error_msg_len);
     _close_client_connection(client);
   }
 }

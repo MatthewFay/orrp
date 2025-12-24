@@ -88,6 +88,8 @@ bool encode_event(cmd_ctx_t *cmd_ctx, uint32_t event_id, char **data_out,
     node = node->next;
   }
 
+  mpack_finish_map(&writer);
+
   // Verify that the number of items written matches map_count
   if (mpack_writer_destroy(&writer) != mpack_ok) {
     fprintf(stderr, "Encoding error or map size mismatch\n");

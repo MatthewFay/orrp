@@ -33,7 +33,7 @@ void serializer_encode(const enum serializer_resp_status status,
   mpack_write_cstr(&writer, status_str);
   if (raw_data) {
     mpack_write_cstr(&writer, "data");
-    mpack_write_bytes(&writer, raw_data, raw_data_size);
+    mpack_write_object_bytes(&writer, raw_data, raw_data_size);
   }
   mpack_finish_map(&writer);
 
@@ -115,8 +115,8 @@ static void _encode_list_obj(const api_response_t *api_resp,
   mpack_start_array(&writer, list->count);
 
   for (uint32_t i = 0; i < list->count; i++) {
-    mpack_write_bytes(&writer, list->objects[i].data,
-                      list->objects[i].data_size);
+    mpack_write_object_bytes(&writer, list->objects[i].data,
+                             list->objects[i].data_size);
   }
 
   mpack_finish_array(&writer);
