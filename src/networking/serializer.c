@@ -12,6 +12,9 @@ void serializer_encode(const enum serializer_resp_status status,
                        serializer_result_t *sr) {
   const char *status_str = NULL;
 
+  // Zero out the result structure.
+  // This ensures sr->response is NULL and sr->response_size is 0.
+  // This tells mpack_writer_init_growable to allocate a NEW buffer.
   memset(sr, 0, sizeof(serializer_result_t));
 
   switch (status) {
@@ -28,13 +31,19 @@ void serializer_encode(const enum serializer_resp_status status,
 
   mpack_writer_t writer;
   mpack_writer_init_growable(&writer, &sr->response, &sr->response_size);
+
   mpack_start_map(&writer, raw_data == NULL ? 1 : 2);
+
   mpack_write_cstr(&writer, "status");
   mpack_write_cstr(&writer, status_str);
+
   if (raw_data) {
     mpack_write_cstr(&writer, "data");
+    // raw_data is already a valid MsgPack map
+    // So we write it directly as an object.
     mpack_write_object_bytes(&writer, raw_data, raw_data_size);
   }
+
   mpack_finish_map(&writer);
 
   if (mpack_writer_destroy(&writer) != mpack_ok) {
@@ -51,6 +60,7 @@ void serializer_encode(const enum serializer_resp_status status,
 }
 
 void serializer_encode_err(const char *err_msg, serializer_result_t *sr) {
+  // Initialize to NULL/0 so mpack allocates memory
   char *data = NULL;
   size_t data_size = 0;
 
@@ -69,13 +79,17 @@ void serializer_encode_err(const char *err_msg, serializer_result_t *sr) {
   } else {
     serializer_encode(SER_RESP_ERR, data, data_size, sr);
   }
+
+  // Free the intermediate buffer (serializer_encode made a copy)
   free(data);
 }
 
 static void _encode_list_u32(const api_response_t *api_resp,
                              serializer_result_t *sr) {
-  char *data;
-  size_t data_size;
+  // Initialize to NULL/0 so mpack allocates memory
+  char *data = NULL;
+  size_t data_size = 0;
+
   const api_response_type_list_u32_t *list = &api_resp->payload.list_u32;
 
   mpack_writer_t writer;
@@ -99,13 +113,16 @@ static void _encode_list_u32(const api_response_t *api_resp,
   } else {
     serializer_encode(SER_RESP_OK, data, data_size, sr);
   }
+
   free(data);
 }
 
 static void _encode_list_obj(const api_response_t *api_resp,
                              serializer_result_t *sr) {
-  char *data;
-  size_t data_size;
+  // Initialize to NULL/0 so mpack allocates memory
+  char *data = NULL;
+  size_t data_size = 0;
+
   const api_response_type_list_obj_t *list = &api_resp->payload.list_obj;
 
   mpack_writer_t writer;
@@ -115,6 +132,8 @@ static void _encode_list_obj(const api_response_t *api_resp,
   mpack_start_array(&writer, list->count);
 
   for (uint32_t i = 0; i < list->count; i++) {
+    // object is already a valid MsgPack map
+    // So we write it directly as an object.
     mpack_write_object_bytes(&writer, list->objects[i].data,
                              list->objects[i].data_size);
   }
@@ -130,6 +149,7 @@ static void _encode_list_obj(const api_response_t *api_resp,
   } else {
     serializer_encode(SER_RESP_OK, data, data_size, sr);
   }
+
   free(data);
 }
 
@@ -159,7 +179,6 @@ void serializer_encode_api_resp(const api_response_t *api_resp,
     break;
   case API_RESP_TYPE_LIST_OBJ:
     _encode_list_obj(api_resp, sr);
-
     break;
   default:
     sr->err_msg = "Unknown response type";
