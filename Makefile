@@ -235,11 +235,12 @@ test: bin/test_bitmaps \
 			bin/test_eng_key_format \
 			bin/test_routing \
 			bin/test_encoder \
-			bin/test_serializer
+			bin/test_serializer \
 			bin/test_tokenizer \
  		  bin/test_ast \
 			bin/test_parser \
-			bin/test_event_api
+			bin/test_event_api \
+			bin/test_query
 	@echo "--- Running bitmaps test ---"
 	./bin/test_bitmaps
 	@echo "--- Running conversions test ---"

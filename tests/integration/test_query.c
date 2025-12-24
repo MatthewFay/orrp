@@ -52,7 +52,7 @@ static api_response_t *run_command(const char *command_string) {
     return err_res;
   }
 
-  api_response_t *api_res = api_exec(parse_res->ast, 1);
+  api_response_t *api_res = api_exec(parse_res->ast, 0);
   parse_free_result(parse_res);
   return api_res;
 }
@@ -135,6 +135,11 @@ static void _verify_obj_content(api_obj_t *obj, uint32_t expected_id,
       uint32_t val = mpack_expect_u32(&reader);
       TEST_ASSERT_EQUAL_UINT32(expected_id, val);
       id_found = true;
+    } else if (strcmp(key_buf, "ts") == 0) {
+      int64_t ts_val = mpack_expect_i64(&reader);
+      TEST_ASSERT_EQUAL_INT64(0, ts_val);
+      if (mpack_reader_error(&reader) != mpack_ok)
+        break;
     } else {
       char val_buf[64];
       mpack_expect_utf8_cstr(&reader, val_buf, sizeof(val_buf));
