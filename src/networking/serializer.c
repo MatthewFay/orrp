@@ -132,6 +132,9 @@ static void _encode_list_obj(const api_response_t *api_resp,
   mpack_start_array(&writer, list->count);
 
   for (uint32_t i = 0; i < list->count; i++) {
+    if (list->objects[i].data == NULL) {
+      break;
+    }
     // object is already a valid MsgPack map
     // So we write it directly as an object.
     mpack_write_object_bytes(&writer, list->objects[i].data,

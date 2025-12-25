@@ -315,6 +315,9 @@ static void _handle_query_result(eng_query_result_t *query_r, api_response_t *r,
   r->resp_type = API_RESP_TYPE_LIST_OBJ;
   uint32_t count = bitmap_get_cardinality(query_r->events);
 
+  LOG_ACTION_DEBUG(ACT_QUERY_STATS,
+                   "context=handle_query_result event_bm_count=%d", count);
+
   r->payload.list_obj.objects = malloc(count * sizeof(api_obj_t));
   if (!r->payload.list_obj.objects) {
     r->err_msg = "OOM error handling query result";

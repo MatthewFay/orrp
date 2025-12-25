@@ -77,7 +77,7 @@ void on_write(uv_write_t *req, int status);
 void process_data_buffer(client_t *client, int64_t arrival_ts);
 
 /**
- * @brief Simple write request structure.
+ * @brief Write request structure.
  */
 typedef struct {
   uv_write_t req;
@@ -191,22 +191,34 @@ void on_close(uv_handle_t *handle) {
  * It wraps the uv_write logic.
  *
  * @param client The client to respond to.
- * @param response The null-terminated string to send.
+ * @param response The bytes to send.
+ * @param response_size Size of bytes to send
  */
 void send_response(client_t *client, const char *response,
                    size_t response_size) {
-  if (!client || !client->connected || !response)
+  if (!client || !client->connected || !response) {
+    LOG_ACTION_ERROR(ACT_INVALID_ARGS, "context=send_response");
     return;
+  }
 
-  if (response_size == 0)
+  if (response_size == 0) {
+    LOG_ACTION_ERROR(ACT_INVALID_ARGS,
+                     "context=send_response err=\"response_size is 0\"");
     return;
+  }
+
+  LOG_ACTION_DEBUG(ACT_SERVER_STATS,
+                   "context=send_response response_size=%zu msg=\"Attempting "
+                   "to send response\"",
+                   response_size);
 
   // Use flexible array member (FAM) for a single allocation.
   write_req_t *wr = malloc(sizeof(write_req_t) + response_size);
   if (!wr) {
-    LOG_ACTION_ERROR(ACT_MEMORY_ALLOC_FAILED,
-                     "context=\"write_request\" client_id=%lld",
-                     client->client_id);
+    LOG_ACTION_ERROR(
+        ACT_MEMORY_ALLOC_FAILED,
+        "context=\"write_request\" client_id=%lld response_size=%zu",
+        client->client_id, response_size);
     return;
   }
 
@@ -216,10 +228,17 @@ void send_response(client_t *client, const char *response,
   int r =
       uv_write(&wr->req, (uv_stream_t *)&client->handle, &wr->buf, 1, on_write);
   if (r) {
-    LOG_ACTION_ERROR(ACT_WRITE_FAILED, "client_id=%lld err=\"%s\"",
-                     client->client_id, uv_strerror(r));
+    LOG_ACTION_ERROR(ACT_WRITE_FAILED,
+                     "client_id=%lld err=\"%s\" response_size=%zu",
+                     client->client_id, uv_strerror(r), response_size);
     free(wr); // Free on failure.
+    return;
   }
+
+  LOG_ACTION_DEBUG(
+      ACT_SERVER_STATS,
+      "context=send_response response_size=%zu msg=\"Response sent\"",
+      response_size);
 }
 
 /**

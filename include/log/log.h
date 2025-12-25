@@ -190,6 +190,7 @@ static inline void log_global_shutdown(void) { zlog_fini(); }
 #define ACT_SERVER_START_FAILED "server_start_failed"
 #define ACT_SERVER_SHUTDOWN_INITIATED "server_shutdown_initiated"
 #define ACT_SERVER_FINALIZING "server_finalizing"
+#define ACT_SERVER_STATS "server_stats"
 
 // Signal handling
 #define ACT_SIGNAL_RECEIVED "signal_received"
@@ -349,6 +350,7 @@ static inline void log_global_shutdown(void) { zlog_fini(); }
 
 // Query
 #define ACT_QUERY_ERROR "query_error"
+#define ACT_QUERY_STATS "query_stats"
 
 // =============================================================================
 // == COMMON FIELD NAMES (for consistency)                                    ==
