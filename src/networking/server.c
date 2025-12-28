@@ -12,6 +12,7 @@
 #include "networking/server.h"
 #include "core/data_constants.h"
 #include "core/queue.h"
+#include "core/version.h"
 #include "engine/api.h"
 #include "log/log.h"
 #include "networking/serializer.h"
@@ -707,6 +708,12 @@ void start_server(const char *host, int port, uv_loop_t *loop) {
                   "max_conn=%d timeout_ms=%d max_cmd_len=%d backlog=%d",
                   MAX_CONCURRENT_CONNECTIONS, CONNECTION_IDLE_TIMEOUT,
                   MAX_COMMAND_LEN, SERVER_BACKLOG);
+
+  printf("--------------------------------------------------\n");
+  printf("orrp v%s\n", ORRP_VERSION);
+  // printf(" Build: %s\n", ORRP_GIT_HASH);
+  printf("-> Server listening on %s:%d\n", host, port);
+  printf("--------------------------------------------------\n");
 
   // This call blocks until all handles are closed
   uv_run(loop, UV_RUN_DEFAULT);
