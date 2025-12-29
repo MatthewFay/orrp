@@ -21,10 +21,6 @@ typedef enum {
   TOKEN_KW_HAVING,
   TOKEN_KW_COUNT,
 
-  // Time
-  TOKEN_KW_FROM,
-  TOKEN_KW_TO,
-
   TOKEN_IDENTIFER, // unquoted text
 
   // --- Literals (Values) ---

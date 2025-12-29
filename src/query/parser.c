@@ -451,8 +451,6 @@ static bool _is_token_kw(token_t *t) {
   case TOKEN_KW_BY:
   case TOKEN_KW_COUNT:
   case TOKEN_KW_HAVING:
-  case TOKEN_KW_FROM:
-  case TOKEN_KW_TO:
     return true;
   default:
     return false;
@@ -500,12 +498,6 @@ static ast_node_t *_parse_tag(Queue *tokens, parse_result_t *r) {
     // case TOKEN_KW_CURSOR:
     //   kt = AST_KEY_CURSOR;
     //   break;
-    case TOKEN_KW_FROM:
-      kt = AST_KEY_FROM;
-      break;
-    case TOKEN_KW_TO:
-      kt = AST_KEY_TO;
-      break;
     default:
       free(key_token);
       return NULL;
@@ -540,13 +532,6 @@ static ast_node_t *_parse_tag(Queue *tokens, parse_result_t *r) {
     case AST_KEY_WHERE:
       // where: must be followed by a parenthesized expression
       if (first_val_token->type != TOKEN_SYM_LPAREN) {
-        ast_free(tag);
-        return NULL;
-      }
-      break;
-    case AST_KEY_FROM:
-    case AST_KEY_TO:
-      if (first_val_token->type != TOKEN_LITERAL_NUMBER) {
         ast_free(tag);
         return NULL;
       }

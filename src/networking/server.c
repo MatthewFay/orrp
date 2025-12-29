@@ -712,7 +712,7 @@ void start_server(const char *host, int port, uv_loop_t *loop) {
   printf("--------------------------------------------------\n");
   printf("orrp v%s\n", ORRP_VERSION);
   // printf(" Build: %s\n", ORRP_GIT_HASH);
-  printf("-> Server listening on %s:%d\n", host, port);
+  printf("==> Server listening on %s:%d\n", host, port);
   printf("--------------------------------------------------\n");
 
   // This call blocks until all handles are closed

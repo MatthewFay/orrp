@@ -11,7 +11,13 @@ import (
 
 // Step represents a single interaction with the DB
 type Step struct {
-	Command   string
+	Command string
+	// Optional: How many times to retry this step if Validator fails?
+	// Useful for waiting on eventual consistency (queries).
+	MaxRetries int
+	// Optional: How long to wait between retries
+	RetryDelay time.Duration
+
 	Validator func(response any) error
 }
 
@@ -49,9 +55,12 @@ func RunE2ETests(addr string) {
 					Command:   fmt.Sprintf("EVENT in:%s entity:user102 loc:ny type:user.login", nsMatch),
 					Validator: expectOK,
 				},
-				{Command: "SLEEP 200ms"},
+				// We keep the SLEEP for basic buffering, but rely on retries for the check
+				{Command: "SLEEP 50ms"},
 				{
-					Command: fmt.Sprintf("QUERY in:%s where:(loc:ca)", nsMatch),
+					Command:    fmt.Sprintf("QUERY in:%s where:(loc:ca)", nsMatch),
+					MaxRetries: 5,
+					RetryDelay: 100 * time.Millisecond,
 					Validator: func(res any) error {
 						objects, err := extractObjects(res)
 						if err != nil {
@@ -98,9 +107,11 @@ func RunE2ETests(addr string) {
 					Command:   fmt.Sprintf("EVENT in:%s entity:100 loc:CA type:user.purchase test:numeric_entity", nsMatch),
 					Validator: expectOK,
 				},
-				{Command: "SLEEP 200ms"},
+				{Command: "SLEEP 50ms"},
 				{
-					Command: fmt.Sprintf("QUERY in:%s where:(test:numeric_entity)", nsMatch),
+					Command:    fmt.Sprintf("QUERY in:%s where:(test:numeric_entity)", nsMatch),
+					MaxRetries: 5,
+					RetryDelay: 100 * time.Millisecond,
 					Validator: func(res any) error {
 						objects, err := extractObjects(res)
 						if err != nil {
@@ -154,9 +165,8 @@ func uniqueNamespace(prefix string) string {
 }
 
 func runSingleTest(c *DBClient, t TestCase) error {
-	for _, step := range t.Steps {
+	for i, step := range t.Steps {
 		if after, ok := strings.CutPrefix(step.Command, "SLEEP "); ok {
-			// Remove "SLEEP " to get just the duration part (e.g., "200ms")
 			durationStr := after
 			d, err := time.ParseDuration(durationStr)
 			if err == nil {
@@ -165,19 +175,43 @@ func runSingleTest(c *DBClient, t TestCase) error {
 			}
 		}
 
-		if err := c.SendCommand(step.Command); err != nil {
-			return fmt.Errorf("send failed: %v", err)
-		}
+		attempts := 1 + step.MaxRetries
+		var lastErr error
 
-		resp, err := c.ReadResponse()
-		if err != nil {
-			return fmt.Errorf("read failed: %v", err)
-		}
+		for attempt := 1; attempt <= attempts; attempt++ {
+			// Clear error from previous attempt
+			lastErr = nil
 
-		if step.Validator != nil {
-			if err := step.Validator(resp); err != nil {
-				return err
+			if err := c.SendCommand(step.Command); err != nil {
+				lastErr = fmt.Errorf("send failed: %v", err)
+				// If send fails (network error), we don't retry
+				break
 			}
+
+			resp, err := c.ReadResponse()
+			if err != nil {
+				lastErr = fmt.Errorf("read failed: %v", err)
+				break
+			}
+
+			if step.Validator != nil {
+				if err := step.Validator(resp); err != nil {
+					lastErr = err // Capture validation error
+				}
+			}
+
+			if lastErr == nil {
+				break
+			}
+
+			if attempt < attempts {
+				// fmt.Printf("(retrying step %d...)", i) // Optional debug log
+				time.Sleep(step.RetryDelay)
+			}
+		}
+
+		if lastErr != nil {
+			return fmt.Errorf("step %d failed after %d attempts: %v", i+1, attempts, lastErr)
 		}
 	}
 	return nil
@@ -199,7 +233,8 @@ func extractObjects(res any) ([]map[string]any, error) {
 
 	data, ok := root["data"].(map[string]any)
 	if !ok {
-		return nil, fmt.Errorf("invalid data field")
+		// It's possible "data" is missing if status != OK, handled by callers usually
+		return nil, fmt.Errorf("invalid data field or missing in response")
 	}
 
 	list, ok := data["objects"].([]any)

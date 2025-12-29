@@ -4,6 +4,7 @@
 #include <string.h>
 
 cmd_ctx_t *build_cmd_context(ast_node_t *ast, int64_t arrival_ts) {
+  // init `num_custom_tags` to 0
   cmd_ctx_t *ctx = calloc(1, sizeof(cmd_ctx_t));
   if (!ctx)
     return NULL;
@@ -35,12 +36,6 @@ cmd_ctx_t *build_cmd_context(ast_node_t *ast, int64_t arrival_ts) {
           ctx->cursor_tag_value = tag->value;
           break;
         case AST_KEY_ID:
-          break;
-        case AST_KEY_FROM:
-          ctx->from_tag_value = tag->value;
-          break;
-        case AST_KEY_TO:
-          ctx->to_tag_value = tag->value;
           break;
         default:
           break;

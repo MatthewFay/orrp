@@ -188,70 +188,6 @@ void test_api_event_invalid_ast_null(void) {
   free_api_response(resp);
 }
 
-void test_api_query_valid_time_range(void) {
-  // Query: IN "logs" WHERE "x=1" FROM 100 TO 200
-  ast_node_t *ast = make_query_ast("logs", "x=1");
-  ast_node_t *from_tag =
-      ast_create_tag_node(AST_KEY_FROM, ast_create_number_literal_node(100));
-  ast_node_t *to_tag =
-      ast_create_tag_node(AST_KEY_TO, ast_create_number_literal_node(200));
-
-  ast_append_node(&ast->command.tags, from_tag);
-  ast_append_node(&ast->command.tags, to_tag);
-
-  api_response_t *resp = api_exec(ast, 0);
-  TEST_ASSERT_NOT_NULL(resp);
-  TEST_ASSERT_TRUE(resp->is_ok); // Should pass validation
-  free_api_response(resp);
-}
-
-void test_api_query_invalid_time_range(void) {
-  // Query: IN "logs" WHERE "x=1" FROM 300 TO 200 (FROM > TO)
-  ast_node_t *ast = make_query_ast("logs", "x=1");
-  ast_node_t *from_tag =
-      ast_create_tag_node(AST_KEY_FROM, ast_create_number_literal_node(300));
-  ast_node_t *to_tag =
-      ast_create_tag_node(AST_KEY_TO, ast_create_number_literal_node(200));
-
-  ast_append_node(&ast->command.tags, from_tag);
-  ast_append_node(&ast->command.tags, to_tag);
-
-  api_response_t *resp = api_exec(ast, 0);
-  TEST_ASSERT_NOT_NULL(resp);
-  TEST_ASSERT_FALSE(resp->is_ok); // Should fail validation
-  free_api_response(resp);
-}
-
-void test_api_event_with_time_range_fail(void) {
-  // EVENT cannot have FROM/TO
-  ast_node_t *ast = make_event_ast("metrics", "user-1");
-  ast_node_t *from_tag =
-      ast_create_tag_node(AST_KEY_FROM, ast_create_number_literal_node(100));
-  ast_append_node(&ast->command.tags, from_tag);
-
-  api_response_t *resp = api_exec(ast, 0);
-  TEST_ASSERT_NOT_NULL(resp);
-  TEST_ASSERT_FALSE(resp->is_ok); // Invalid command
-  free_api_response(resp);
-}
-
-void test_api_query_duplicate_from(void) {
-  // Query with two FROM tags
-  ast_node_t *ast = make_query_ast("logs", "x=1");
-  ast_node_t *from1 =
-      ast_create_tag_node(AST_KEY_FROM, ast_create_number_literal_node(100));
-  ast_node_t *from2 =
-      ast_create_tag_node(AST_KEY_FROM, ast_create_number_literal_node(200));
-
-  ast_append_node(&ast->command.tags, from1);
-  ast_append_node(&ast->command.tags, from2);
-
-  api_response_t *resp = api_exec(ast, 0);
-  TEST_ASSERT_NOT_NULL(resp);
-  TEST_ASSERT_FALSE(resp->is_ok);
-  free_api_response(resp);
-}
-
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_api_event_success);
@@ -263,9 +199,5 @@ int main(void) {
   RUN_TEST(test_api_event_invalid_ast_where_tag);
   RUN_TEST(test_api_event_invalid_ast_null);
 
-  RUN_TEST(test_api_query_valid_time_range);
-  RUN_TEST(test_api_query_invalid_time_range);
-  RUN_TEST(test_api_event_with_time_range_fail);
-  RUN_TEST(test_api_query_duplicate_from);
   return UNITY_END();
 }

@@ -162,30 +162,6 @@ void test_build_cmd_context_mixed_tags(void) {
   TEST_ASSERT_EQUAL_UINT32(3, g_cmd_ctx->num_custom_tags);
 }
 
-// --- NEW TEST FOR TIME RANGE ---
-void test_build_cmd_context_time_range(void) {
-  // AST: QUERY in:"logs" from:1000 to:2000
-  g_cmd_ast = ast_create_command_node(AST_CMD_QUERY, NULL);
-  ast_append_node(&g_cmd_ast->command.tags,
-                  ast_create_tag_node(AST_KEY_IN, make_str("logs")));
-  ast_append_node(
-      &g_cmd_ast->command.tags,
-      ast_create_tag_node(AST_KEY_FROM, ast_create_number_literal_node(1000)));
-  ast_append_node(
-      &g_cmd_ast->command.tags,
-      ast_create_tag_node(AST_KEY_TO, ast_create_number_literal_node(2000)));
-
-  g_cmd_ctx = build_cmd_context(g_cmd_ast, 0);
-
-  TEST_ASSERT_NOT_NULL(g_cmd_ctx);
-  TEST_ASSERT_NOT_NULL(g_cmd_ctx->from_tag_value);
-  TEST_ASSERT_NOT_NULL(g_cmd_ctx->to_tag_value);
-
-  TEST_ASSERT_EQUAL_INT64(1000,
-                          g_cmd_ctx->from_tag_value->literal.number_value);
-  TEST_ASSERT_EQUAL_INT64(2000, g_cmd_ctx->to_tag_value->literal.number_value);
-}
-
 // --- Test Runner ---
 
 int main(void) {
@@ -195,6 +171,5 @@ int main(void) {
   RUN_TEST(test_build_cmd_context_with_counter);
   RUN_TEST(test_build_cmd_context_query);
   RUN_TEST(test_build_cmd_context_mixed_tags);
-  RUN_TEST(test_build_cmd_context_time_range);
   return UNITY_END();
 }

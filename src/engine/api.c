@@ -39,13 +39,6 @@ static bool _is_valid_container_name(const char *name) {
   return _is_valid_filename(name);
 }
 
-static bool _validate_time_range(const int64_t *from, const int64_t *to) {
-  if (*to < *from) {
-    return false;
-  }
-  return true;
-}
-
 static bool _validate_ast(ast_node_t *ast, custom_key **c_keys) {
   if (!ast)
     return false;
@@ -55,8 +48,6 @@ static bool _validate_ast(ast_node_t *ast, custom_key **c_keys) {
   bool seen_entity = false;
   bool seen_take = false;
   bool seen_cursor = false;
-  int64_t *from = NULL;
-  int64_t *to = NULL;
 
   if (ast->type != AST_COMMAND_NODE || !ast->command.tags ||
       ast->command.tags->type != AST_TAG_NODE)
@@ -106,16 +97,6 @@ static bool _validate_ast(ast_node_t *ast, custom_key **c_keys) {
           return false;
         seen_cursor = true;
         break;
-      case AST_KEY_FROM:
-        if (from)
-          return false;
-        from = &t_node.value->literal.number_value;
-        break;
-      case AST_KEY_TO:
-        if (to)
-          return false;
-        to = &t_node.value->literal.number_value;
-        break;
       default:
         return false;
       }
@@ -141,7 +122,7 @@ static bool _validate_ast(ast_node_t *ast, custom_key **c_keys) {
   if (cmd_type == AST_CMD_EVENT && !seen_entity) {
     return false;
   }
-  if (cmd_type == AST_CMD_EVENT && (seen_where || from || to))
+  if (cmd_type == AST_CMD_EVENT && seen_where)
     return false;
 
   if (cmd_type == AST_CMD_QUERY && !seen_where) {
@@ -150,9 +131,6 @@ static bool _validate_ast(ast_node_t *ast, custom_key **c_keys) {
   if (cmd_type == AST_CMD_QUERY && seen_entity)
     return false;
 
-  if (from && to && !_validate_time_range(from, to)) {
-    return false;
-  }
   return true;
 }
 

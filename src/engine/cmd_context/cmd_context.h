@@ -14,8 +14,6 @@ typedef struct {
   ast_node_t *where_tag_value;
   ast_node_t *take_tag_value;
   ast_node_t *cursor_tag_value;
-  ast_node_t *from_tag_value;
-  ast_node_t *to_tag_value;
 
   // --- A Single List for All Custom Tags ---
   ast_node_t *custom_tags_head;

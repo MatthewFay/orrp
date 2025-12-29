@@ -333,7 +333,7 @@ void test_tokenize_whitespace_only(void) {
 // Test newly added keywords: entity, take, cursor, where, by, having, count,
 // from, to
 void test_tokenize_new_keywords(void) {
-  char input[] = "entity take cursor where by having count from to";
+  char input[] = "entity take cursor where by having count";
   Queue *tokens = tok_tokenize(input);
 
   TEST_ASSERT_NOT_NULL(tokens);
@@ -345,8 +345,6 @@ void test_tokenize_new_keywords(void) {
   assert_next_token(tokens, TOKEN_KW_BY, NULL, 0);
   assert_next_token(tokens, TOKEN_KW_HAVING, NULL, 0);
   assert_next_token(tokens, TOKEN_KW_COUNT, NULL, 0);
-  assert_next_token(tokens, TOKEN_KW_FROM, NULL, 0);
-  assert_next_token(tokens, TOKEN_KW_TO, NULL, 0);
 
   tok_clear_all(tokens);
   q_destroy(tokens);
@@ -355,7 +353,7 @@ void test_tokenize_new_keywords(void) {
 // Test mixed case for new keywords (tokenizer should normalize to lowercase for
 // keywords)
 void test_tokenize_new_keywords_mixed_case(void) {
-  char input[] = "Entity TAKE CurSor WHERE BY HaViNg COUNT From TO";
+  char input[] = "Entity TAKE CurSor WHERE BY HaViNg COUNT";
   Queue *tokens = tok_tokenize(input);
 
   TEST_ASSERT_NOT_NULL(tokens);
@@ -367,8 +365,6 @@ void test_tokenize_new_keywords_mixed_case(void) {
   assert_next_token(tokens, TOKEN_KW_BY, NULL, 0);
   assert_next_token(tokens, TOKEN_KW_HAVING, NULL, 0);
   assert_next_token(tokens, TOKEN_KW_COUNT, NULL, 0);
-  assert_next_token(tokens, TOKEN_KW_FROM, NULL, 0);
-  assert_next_token(tokens, TOKEN_KW_TO, NULL, 0);
 
   tok_clear_all(tokens);
   q_destroy(tokens);

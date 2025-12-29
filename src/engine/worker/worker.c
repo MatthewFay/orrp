@@ -538,6 +538,7 @@ static void _worker_cleanup(worker_t *worker) {
     return;
   }
   size_t freed_count = 0;
+  (void)freed_count; // used below in macro
 
   if (worker->str_to_entity_id) {
     khint_t k;

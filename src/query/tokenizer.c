@@ -124,22 +124,13 @@ static void _to_lowercase(char *dest, const char *src, size_t max_len) {
 struct {
   const char *kw;
   token_type type;
-} kw_map[] = {{"and", TOKEN_OP_AND},
-              {"or", TOKEN_OP_OR},
-              {"not", TOKEN_OP_NOT},
-              {"event", TOKEN_CMD_EVENT},
-              {"query", TOKEN_CMD_QUERY},
-              {"in", TOKEN_KW_IN},
-              {"id", TOKEN_KW_ID},
-              {"entity", TOKEN_KW_ENTITY},
-              {"cursor", TOKEN_KW_CURSOR},
-              {"take", TOKEN_KW_TAKE},
-              {"where", TOKEN_KW_WHERE},
-              {"by", TOKEN_KW_BY},
-              {"having", TOKEN_KW_HAVING},
-              {"count", TOKEN_KW_COUNT},
-              {.kw = "from", .type = TOKEN_KW_FROM},
-              {.kw = "to", .type = TOKEN_KW_TO}};
+} kw_map[] = {{"and", TOKEN_OP_AND},       {"or", TOKEN_OP_OR},
+              {"not", TOKEN_OP_NOT},       {"event", TOKEN_CMD_EVENT},
+              {"query", TOKEN_CMD_QUERY},  {"in", TOKEN_KW_IN},
+              {"id", TOKEN_KW_ID},         {"entity", TOKEN_KW_ENTITY},
+              {"cursor", TOKEN_KW_CURSOR}, {"take", TOKEN_KW_TAKE},
+              {"where", TOKEN_KW_WHERE},   {"by", TOKEN_KW_BY},
+              {"having", TOKEN_KW_HAVING}, {"count", TOKEN_KW_COUNT}};
 
 // Return tokens from input string.
 // TODO: Create an iterator/stream, i.e. get_next_token()

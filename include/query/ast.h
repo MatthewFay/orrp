@@ -27,8 +27,6 @@ typedef enum {
   AST_KEY_TAKE,
   AST_KEY_CURSOR,
   AST_KEY_ID, // event id, for idempotency
-  AST_KEY_FROM,
-  AST_KEY_TO
 } ast_reserved_key_t;
 
 typedef enum { AST_TAG_KEY_RESERVED, AST_TAG_KEY_CUSTOM } ast_tag_key_type_t;
