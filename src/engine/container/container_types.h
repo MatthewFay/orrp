@@ -8,7 +8,7 @@
 #include <stdatomic.h>
 
 // ============================================================================
-// Constants - Container Names & Database Counts
+// Constants - Container Names
 // ============================================================================
 
 #define SYS_CONTAINER_NAME "system"
@@ -60,6 +60,9 @@ typedef enum {
   USR_DB_COUNT,
 } eng_dc_user_db_type_t;
 
+// we set this higher to account for indexes
+#define USR_CONTAINER_MAX_NUM_DBS 32
+
 // ============================================================================
 // Structs - Container Data Structures
 // ============================================================================
@@ -107,9 +110,6 @@ typedef struct {
   // Aggregation (GROUP BY)
   // MMap Array: Index EventID -> internal EntityID
   mmap_array_t event_to_entity_map;
-
-  // MMap Array: Index EventId -> Event Timestamp (int64_t)
-  mmap_array_t event_to_ts_map;
 } eng_user_dc_t;
 
 typedef struct container_cache_node_s container_cache_node_t;

@@ -31,7 +31,6 @@ void container_close(eng_container_t *c) {
       db_close(c->env, c->data.usr->user_dc_metadata_db);
       db_close(c->env, c->data.usr->events_db);
       mmap_array_close(&c->data.usr->event_to_entity_map);
-      mmap_array_close(&c->data.usr->event_to_ts_map);
       free(c->data.usr);
     } else {
       db_close(c->env, c->data.sys->sys_dc_metadata_db);
@@ -100,7 +99,7 @@ container_result_t create_user_container(const char *name, const char *data_dir,
     return result;
   }
 
-  c->env = db_create_env(c_path, max_container_size, USR_DB_COUNT);
+  c->env = db_create_env(c_path, max_container_size, USR_CONTAINER_MAX_NUM_DBS);
   if (!c->env) {
     container_close(c);
     result.error_code = CONTAINER_ERR_ENV_CREATE;
@@ -138,22 +137,6 @@ container_result_t create_user_container(const char *name, const char *data_dir,
     container_close(c);
     result.error_code = CONTAINER_ERR_MMAP;
     result.error_msg = "Failed to open Event-Entity mmap";
-    return result;
-  }
-
-  char event_to_ts_map_path[MAX_CONTAINER_PATH_LENGTH];
-  snprintf(event_to_ts_map_path, sizeof(event_to_ts_map_path),
-           "%s/%s_evt_ts.bin", data_dir, name);
-
-  mmap_array_config_t event_to_ts_map_cfg = {.path = event_to_ts_map_path,
-                                             .item_size = sizeof(int64_t),
-                                             .initial_cap = 100000};
-
-  if (mmap_array_open(&c->data.usr->event_to_ts_map, &event_to_ts_map_cfg) !=
-      0) {
-    container_close(c);
-    result.error_code = CONTAINER_ERR_MMAP;
-    result.error_msg = "Failed to open Event-TS mmap";
     return result;
   }
 
