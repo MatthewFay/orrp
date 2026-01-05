@@ -162,8 +162,8 @@ static bool _write_to_db(eng_container_t *c, MDB_txn *txn,
 
   // TODO: HANDLE WRITE CONDITION
 
-  if (!db_put(target_db, txn, &entry->db_key.db_key, entry->value,
-              entry->value_size, false)) {
+  if (db_put(target_db, txn, &entry->db_key.db_key, entry->value,
+             entry->value_size, false, false) == DB_PUT_ERR) {
     LOG_ACTION_ERROR(ACT_DB_WRITE_FAILED, "container=\"%s\" size_bytes=%zu",
                      c->name, entry->value_size);
     return false;

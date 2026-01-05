@@ -27,6 +27,7 @@ typedef enum {
   AST_KEY_TAKE,
   AST_KEY_CURSOR,
   AST_KEY_ID, // event id, for idempotency
+  AST_KEY,
 } ast_reserved_key_t;
 
 typedef enum { AST_TAG_KEY_RESERVED, AST_TAG_KEY_CUSTOM } ast_tag_key_type_t;
@@ -83,7 +84,7 @@ typedef struct ast_logical_node_s {
   ast_node_t *right_operand;
 } ast_logical_node_t;
 
-typedef enum { AST_CMD_EVENT, AST_CMD_QUERY } ast_command_type_t;
+typedef enum { AST_CMD_EVENT, AST_CMD_QUERY, AST_CMD_INDEX } ast_command_type_t;
 
 // The root of the AST. It contains a pointer to the head of a linked list of
 // tags.

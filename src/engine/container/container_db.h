@@ -6,7 +6,8 @@
 void container_close(eng_container_t *c);
 
 container_result_t create_user_container(const char *name, const char *data_dir,
-                                         size_t max_container_size);
+                                         size_t max_container_size,
+                                         eng_container_t *sys_c);
 
 container_result_t create_system_container(const char *data_dir,
                                            size_t max_container_size);

@@ -48,7 +48,7 @@ MDB_env *db_create_env(const char *path, size_t map_size, int max_num_dbs) {
 }
 
 bool db_open(MDB_env *env, const char *db_name, bool int_only_keys,
-             MDB_dbi *db_out) {
+             db_dup_key_config_t dup_key_config, MDB_dbi *db_out) {
   if (!env || !db_name || !db_out)
     return false;
   int rc;
@@ -68,6 +68,12 @@ bool db_open(MDB_env *env, const char *db_name, bool int_only_keys,
     flags |= MDB_INTEGERKEY;
   }
 
+  if (dup_key_config == DB_DUP_KEYS) {
+    flags |= MDB_DUPSORT;
+  } else if (dup_key_config == DB_DUP_KEYS_FIXED_SIZE_VALS) {
+    flags = flags | MDB_DUPSORT | MDB_DUPFIXED;
+  }
+
   rc = mdb_dbi_open(txn, db_name, flags, &db);
   if (rc != 0) {
     fprintf(stderr, "mdb_dbi_open failed: %s\n", mdb_strerror(rc));
@@ -85,10 +91,11 @@ bool db_open(MDB_env *env, const char *db_name, bool int_only_keys,
   return true;
 }
 
-bool db_put(MDB_dbi db, MDB_txn *txn, db_key_t *key, const void *value,
-            size_t value_size, bool auto_commit) {
+db_put_result_t db_put(MDB_dbi db, MDB_txn *txn, db_key_t *key,
+                       const void *value, size_t value_size, bool auto_commit,
+                       bool no_overwrite) {
   if (txn == NULL || key == NULL || value == NULL || value_size == 0)
-    return false;
+    return DB_PUT_ERR;
 
   MDB_val mdb_key, mdb_value;
   int rc;
@@ -111,23 +118,31 @@ bool db_put(MDB_dbi db, MDB_txn *txn, db_key_t *key, const void *value,
     break;
 
   default:
-    return false;
+    return DB_PUT_ERR;
   }
 
   mdb_value.mv_size = value_size;
   mdb_value.mv_data = (void *)value;
 
-  rc = mdb_put(txn, db, &mdb_key, &mdb_value, 0);
+  uint flags = 0;
+  if (no_overwrite) {
+    flags |= MDB_NOOVERWRITE;
+  }
+
+  rc = mdb_put(txn, db, &mdb_key, &mdb_value, flags);
+  if (rc == MDB_KEYEXIST) {
+    return DB_PUT_KEY_EXISTS;
+  }
   if (rc != 0) {
     fprintf(stderr, "db_put: mdb_put failed: %s\n", mdb_strerror(rc));
-    return false;
+    return DB_PUT_ERR;
   }
 
   if (auto_commit) {
-    return db_commit_txn(txn);
+    return db_commit_txn(txn) ? DB_PUT_OK : DB_PUT_ERR;
   }
 
-  return true;
+  return DB_PUT_OK;
 }
 
 void db_get_result_clear(db_get_result_t *res) {

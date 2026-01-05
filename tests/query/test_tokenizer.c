@@ -7,10 +7,10 @@
 #include <string.h>
 
 // Helper function to dequeue the next token and assert its properties
-static void assert_next_token(Queue *tokens, token_type expected_type,
+static void assert_next_token(queue_t *tokens, token_type expected_type,
                               const char *expected_text,
                               int64_t expected_number) {
-  token_t *token = q_dequeue(tokens);
+  token_t *token = queue_dequeue(tokens);
   TEST_ASSERT_NOT_NULL(token);
 
   // Check the token's type
@@ -52,7 +52,7 @@ void test_tokenize_null_or_empty_input(void) {
 // Test simple operators and parentheses
 void test_tokenize_simple_operators(void) {
   char input[] = "() >= > <= < = :";
-  Queue *tokens = tok_tokenize(input);
+  queue_t *tokens = tok_tokenize(input);
 
   TEST_ASSERT_NOT_NULL(tokens);
 
@@ -69,13 +69,13 @@ void test_tokenize_simple_operators(void) {
   TEST_ASSERT_TRUE(q_empty(tokens));
 
   tok_clear_all(tokens);
-  q_destroy(tokens);
+  queue_destroy(tokens);
 }
 
 // Test simple identifier tokens, ensuring they are converted to lowercase
 void test_tokenize_simple_identifier_and_case(void) {
   char input[] = "HeLlO wORLD";
-  Queue *tokens = tok_tokenize(input);
+  queue_t *tokens = tok_tokenize(input);
 
   TEST_ASSERT_NOT_NULL(tokens);
 
@@ -83,13 +83,13 @@ void test_tokenize_simple_identifier_and_case(void) {
   assert_next_token(tokens, TOKEN_IDENTIFER, "world", 0);
 
   tok_clear_all(tokens);
-  q_destroy(tokens);
+  queue_destroy(tokens);
 }
 
 // Test identifier containing valid special characters
 void test_tokenize_identifier_with_special_chars(void) {
   char input[] = "first-name last_name user-id_1";
-  Queue *tokens = tok_tokenize(input);
+  queue_t *tokens = tok_tokenize(input);
 
   TEST_ASSERT_NOT_NULL(tokens);
 
@@ -98,13 +98,13 @@ void test_tokenize_identifier_with_special_chars(void) {
   assert_next_token(tokens, TOKEN_IDENTIFER, "user-id_1", 0);
 
   tok_clear_all(tokens);
-  q_destroy(tokens);
+  queue_destroy(tokens);
 }
 
 // Test simple number tokens
 void test_tokenize_simple_numbers(void) {
   char input[] = "123 45678 0";
-  Queue *tokens = tok_tokenize(input);
+  queue_t *tokens = tok_tokenize(input);
 
   TEST_ASSERT_NOT_NULL(tokens);
 
@@ -113,13 +113,13 @@ void test_tokenize_simple_numbers(void) {
   assert_next_token(tokens, TOKEN_LITERAL_NUMBER, NULL, 0);
 
   tok_clear_all(tokens);
-  q_destroy(tokens);
+  queue_destroy(tokens);
 }
 
 // Test keywords (and, or, not, event, query, in, id) are identified correctly
 void test_tokenize_keywords(void) {
   char input[] = "AND or Not event query in id";
-  Queue *tokens = tok_tokenize(input);
+  queue_t *tokens = tok_tokenize(input);
 
   TEST_ASSERT_NOT_NULL(tokens);
 
@@ -132,13 +132,13 @@ void test_tokenize_keywords(void) {
   assert_next_token(tokens, TOKEN_KW_ID, NULL, 0);
 
   tok_clear_all(tokens);
-  q_destroy(tokens);
+  queue_destroy(tokens);
 }
 
 // Test that substrings of keywords are treated as identifiers
 void test_tokenize_keywords_as_substrings(void) {
   char input[] = "sandwiches northern notorized additional queryable";
-  Queue *tokens = tok_tokenize(input);
+  queue_t *tokens = tok_tokenize(input);
 
   TEST_ASSERT_NOT_NULL(tokens);
 
@@ -149,13 +149,13 @@ void test_tokenize_keywords_as_substrings(void) {
   assert_next_token(tokens, TOKEN_IDENTIFER, "queryable", 0);
 
   tok_clear_all(tokens);
-  q_destroy(tokens);
+  queue_destroy(tokens);
 }
 
 // Test a more complex, realistic query
 void test_tokenize_complex_query(void) {
   char input[] = "(name=John AND age >= 30) OR status=active";
-  Queue *tokens = tok_tokenize(input);
+  queue_t *tokens = tok_tokenize(input);
 
   TEST_ASSERT_NOT_NULL(tokens);
 
@@ -174,28 +174,28 @@ void test_tokenize_complex_query(void) {
   assert_next_token(tokens, TOKEN_IDENTIFER, "active", 0);
 
   tok_clear_all(tokens);
-  q_destroy(tokens);
+  queue_destroy(tokens);
 }
 
 // Test that an invalid character causes tokenization to fail
 void test_tokenize_invalid_character(void) {
   // '$' is not a valid character
   char input[] = "name$value";
-  Queue *tokens = tok_tokenize(input);
+  queue_t *tokens = tok_tokenize(input);
   TEST_ASSERT_NULL(tokens);
 }
 
 // Test edge case where an operator is at the very end of the string
 void test_tokenize_operator_at_end_of_string(void) {
   char input[] = "value >";
-  Queue *tokens = tok_tokenize(input);
+  queue_t *tokens = tok_tokenize(input);
 
   TEST_ASSERT_NOT_NULL(tokens);
   assert_next_token(tokens, TOKEN_IDENTIFER, "value", 0);
   assert_next_token(tokens, TOKEN_OP_GT, NULL, 0);
 
   tok_clear_all(tokens);
-  q_destroy(tokens);
+  queue_destroy(tokens);
 }
 
 // Test number length limits
@@ -203,15 +203,15 @@ void test_tokenize_operator_at_end_of_string(void) {
 void test_tokenize_number_length_limits(void) {
   // A 19-digit number should pass (max int64 is 19 chars)
   char input_ok[] = "9223372036854775807"; // INT64_MAX
-  Queue *tokens_ok = tok_tokenize(input_ok);
+  queue_t *tokens_ok = tok_tokenize(input_ok);
   TEST_ASSERT_NOT_NULL(tokens_ok);
   assert_next_token(tokens_ok, TOKEN_LITERAL_NUMBER, NULL, INT64_MAX);
   tok_clear_all(tokens_ok);
-  q_destroy(tokens_ok);
+  queue_destroy(tokens_ok);
 
   // A 20-digit number should fail because it exceeds 19 chars
   char input_fail[] = "10000000000000000000";
-  Queue *tokens_fail = tok_tokenize(input_fail);
+  queue_t *tokens_fail = tok_tokenize(input_fail);
   TEST_ASSERT_NULL(tokens_fail);
 }
 
@@ -224,11 +224,11 @@ void test_tokenize_identifier_length_limits(void) {
   memset(long_text_ok, 'a', MAX_TEXT_VAL_LEN);
   long_text_ok[MAX_TEXT_VAL_LEN] = '\0';
 
-  Queue *tokens_ok = tok_tokenize(long_text_ok);
+  queue_t *tokens_ok = tok_tokenize(long_text_ok);
   TEST_ASSERT_NOT_NULL(tokens_ok);
   assert_next_token(tokens_ok, TOKEN_IDENTIFER, long_text_ok, 0);
   tok_clear_all(tokens_ok);
-  q_destroy(tokens_ok);
+  queue_destroy(tokens_ok);
 
   free(long_text_ok);
 
@@ -238,7 +238,7 @@ void test_tokenize_identifier_length_limits(void) {
   memset(long_text_fail, 'b', MAX_TEXT_VAL_LEN + 1);
   long_text_fail[MAX_TEXT_VAL_LEN + 1] = '\0';
 
-  Queue *tokens_fail = tok_tokenize(long_text_fail);
+  queue_t *tokens_fail = tok_tokenize(long_text_fail);
   TEST_ASSERT_NULL(tokens_fail);
   free(long_text_fail);
 }
@@ -259,26 +259,26 @@ void test_tokenize_total_char_limit(void) {
 // Test quoted string literals, including edge cases
 void test_tokenize_quoted_strings(void) {
   char input[] = "\"Hello World\" \"CaseSensitive\"";
-  Queue *tokens = tok_tokenize(input);
+  queue_t *tokens = tok_tokenize(input);
   TEST_ASSERT_NOT_NULL(tokens);
   assert_next_token(tokens, TOKEN_LITERAL_STRING, "Hello World", 0);
   assert_next_token(tokens, TOKEN_LITERAL_STRING, "CaseSensitive", 0);
   tok_clear_all(tokens);
-  q_destroy(tokens);
+  queue_destroy(tokens);
 
   // Unclosed quote should fail
   char input2[] = "\"unterminated";
-  Queue *tokens2 = tok_tokenize(input2);
+  queue_t *tokens2 = tok_tokenize(input2);
   TEST_ASSERT_NULL(tokens2);
 
   // Escapes are not allowed: quoted string with a backslash is invalid
   char input3[] = "\"Hello\\World\"";
-  Queue *tokens3 = tok_tokenize(input3);
+  queue_t *tokens3 = tok_tokenize(input3);
   TEST_ASSERT_NULL(tokens3);
 
   // Quoted string with a quote inside is invalid
   char input4[] = "\"Hello\"World\"";
-  Queue *tokens4 = tok_tokenize(input4);
+  queue_t *tokens4 = tok_tokenize(input4);
   TEST_ASSERT_NULL(tokens4);
 }
 
@@ -286,7 +286,7 @@ void test_tokenize_quoted_strings(void) {
 void test_tokenize_all_token_types(void) {
   char input[] = "event in id ( ) : \"str\" 42 and or not query >= > <= < = "
                  "!= identifier";
-  Queue *tokens = tok_tokenize(input);
+  queue_t *tokens = tok_tokenize(input);
   TEST_ASSERT_NOT_NULL(tokens);
   assert_next_token(tokens, TOKEN_CMD_EVENT, NULL, 0);
   assert_next_token(tokens, TOKEN_KW_IN, NULL, 0);
@@ -308,23 +308,23 @@ void test_tokenize_all_token_types(void) {
   assert_next_token(tokens, TOKEN_OP_NEQ, NULL, 0);
   assert_next_token(tokens, TOKEN_IDENTIFER, "identifier", 0);
   tok_clear_all(tokens);
-  q_destroy(tokens);
+  queue_destroy(tokens);
 }
 
 // Test that a quoted string with only digits is not treated as a number
 void test_tokenize_quoted_digits(void) {
   char input[] = "\"12345\"";
-  Queue *tokens = tok_tokenize(input);
+  queue_t *tokens = tok_tokenize(input);
   TEST_ASSERT_NOT_NULL(tokens);
   assert_next_token(tokens, TOKEN_LITERAL_STRING, "12345", 0);
   tok_clear_all(tokens);
-  q_destroy(tokens);
+  queue_destroy(tokens);
 }
 
 // Test that a string with only whitespace is ignored
 void test_tokenize_whitespace_only(void) {
   char input[] = "   \t\n   ";
-  Queue *tokens = tok_tokenize(input);
+  queue_t *tokens = tok_tokenize(input);
   TEST_ASSERT_NULL(tokens);
 }
 
@@ -334,7 +334,7 @@ void test_tokenize_whitespace_only(void) {
 // from, to
 void test_tokenize_new_keywords(void) {
   char input[] = "entity take cursor where by having count";
-  Queue *tokens = tok_tokenize(input);
+  queue_t *tokens = tok_tokenize(input);
 
   TEST_ASSERT_NOT_NULL(tokens);
 
@@ -347,14 +347,14 @@ void test_tokenize_new_keywords(void) {
   assert_next_token(tokens, TOKEN_KW_COUNT, NULL, 0);
 
   tok_clear_all(tokens);
-  q_destroy(tokens);
+  queue_destroy(tokens);
 }
 
 // Test mixed case for new keywords (tokenizer should normalize to lowercase for
 // keywords)
 void test_tokenize_new_keywords_mixed_case(void) {
   char input[] = "Entity TAKE CurSor WHERE BY HaViNg COUNT";
-  Queue *tokens = tok_tokenize(input);
+  queue_t *tokens = tok_tokenize(input);
 
   TEST_ASSERT_NOT_NULL(tokens);
 
@@ -367,14 +367,14 @@ void test_tokenize_new_keywords_mixed_case(void) {
   assert_next_token(tokens, TOKEN_KW_COUNT, NULL, 0);
 
   tok_clear_all(tokens);
-  q_destroy(tokens);
+  queue_destroy(tokens);
 }
 
 // Test int64 support (timestamps, large integers)
 void test_tokenize_large_int64_values(void) {
   // 1734567890123456 is a sample microsecond timestamp
   char input[] = "100 1734567890123456";
-  Queue *tokens = tok_tokenize(input);
+  queue_t *tokens = tok_tokenize(input);
 
   TEST_ASSERT_NOT_NULL(tokens);
 
@@ -382,7 +382,7 @@ void test_tokenize_large_int64_values(void) {
   assert_next_token(tokens, TOKEN_LITERAL_NUMBER, NULL, 1734567890123456LL);
 
   tok_clear_all(tokens);
-  q_destroy(tokens);
+  queue_destroy(tokens);
 }
 
 // Test integer overflow handling
@@ -392,7 +392,7 @@ void test_tokenize_int64_overflow(void) {
   char input[] = "9223372036854775808";
 
   // Should return NULL due to parse error/overflow logic
-  Queue *tokens = tok_tokenize(input);
+  queue_t *tokens = tok_tokenize(input);
   TEST_ASSERT_NULL(tokens);
 }
 

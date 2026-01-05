@@ -14,7 +14,7 @@ void tearDown(void) {}
 // Helper to run the tokenizer and parser on a raw string.
 static parse_result_t *_parse_string(const char *input_str) {
   // Tokenize creates a heap-allocated queue
-  Queue *tokens = tok_tokenize((char *)input_str);
+  queue_t *tokens = tok_tokenize((char *)input_str);
   // Parse takes ownership of the tokens queue and frees it
   return parse(tokens);
 }

@@ -287,14 +287,36 @@ static bool _eng_enqueue_cmd(cmd_ctx_t *command) {
 void eng_event(api_response_t *r, ast_node_t *ast, int64_t arrival_ts) {
   cmd_ctx_t *cmd_ctx = build_cmd_context(ast, arrival_ts);
   if (!cmd_ctx) {
-    LOG_ACTION_ERROR(ACT_CMD_CTX_BUILD_FAILED, "context=api");
+    LOG_ACTION_ERROR(ACT_CMD_CTX_BUILD_FAILED, "context=eng_event");
     r->err_msg = "Error generating command context";
     ast_free(ast);
     return;
   }
 
   if (!_eng_enqueue_cmd(cmd_ctx)) {
-    LOG_ACTION_WARN(ACT_CMD_ENQUEUE_FAILED, "reason=rate_limit");
+    LOG_ACTION_WARN(ACT_CMD_ENQUEUE_FAILED,
+                    "context=eng_event reason=rate_limit");
+    r->err_msg = "Rate limit error, please try again";
+    return;
+  }
+
+  r->is_ok = true;
+  r->resp_type = API_RESP_TYPE_ACK;
+}
+
+// Takes ownership of `ast`
+void eng_index(api_response_t *r, ast_node_t *ast) {
+  cmd_ctx_t *cmd_ctx = build_cmd_context(ast, -1);
+  if (!cmd_ctx) {
+    LOG_ACTION_ERROR(ACT_CMD_CTX_BUILD_FAILED, "context=eng_index");
+    r->err_msg = "Error generating command context";
+    ast_free(ast);
+    return;
+  }
+
+  if (!_eng_enqueue_cmd(cmd_ctx)) {
+    LOG_ACTION_WARN(ACT_CMD_ENQUEUE_FAILED,
+                    "context=eng_index reason=rate_limit");
     r->err_msg = "Rate limit error, please try again";
     return;
   }
@@ -371,7 +393,7 @@ static void _handle_query_result(eng_query_result_t *query_r, api_response_t *r,
 void eng_query(api_response_t *r, ast_node_t *ast) {
   cmd_ctx_t *cmd_ctx = build_cmd_context(ast, -1);
   if (!cmd_ctx) {
-    LOG_ACTION_ERROR(ACT_CMD_CTX_BUILD_FAILED, "context=api");
+    LOG_ACTION_ERROR(ACT_CMD_CTX_BUILD_FAILED, "context=eng_query");
     r->err_msg = "Error generating command context";
     ast_free(ast);
     return;

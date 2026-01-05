@@ -14,7 +14,7 @@
 // This helper function simulates the entire server flow from string to response
 static api_response_t *run_command(const char *command_string) {
   // 1. Tokenize
-  Queue *tokens = tok_tokenize((char *)command_string);
+  queue_t *tokens = tok_tokenize((char *)command_string);
   if (!tokens)
     return NULL;
 

@@ -2,19 +2,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-typedef struct Node {
-  void *value;
-  struct Node *next;
-} Node;
-
-struct Queue {
-  Node *head; // Points to the front of the queue
-  Node *tail; // Points to the back of the queue
-  int size;
-};
-
-Queue *q_create(void) {
-  Queue *q = malloc(sizeof(Queue));
+queue_t *queue_create(void) {
+  queue_t *q = malloc(sizeof(queue_t));
   if (!q) {
     return NULL;
   }
@@ -24,14 +13,14 @@ Queue *q_create(void) {
   return q;
 }
 
-void q_destroy(Queue *q) {
+void queue_destroy(queue_t *q) {
   if (!q) {
     return;
   }
 
-  Node *current = q->head;
+  queue_node_t *current = q->head;
   while (current != NULL) {
-    Node *temp = current;
+    queue_node_t *temp = current;
     current = current->next;
     // NOTE: We do NOT free temp->value. That is the user's responsibility.
     free(temp);
@@ -40,11 +29,11 @@ void q_destroy(Queue *q) {
   free(q);
 }
 
-void q_enqueue(Queue *q, void *value) {
+void queue_enqueue(queue_t *q, void *value) {
   if (!q)
     return;
 
-  Node *newNode = malloc(sizeof(Node));
+  queue_node_t *newNode = malloc(sizeof(queue_node_t));
   if (!newNode) {
     fprintf(stderr, "Error: Failed to allocate memory for new queue node.\n");
     return; // TODO: handle error more gracefully
@@ -52,7 +41,7 @@ void q_enqueue(Queue *q, void *value) {
   newNode->value = value;
   newNode->next = NULL;
 
-  if (q_empty(q)) {
+  if (queue_empty(q)) {
     // If the queue is empty, the new node is both the head and the tail.
     q->head = newNode;
     q->tail = newNode;
@@ -64,12 +53,12 @@ void q_enqueue(Queue *q, void *value) {
   q->size++;
 }
 
-void *q_dequeue(Queue *q) {
-  if (!q || q_empty(q)) {
+void *queue_dequeue(queue_t *q) {
+  if (!q || queue_empty(q)) {
     return NULL;
   }
 
-  Node *temp = q->head;
+  queue_node_t *temp = q->head;
   void *value = temp->value;
 
   q->head = q->head->next;
@@ -86,16 +75,16 @@ void *q_dequeue(Queue *q) {
   return value;
 }
 
-void *q_peek(const Queue *q) {
-  if (!q || q_empty(q)) {
+void *queue_peek(const queue_t *q) {
+  if (!q || queue_empty(q)) {
     return NULL;
   }
   return q->head->value;
 }
 
-bool q_empty(const Queue *q) { return (q == NULL) || (q->size == 0); }
+bool queue_empty(const queue_t *q) { return (q == NULL) || (q->size == 0); }
 
-int q_size(const Queue *q) {
+int queue_size(const queue_t *q) {
   if (!q)
     return 0;
   return q->size;

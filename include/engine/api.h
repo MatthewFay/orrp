@@ -8,7 +8,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-enum api_op_type { API_INVALID, API_EVENT, API_QUERY };
+enum api_op_type { API_INVALID, API_EVENT, API_QUERY, API_INDEX };
 
 enum api_resp_type {
   API_RESP_TYPE_LIST_U32,

@@ -3,8 +3,10 @@
 
 #include "core/db.h"
 #include "core/mmap_array.h"
+#include "khash.h"
 #include "lmdb.h"
 #include "uthash.h"
+#include "uv.h" // IWYU pragma: keep
 #include <stdatomic.h>
 
 // ============================================================================
@@ -20,6 +22,7 @@
 #define SYS_DB_STR_TO_ENTITY_NAME "str_to_entity_id_db"
 #define SYS_DB_INT_TO_ENTITY_NAME "int_to_entity_id_db"
 #define SYS_DB_METADATA_NAME "sys_dc_metadata_db"
+#define SYS_DB_INDEX_REGISTRY_GLOBAL_NAME "index_registry_global_db"
 
 // ============================================================================
 // Constants - User Database Names
@@ -28,6 +31,7 @@
 #define USR_DB_INVERTED_EVENT_INDEX_NAME "inverted_event_index_db"
 #define USR_DB_METADATA_NAME "user_dc_metadata_db"
 #define USR_DB_EVENTS_NAME "events_db"
+#define USR_DB_INDEX_REGISTRY_LOCAL_NAME "index_registry_local_db"
 
 // ============================================================================
 // Constants - Metadata Keys & Initial Values
@@ -50,6 +54,7 @@ typedef enum {
   SYS_DB_STR_TO_ENTITY_ID = 0,
   SYS_DB_INT_TO_ENTITY_ID,
   SYS_DB_METADATA,
+  SYS_DB_INDEX_REGISTRY_GLOBAL,
   SYS_DB_COUNT
 } eng_dc_sys_db_type_t;
 
@@ -57,15 +62,31 @@ typedef enum {
   USR_DB_INVERTED_EVENT_INDEX = 0,
   USR_DB_METADATA,
   USR_DB_EVENTS,
+  USR_DB_INDEX_REGISTRY_LOCAL,
   USR_DB_COUNT,
 } eng_dc_user_db_type_t;
 
 // we set this higher to account for indexes
 #define USR_CONTAINER_MAX_NUM_DBS 32
+#define USR_CONTAINER_MAX_NUM_INDEXES USR_CONTAINER_MAX_NUM_DBS - USR_DB_COUNT
 
 // ============================================================================
 // Structs - Container Data Structures
 // ============================================================================
+
+typedef enum { CONTAINER_INDEX_TYPE_I64 } container_index_type_t;
+
+typedef struct {
+  char *key;
+  container_index_type_t type;
+} container_index_def_t;
+
+typedef struct {
+  container_index_def_t index_def;
+  MDB_dbi index_db;
+} container_index_t;
+
+KHASH_MAP_INIT_STR(key_index, container_index_t)
 
 /**
  * System data container (Global Directory)
@@ -84,6 +105,8 @@ typedef struct {
 
   // Contains atomic counter for generating new entity integer IDs
   MDB_dbi sys_dc_metadata_db;
+
+  MDB_dbi index_registry_global_db;
 } eng_sys_dc_t;
 
 /**
@@ -110,6 +133,10 @@ typedef struct {
   // Aggregation (GROUP BY)
   // MMap Array: Index EventID -> internal EntityID
   mmap_array_t event_to_entity_map;
+
+  MDB_dbi index_registry_local_db;
+
+  khash_t(key_index) * key_to_index;
 } eng_user_dc_t;
 
 typedef struct container_cache_node_s container_cache_node_t;
@@ -171,6 +198,7 @@ typedef enum {
   CONTAINER_ERR_DB_OPEN,
   CONTAINER_ERR_CACHE_FULL,
   CONTAINER_ERR_MMAP,
+  CONTAINER_ERR_INDEX
 } container_error_code_t;
 
 typedef struct {

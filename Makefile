@@ -51,6 +51,7 @@ LIBS = -lm -lpthread
 
 # Main application sources
 APP_SRCS = \
+       src/core/bin_log.c \
 		   src/core/bitmaps.c \
 			 src/core/conversions.c \
 		   src/core/db.c \
@@ -220,7 +221,8 @@ zlog: $(ZLOG_STATIC)
 #      $(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 # Main 'test' target: builds and runs all listed test executables
-test: bin/test_bitmaps \
+test: bin/test_bin_log \
+      bin/test_bitmaps \
 			bin/test_conversions \
 			bin/test_db \
 			bin/test_hash \
@@ -246,6 +248,8 @@ test: bin/test_bitmaps \
 			bin/test_parser \
 			bin/test_event_api \
 			bin/test_query
+	@echo "--- Running bin_log test ---"
+	./bin/test_bin_log
 	@echo "--- Running bitmaps test ---"
 	./bin/test_bitmaps
 	@echo "--- Running conversions test ---"
@@ -305,7 +309,8 @@ test: bin/test_bitmaps \
 	@echo "--- All tests finished successfully ---"
 
 # 'test_build' target: builds all test executables
-test_build: bin/test_bitmaps \
+test_build: bin/test_bin_log \
+						bin/test_bitmaps \
 						bin/test_conversions \
 						bin/test_db \
 						bin/test_hash \
@@ -333,6 +338,12 @@ test_build: bin/test_bitmaps \
 						bin/test_query
 
 # --- INDIVIDUAL TEST BUILD RULES ---
+
+# Rule to build the bin_log test executable
+bin/test_bin_log: 	tests/core/test_bin_log.c \
+										src/core/bin_log.c \
+										${UNITY_SRC} | $(BIN_DIR) $(LIBUV_A)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS) $(LIBUV_A)
 
 # Rule to build the bitmaps test executable
 bin/test_bitmaps: 	tests/core/test_bitmaps.c \

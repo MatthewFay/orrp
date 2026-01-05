@@ -12,12 +12,12 @@
 #include <string.h>
 
 // Parse the next tag, if it exists
-static ast_node_t *_parse_tag(Queue *tokens, parse_result_t *r);
+static ast_node_t *_parse_tag(queue_t *tokens, parse_result_t *r);
 
-static bool _parse_tags(Queue *tokens, ast_node_t *cmd_node,
+static bool _parse_tags(queue_t *tokens, ast_node_t *cmd_node,
                         parse_result_t *r) {
   int num_cus_tags = 0;
-  while (!q_empty(tokens)) {
+  while (!queue_empty(tokens)) {
     ast_node_t *tag = _parse_tag(tokens, r);
     if (!tag) {
       r->error_message = "Invalid tag";
@@ -36,8 +36,24 @@ static bool _parse_tags(Queue *tokens, ast_node_t *cmd_node,
   return true;
 }
 
-static void _parse_event(Queue *tokens, parse_result_t *r) {
+static void _parse_event(queue_t *tokens, parse_result_t *r) {
   ast_command_type_t cmd_type = AST_CMD_EVENT;
+  ast_node_t *cmd_node = ast_create_command_node(cmd_type, NULL);
+  if (!cmd_node) {
+    r->error_message = "Failed to allocate command node";
+    return;
+  }
+  if (!_parse_tags(tokens, cmd_node, r)) {
+    ast_free(cmd_node);
+    return;
+  }
+
+  r->type = PARSER_OP_TYPE_WRITE;
+  r->ast = cmd_node;
+}
+
+static void _parse_index(queue_t *tokens, parse_result_t *r) {
+  ast_command_type_t cmd_type = AST_CMD_INDEX;
   ast_node_t *cmd_node = ast_create_command_node(cmd_type, NULL);
   if (!cmd_node) {
     r->error_message = "Failed to allocate command node";
@@ -182,7 +198,7 @@ static void *cleanup_stacks_and_return_null(c_stack_t *value_stack,
 }
 
 // Expression parser:  Shunting-Yard
-static ast_node_t *_parse_exp(Queue *tokens, parse_result_t *r) {
+static ast_node_t *_parse_exp(queue_t *tokens, parse_result_t *r) {
   c_stack_t *value_stack = stack_create();
   c_stack_t *op_stack = stack_create();
   if (!value_stack || !op_stack) {
@@ -192,7 +208,7 @@ static ast_node_t *_parse_exp(Queue *tokens, parse_result_t *r) {
     return NULL;
   }
 
-  token_t *lparen = q_dequeue(tokens);
+  token_t *lparen = queue_dequeue(tokens);
   if (!lparen || lparen->type != TOKEN_SYM_LPAREN) {
     tok_free(lparen);
     r->error_message = "Expression must start with '('";
@@ -209,22 +225,22 @@ static ast_node_t *_parse_exp(Queue *tokens, parse_result_t *r) {
   // '(') or an operator (like 'AND' or ')').
   bool expect_operand = true;
 
-  while (!q_empty(tokens) && paren_depth > 0) {
-    token_t *token = q_peek(tokens);
+  while (!queue_empty(tokens) && paren_depth > 0) {
+    token_t *token = queue_peek(tokens);
 
     if (expect_operand) {
       if (token->type == TOKEN_IDENTIFER ||
           token->type == TOKEN_LITERAL_NUMBER) {
-        token_t *operand_tok = q_dequeue(tokens);
+        token_t *operand_tok = queue_dequeue(tokens);
         ast_node_t *node;
-        token_t *next_tok = q_peek(tokens);
+        token_t *next_tok = queue_peek(tokens);
 
         if (operand_tok->type == TOKEN_IDENTIFER && next_tok &&
             next_tok->type == TOKEN_SYM_COLON) {
           // consume colon
-          tok_free(q_dequeue(tokens));
+          tok_free(queue_dequeue(tokens));
 
-          token_t *val_tok = q_dequeue(tokens);
+          token_t *val_tok = queue_dequeue(tokens);
           if (!val_tok) {
             tok_free(operand_tok);
             r->error_message = "Unexpected end of query after tag key";
@@ -273,7 +289,7 @@ static ast_node_t *_parse_exp(Queue *tokens, parse_result_t *r) {
       } else if (token->type == TOKEN_OP_NOT ||
                  token->type == TOKEN_SYM_LPAREN) {
         paren_depth++;
-        token_t *op_to_push = q_dequeue(tokens);
+        token_t *op_to_push = queue_dequeue(tokens);
         if (!stack_push(op_stack, op_to_push)) {
           tok_free(op_to_push);
           return cleanup_stacks_and_return_null(value_stack, op_stack);
@@ -306,7 +322,7 @@ static ast_node_t *_parse_exp(Queue *tokens, parse_result_t *r) {
             break;
           }
         }
-        token_t *op_to_push = q_dequeue(tokens);
+        token_t *op_to_push = queue_dequeue(tokens);
         if (!stack_push(op_stack, op_to_push)) {
           tok_free(op_to_push);
           return cleanup_stacks_and_return_null(value_stack, op_stack);
@@ -329,7 +345,7 @@ static ast_node_t *_parse_exp(Queue *tokens, parse_result_t *r) {
           r->error_message = "Mismatched parentheses";
           return cleanup_stacks_and_return_null(value_stack, op_stack);
         }
-        tok_free(q_dequeue(tokens)); // Consume and discard the ')'
+        tok_free(queue_dequeue(tokens)); // Consume and discard the ')'
         expect_operand = false; // After a ')', we expect a binary operator.
       } else {
         r->error_message = "Syntax error: Unexpected token, expected operator.";
@@ -362,7 +378,7 @@ static ast_node_t *_parse_exp(Queue *tokens, parse_result_t *r) {
   return exp_tree;
 }
 
-static void _parse_query(Queue *tokens, parse_result_t *r) {
+static void _parse_query(queue_t *tokens, parse_result_t *r) {
   ast_command_type_t cmd_type = AST_CMD_QUERY;
   ast_node_t *cmd_node = ast_create_command_node(cmd_type, NULL);
   if (!cmd_node) {
@@ -394,39 +410,47 @@ static bool _is_token_a_command(const token_t *token) {
   switch (token->type) {
   case TOKEN_CMD_QUERY:
   case TOKEN_CMD_EVENT:
+  case TOKEN_CMD_INDEX:
     return true;
   default:
     return false;
   }
 }
 
-parse_result_t *parse(Queue *tokens) {
+parse_result_t *parse(queue_t *tokens) {
   parse_result_t *r = _create_result();
   if (!tokens) {
     r->error_message = "Invalid input: token queue is NULL.";
     return r;
   }
-  if (q_empty(tokens)) {
+  if (queue_empty(tokens)) {
     r->error_message = "Invalid input: token queue is empty.";
     return r;
   }
-  token_t *cmd_token = q_dequeue(tokens);
+  token_t *cmd_token = queue_dequeue(tokens);
   if (!cmd_token || !_is_token_a_command(cmd_token)) {
     tok_clear_all(tokens);
     r->error_message = "Invalid command!";
     return r;
   }
 
-  if (cmd_token->type == TOKEN_CMD_EVENT) {
+  switch (cmd_token->type) {
+  case TOKEN_CMD_EVENT:
     _parse_event(tokens, r);
-  } else if (cmd_token->type == TOKEN_CMD_QUERY) {
+    break;
+  case TOKEN_CMD_QUERY:
     _parse_query(tokens, r);
-  } else {
+    break;
+  case TOKEN_CMD_INDEX:
+    _parse_index(tokens, r);
+    break;
+  default:
     tok_free(cmd_token);
     tok_clear_all(tokens);
     r->error_message = "Unrecognized command!";
     return r;
   }
+
   tok_free(cmd_token);
   tok_clear_all(tokens);
   return r;
@@ -451,6 +475,7 @@ static bool _is_token_kw(token_t *t) {
   case TOKEN_KW_BY:
   case TOKEN_KW_COUNT:
   case TOKEN_KW_HAVING:
+  case TOKEN_KW_KEY:
     return true;
   default:
     return false;
@@ -462,14 +487,14 @@ static bool _is_literal_or_identifier(token_t *tok) {
          tok->type == TOKEN_LITERAL_NUMBER;
 }
 
-static ast_node_t *_parse_tag(Queue *tokens, parse_result_t *r) {
+static ast_node_t *_parse_tag(queue_t *tokens, parse_result_t *r) {
   ast_node_t *tag = NULL;
   ast_node_t *tag_val = NULL;
 
   // need at least 3 tokens for a tag (key:value)
-  if (q_size(tokens) < 3)
+  if (queue_size(tokens) < 3)
     return NULL;
-  token_t *key_token = q_dequeue(tokens);
+  token_t *key_token = queue_dequeue(tokens);
   if (!key_token)
     return NULL;
   token_type key_token_type = key_token->type;
@@ -498,6 +523,9 @@ static ast_node_t *_parse_tag(Queue *tokens, parse_result_t *r) {
     // case TOKEN_KW_CURSOR:
     //   kt = AST_KEY_CURSOR;
     //   break;
+    case TOKEN_KW_KEY:
+      kt = AST_KEY;
+      break;
     default:
       free(key_token);
       return NULL;
@@ -514,7 +542,7 @@ static ast_node_t *_parse_tag(Queue *tokens, parse_result_t *r) {
     return NULL;
   }
 
-  token_t *sep = q_dequeue(tokens);
+  token_t *sep = queue_dequeue(tokens);
   if (!sep || sep->type != TOKEN_SYM_COLON) {
     free(sep);
     ast_free(tag);
@@ -522,7 +550,7 @@ static ast_node_t *_parse_tag(Queue *tokens, parse_result_t *r) {
   }
   free(sep);
 
-  token_t *first_val_token = q_peek(tokens);
+  token_t *first_val_token = queue_peek(tokens);
   if (!first_val_token) {
     ast_free(tag);
     return NULL;
@@ -554,7 +582,7 @@ static ast_node_t *_parse_tag(Queue *tokens, parse_result_t *r) {
 
   if (first_val_token->type == TOKEN_IDENTIFER ||
       first_val_token->type == TOKEN_LITERAL_STRING) {
-    first_val_token = q_dequeue(tokens);
+    first_val_token = queue_dequeue(tokens);
     size_t valid_len = tag->tag.reserved_key == AST_KEY_ENTITY
                            ? MAX_ENTITY_STR_LEN
                            : MAX_TEXT_VAL_LEN;
@@ -571,7 +599,7 @@ static ast_node_t *_parse_tag(Queue *tokens, parse_result_t *r) {
     }
     tag->tag.value = tag_val;
   } else if (first_val_token->type == TOKEN_LITERAL_NUMBER) {
-    first_val_token = q_dequeue(tokens);
+    first_val_token = queue_dequeue(tokens);
 
     tag_val = ast_create_number_literal_node(first_val_token->number_value);
     free(first_val_token);

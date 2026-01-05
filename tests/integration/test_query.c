@@ -38,7 +38,7 @@ static void _safe_remove_db_file(const char *container_name) {
 }
 
 static api_response_t *run_command(const char *command_string) {
-  Queue *tokens = tok_tokenize((char *)command_string);
+  queue_t *tokens = tok_tokenize((char *)command_string);
   if (!tokens)
     return NULL;
 

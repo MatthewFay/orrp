@@ -38,16 +38,16 @@ static bool _is_valid_container_name(const char *name) {
   // Container names are used as part of file name
   return _is_valid_filename(name);
 }
-
 static bool _validate_ast(ast_node_t *ast, custom_key **c_keys) {
   if (!ast)
     return false;
   bool seen_in = false;
-  bool seen_id = false;
+  // bool seen_id = false;
   bool seen_where = false;
   bool seen_entity = false;
-  bool seen_take = false;
-  bool seen_cursor = false;
+  // bool seen_take = false;
+  // bool seen_cursor = false;
+  bool seen_key = false;
 
   if (ast->type != AST_COMMAND_NODE || !ast->command.tags ||
       ast->command.tags->type != AST_TAG_NODE)
@@ -63,23 +63,24 @@ static bool _validate_ast(ast_node_t *ast, custom_key **c_keys) {
     if (t_node.key_type == AST_TAG_KEY_RESERVED) {
       switch (t_node.reserved_key) {
       case AST_KEY_IN:
-        if (seen_in ||
+        if (seen_in || cmd_type == AST_CMD_INDEX ||
             !_is_valid_container_name(t_node.value->literal.string_value))
           return false;
         seen_in = true;
         break;
       case AST_KEY_ID:
-        if (seen_id)
-          return false;
-        seen_id = true;
-        break;
+        return false; // not yet implemented
+                      // if (seen_id || cmd_type != AST_CMD_EVENT)
+                      //   return false;
+                      // seen_id = true;
+                      // break;
       case AST_KEY_WHERE:
         if (seen_where || cmd_type != AST_CMD_QUERY)
           return false;
         seen_where = true;
         break;
       case AST_KEY_ENTITY:
-        if (seen_entity)
+        if (seen_entity || cmd_type != AST_CMD_EVENT)
           return false;
         seen_entity = true;
         if (t_node.value->literal.type == AST_LITERAL_STRING &&
@@ -88,19 +89,28 @@ static bool _validate_ast(ast_node_t *ast, custom_key **c_keys) {
         }
         break;
       case AST_KEY_TAKE:
-        if (seen_take)
-          return false;
-        seen_take = true;
-        break;
+        return false; // not yet implemented
+        // if (seen_take || cmd_type != AST_CMD_QUERY)
+        //   return false;
+        // seen_take = true;
+        // break;
       case AST_KEY_CURSOR:
-        if (seen_cursor)
+        return false; // not yet implemented
+        // if (seen_cursor || cmd_type != AST_CMD_QUERY)
+        //   return false;
+        // seen_cursor = true;
+        // break;
+      case AST_KEY:
+        if (seen_key || cmd_type != AST_CMD_INDEX)
           return false;
-        seen_cursor = true;
+        seen_key = true;
         break;
       default:
         return false;
       }
     } else {
+      if (cmd_type != AST_CMD_EVENT)
+        return false;
       HASH_FIND_STR(*c_keys, t_node.custom_key, c_key);
       if (c_key) {
         return false;
@@ -115,21 +125,21 @@ static bool _validate_ast(ast_node_t *ast, custom_key **c_keys) {
     tag = tag->next;
   }
 
-  if (!seen_in) {
+  if (!seen_in && cmd_type != AST_CMD_INDEX) {
     return false;
   }
 
   if (cmd_type == AST_CMD_EVENT && !seen_entity) {
     return false;
   }
-  if (cmd_type == AST_CMD_EVENT && seen_where)
-    return false;
 
   if (cmd_type == AST_CMD_QUERY && !seen_where) {
     return false;
   }
-  if (cmd_type == AST_CMD_QUERY && seen_entity)
+
+  if (cmd_type == AST_CMD_INDEX && !seen_key) {
     return false;
+  }
 
   return true;
 }
@@ -182,6 +192,13 @@ static api_response_t *_api_query(ast_node_t *ast, api_response_t *r) {
   return r;
 }
 
+static api_response_t *_api_index(ast_node_t *ast, api_response_t *r) {
+  r->op_type = API_INDEX;
+
+  eng_index(r, ast);
+  return r;
+}
+
 // The single entry point into the API/Engine layer.
 // Validates the AST before passing it into the core engine for execution.
 // `api_exec` takes ownership of `ast`.
@@ -214,6 +231,11 @@ api_response_t *api_exec(ast_node_t *ast, int64_t arrival_ts) {
 
   case AST_CMD_QUERY:
     _api_query(ast, r);
+
+    break;
+
+  case AST_CMD_INDEX:
+    _api_index(ast, r);
 
     break;
 

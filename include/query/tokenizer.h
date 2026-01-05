@@ -9,6 +9,7 @@ typedef enum {
   // --- Commands ---
   TOKEN_CMD_EVENT,
   TOKEN_CMD_QUERY,
+  TOKEN_CMD_INDEX,
 
   // --- Reserved Keywords ---
   TOKEN_KW_IN,
@@ -20,6 +21,7 @@ typedef enum {
   TOKEN_KW_BY,
   TOKEN_KW_HAVING,
   TOKEN_KW_COUNT,
+  TOKEN_KW_KEY,
 
   TOKEN_IDENTIFER, // unquoted text
 
@@ -49,9 +51,9 @@ typedef struct token_s {
   int64_t number_value;
 } token_t;
 
-Queue *tok_tokenize(char *input);
+queue_t *tok_tokenize(char *input);
 
-void tok_clear_all(Queue *tokens);
+void tok_clear_all(queue_t *tokens);
 
 void tok_free(token_t *token);
 

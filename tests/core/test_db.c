@@ -27,7 +27,7 @@ void setUp(void) {
   TEST_ASSERT_NOT_NULL(test_env);
 
   // Open test database
-  bool result = db_open(test_env, "test_db", false, &test_db);
+  bool result = db_open(test_env, "test_db", false, DB_DUP_NONE, &test_db);
   TEST_ASSERT_TRUE(result);
 }
 
@@ -78,7 +78,7 @@ void test_db_create_env_zero_map_size(void) {
 // Test db_open
 void test_db_open_success(void) {
   MDB_dbi db;
-  bool result = db_open(test_env, "new_test_db", false, &db);
+  bool result = db_open(test_env, "new_test_db", false, DB_DUP_NONE, &db);
   TEST_ASSERT_TRUE(result);
 
   db_close(test_env, db);
@@ -86,12 +86,12 @@ void test_db_open_success(void) {
 
 void test_db_open_null_env(void) {
   MDB_dbi db;
-  bool result = db_open(NULL, "test_db", false, &db);
+  bool result = db_open(NULL, "test_db", false, DB_DUP_NONE, &db);
   TEST_ASSERT_FALSE(result);
 }
 
 void test_db_open_null_db_out(void) {
-  bool result = db_open(test_env, "test_db", false, NULL);
+  bool result = db_open(test_env, "test_db", false, DB_DUP_NONE, NULL);
   TEST_ASSERT_FALSE(result);
 }
 
@@ -123,8 +123,9 @@ void test_db_put_string_key_success(void) {
   db_key_t key = {.type = DB_KEY_STRING, .key.s = "test_key"};
   const char *value = "test_value";
 
-  bool result = db_put(test_db, txn, &key, value, strlen(value), false);
-  TEST_ASSERT_TRUE(result);
+  db_put_result_t result =
+      db_put(test_db, txn, &key, value, strlen(value), false, false);
+  TEST_ASSERT_EQUAL(result, DB_PUT_OK);
 
   bool commit_result = db_commit_txn(txn);
   TEST_ASSERT_TRUE(commit_result);
@@ -137,8 +138,9 @@ void test_db_put_string_key_auto_commit(void) {
   db_key_t key = {.type = DB_KEY_STRING, .key.s = "auto_commit_key"};
   const char *value = "auto_commit_value";
 
-  bool result = db_put(test_db, txn, &key, value, strlen(value), true);
-  TEST_ASSERT_TRUE(result);
+  db_put_result_t result =
+      db_put(test_db, txn, &key, value, strlen(value), true, false);
+  TEST_ASSERT_EQUAL(result, DB_PUT_OK);
 }
 
 void test_db_put_integer_key_success(void) {
@@ -148,8 +150,9 @@ void test_db_put_integer_key_success(void) {
   db_key_t key = {.type = DB_KEY_U32, .key.u32 = 42};
   const char *value = "integer_key_value";
 
-  bool result = db_put(test_db, txn, &key, value, strlen(value), false);
-  TEST_ASSERT_TRUE(result);
+  db_put_result_t result =
+      db_put(test_db, txn, &key, value, strlen(value), false, false);
+  TEST_ASSERT_EQUAL(result, DB_PUT_OK);
 
   bool commit_result = db_commit_txn(txn);
   TEST_ASSERT_TRUE(commit_result);
@@ -159,8 +162,9 @@ void test_db_put_null_txn(void) {
   db_key_t key = {.type = DB_KEY_STRING, .key.s = "test_key"};
   const char *value = "test_value";
 
-  bool result = db_put(test_db, NULL, &key, value, strlen(value), false);
-  TEST_ASSERT_FALSE(result);
+  db_put_result_t result =
+      db_put(test_db, NULL, &key, value, strlen(value), false, false);
+  TEST_ASSERT_EQUAL(result, DB_PUT_ERR);
 }
 
 void test_db_put_null_key(void) {
@@ -169,8 +173,9 @@ void test_db_put_null_key(void) {
 
   const char *value = "test_value";
 
-  bool result = db_put(test_db, txn, NULL, value, strlen(value), false);
-  TEST_ASSERT_FALSE(result);
+  db_put_result_t result =
+      db_put(test_db, txn, NULL, value, strlen(value), false, false);
+  TEST_ASSERT_EQUAL(result, DB_PUT_ERR);
 
   db_abort_txn(txn);
 }
@@ -182,8 +187,9 @@ void test_db_put_invalid_key_type(void) {
   db_key_t key = {.type = 99, .key.s = "invalid_type"}; // Invalid type
   const char *value = "test_value";
 
-  bool result = db_put(test_db, txn, &key, value, strlen(value), false);
-  TEST_ASSERT_FALSE(result);
+  db_put_result_t result =
+      db_put(test_db, txn, &key, value, strlen(value), false, false);
+  TEST_ASSERT_EQUAL(result, DB_PUT_ERR);
 
   db_abort_txn(txn);
 }
@@ -197,9 +203,9 @@ void test_db_get_string_key_found(void) {
   db_key_t key = {.type = DB_KEY_STRING, .key.s = "get_test_key"};
   const char *expected_value = "get_test_value";
 
-  bool put_result = db_put(test_db, put_txn, &key, expected_value,
-                           strlen(expected_value), true);
-  TEST_ASSERT_TRUE(put_result);
+  db_put_result_t put_result = db_put(test_db, put_txn, &key, expected_value,
+                                      strlen(expected_value), true, false);
+  TEST_ASSERT_EQUAL(put_result, DB_PUT_OK);
 
   // Now try to get it
   MDB_txn *get_txn = db_create_txn(test_env, true);
@@ -241,9 +247,9 @@ void test_db_get_integer_key_found(void) {
   db_key_t key = {.type = DB_KEY_U32, .key.u32 = 123};
   const char *expected_value = "integer_value";
 
-  bool put_result = db_put(test_db, put_txn, &key, expected_value,
-                           strlen(expected_value), true);
-  TEST_ASSERT_TRUE(put_result);
+  db_put_result_t put_result = db_put(test_db, put_txn, &key, expected_value,
+                                      strlen(expected_value), true, false);
+  TEST_ASSERT_EQUAL(put_result, DB_PUT_OK);
 
   // Now try to get it
   MDB_txn *get_txn = db_create_txn(test_env, true);
@@ -293,9 +299,9 @@ void test_db_put_get_binary_data(void) {
   char binary_data[] = {0x00, 0x01, 0x02, 0x03, 0xFF, 0xFE, 0xFD};
   size_t binary_size = sizeof(binary_data);
 
-  bool put_result =
-      db_put(test_db, put_txn, &key, binary_data, binary_size, true);
-  TEST_ASSERT_TRUE(put_result);
+  db_put_result_t put_result =
+      db_put(test_db, put_txn, &key, binary_data, binary_size, true, false);
+  TEST_ASSERT_EQUAL(put_result, DB_PUT_OK);
 
   // Get binary data
   MDB_txn *get_txn = db_create_txn(test_env, true);
@@ -327,8 +333,9 @@ void test_db_put_get_large_data(void) {
     large_data[i] = (char)(i % 256);
   }
 
-  bool put_result = db_put(test_db, put_txn, &key, large_data, 1024, true);
-  TEST_ASSERT_TRUE(put_result);
+  db_put_result_t put_result =
+      db_put(test_db, put_txn, &key, large_data, 1024, true, false);
+  TEST_ASSERT_EQUAL(put_result, DB_PUT_OK);
 
   // Get large data
   MDB_txn *get_txn = db_create_txn(test_env, true);
@@ -358,9 +365,9 @@ void test_db_integer_key_ordering(void) {
 
   for (size_t i = 0; i < num_keys; i++) {
     db_key_t key = {.type = DB_KEY_U32, .key.u32 = keys[i]};
-    bool result =
-        db_put(test_db, put_txn, &key, values[i], strlen(values[i]), false);
-    TEST_ASSERT_TRUE(result);
+    db_put_result_t result = db_put(test_db, put_txn, &key, values[i],
+                                    strlen(values[i]), false, false);
+    TEST_ASSERT_EQUAL(result, DB_PUT_OK);
   }
 
   bool commit_result = db_commit_txn(put_txn);
@@ -393,16 +400,18 @@ void test_db_put_overwrite_value(void) {
   db_key_t key = {.type = DB_KEY_STRING, .key.s = "overwrite_key"};
   const char *value1 = "original_value";
 
-  bool put_result1 = db_put(test_db, txn1, &key, value1, strlen(value1), true);
-  TEST_ASSERT_TRUE(put_result1);
+  db_put_result_t put_result1 =
+      db_put(test_db, txn1, &key, value1, strlen(value1), true, false);
+  TEST_ASSERT_EQUAL(put_result1, DB_PUT_OK);
 
   // Overwrite with new value
   MDB_txn *txn2 = db_create_txn(test_env, false);
   TEST_ASSERT_NOT_NULL(txn2);
 
   const char *value2 = "new_value";
-  bool put_result2 = db_put(test_db, txn2, &key, value2, strlen(value2), true);
-  TEST_ASSERT_TRUE(put_result2);
+  db_put_result_t put_result2 =
+      db_put(test_db, txn2, &key, value2, strlen(value2), true, false);
+  TEST_ASSERT_EQUAL(put_result2, DB_PUT_OK);
 
   // Verify new value
   MDB_txn *get_txn = db_create_txn(test_env, true);
@@ -433,8 +442,9 @@ void test_db_get_result_clear_valid(void) {
   db_key_t key = {.type = DB_KEY_STRING, .key.s = "free_test_key"};
   const char *value = "free_test_value";
 
-  bool put_result = db_put(test_db, put_txn, &key, value, strlen(value), true);
-  TEST_ASSERT_TRUE(put_result);
+  db_put_result_t put_result =
+      db_put(test_db, put_txn, &key, value, strlen(value), true, false);
+  TEST_ASSERT_EQUAL(put_result, DB_PUT_OK);
 
   MDB_txn *get_txn = db_create_txn(test_env, true);
   TEST_ASSERT_NOT_NULL(get_txn);
@@ -476,9 +486,9 @@ void test_db_transaction_rollback(void) {
   db_key_t key = {.type = DB_KEY_STRING, .key.s = "rollback_key"};
   const char *value = "rollback_value";
 
-  bool put_result =
-      db_put(test_db, abort_txn, &key, value, strlen(value), false);
-  TEST_ASSERT_TRUE(put_result);
+  db_put_result_t put_result =
+      db_put(test_db, abort_txn, &key, value, strlen(value), false, false);
+  TEST_ASSERT_EQUAL(put_result, DB_PUT_OK);
 
   // Abort instead of commit
   db_abort_txn(abort_txn);
@@ -521,8 +531,9 @@ void test_db_cursor_basic(void) {
 
   for (int i = 0; i < 3; i++) {
     db_key_t k = {.type = DB_KEY_STRING, .key.s = (char *)keys[i]};
-    TEST_ASSERT_TRUE(
-        db_put(test_db, put_txn, &k, vals[i], strlen(vals[i]), false));
+    TEST_ASSERT_EQUAL(
+        db_put(test_db, put_txn, &k, vals[i], strlen(vals[i]), false, false),
+        DB_PUT_OK);
   }
   TEST_ASSERT_TRUE(db_commit_txn(put_txn));
 
@@ -606,7 +617,7 @@ void test_db_foreach_full_scan(void) {
     char kbuf[16];
     snprintf(kbuf, sizeof(kbuf), "key%d", i);
     db_key_t k = {.type = DB_KEY_STRING, .key.s = kbuf};
-    db_put(test_db, put_txn, &k, "val", 3, false);
+    db_put(test_db, put_txn, &k, "val", 3, false, false);
   }
   db_commit_txn(put_txn);
 
@@ -629,7 +640,7 @@ void test_db_foreach_early_exit(void) {
     char kbuf[16];
     snprintf(kbuf, sizeof(kbuf), "key%d", i);
     db_key_t k = {.type = DB_KEY_STRING, .key.s = kbuf};
-    db_put(test_db, put_txn, &k, "val", 3, false);
+    db_put(test_db, put_txn, &k, "val", 3, false, false);
   }
   db_commit_txn(put_txn);
 

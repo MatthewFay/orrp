@@ -43,13 +43,37 @@ bool db_commit_txn(MDB_txn *txn);
 // For `path`: Caller needs to ensure that directory is created before calling.
 MDB_env *db_create_env(const char *path, size_t map_size, int max_num_dbs);
 
+// Database duplicate key config
+typedef enum {
+  // No duplicate keys. keys must be unique and may have only a single data
+  // item.
+  DB_DUP_NONE,
+  // Duplicate keys allowed. keys may have multiple data items, stored in sorted
+  // order
+  DB_DUP_KEYS,
+  // Duplicate keys allowed, and data items are all the same size, which allows
+  // further optimizations in storage and retrieval
+  DB_DUP_KEYS_FIXED_SIZE_VALS
+} db_dup_key_config_t;
+
 // Function to open a database
 bool db_open(MDB_env *env, const char *db_name, bool int_only_keys,
-             MDB_dbi *db_out);
+             db_dup_key_config_t dup_key_config, MDB_dbi *db_out);
+
+typedef enum {
+  // Key-value entry added into database
+  DB_PUT_OK,
+  DB_PUT_ERR,
+  // If `no_overwrite` is true and key already exists
+  DB_PUT_KEY_EXISTS
+} db_put_result_t;
 
 // Function to put a key-value pair into the database
-bool db_put(MDB_dbi db, MDB_txn *txn, db_key_t *key, const void *value,
-            size_t value_size, bool auto_commit);
+// replacing any previously existing key if duplicates are disallowed, or adding
+// a duplicate data item if duplicates are allowed
+db_put_result_t db_put(MDB_dbi db, MDB_txn *txn, db_key_t *key,
+                       const void *value, size_t value_size, bool auto_commit,
+                       bool no_overwrite);
 
 // Function to get a value by key from the database. Caller: Remember to free
 // memory returned by db_get.

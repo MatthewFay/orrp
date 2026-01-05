@@ -5,6 +5,7 @@
  * Engine Writer -
  * Flushes dirty data to disk
  */
+#include "core/queue.h"
 #include "engine/engine_writer/engine_writer_queue.h"
 #include "uv.h"
 #include <stdint.h>
@@ -22,7 +23,11 @@ typedef struct eng_writer_s {
   // Stats
   uint64_t entries_written;
 
+  // data plane queue
   eng_writer_queue_t queue;
+
+  queue_t control_queue;
+  uv_mutex_t control_queue_lock;
 } eng_writer_t;
 
 bool eng_writer_start(eng_writer_t *writer, const eng_writer_config_t *config);

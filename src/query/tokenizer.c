@@ -12,12 +12,12 @@
 
 const int MAX_TOKENS = 256; // Do we need this? Already limit total chars
 
-void tok_clear_all(Queue *tokens) {
+void tok_clear_all(queue_t *tokens) {
   if (!tokens)
     return;
   token_t *t;
-  while (!q_empty(tokens)) {
-    t = q_dequeue(tokens);
+  while (!queue_empty(tokens)) {
+    t = queue_dequeue(tokens);
     tok_free(t);
   }
 }
@@ -29,9 +29,9 @@ void tok_free(token_t *token) {
   free(token);
 }
 
-static void *_cleanup_on_err(Queue *q) {
+static void *_cleanup_on_err(queue_t *q) {
   tok_clear_all(q);
-  q_destroy(q);
+  queue_destroy(q);
   return NULL;
 }
 
@@ -59,7 +59,7 @@ static bool _valid_enclosed_char(char c) {
   return _valid_unenclosed_char(c) || c == ' ';
 }
 
-static bool _enqueue(Queue *q, int *num_tokens, token_type type,
+static bool _enqueue(queue_t *q, int *num_tokens, token_type type,
                      token_t **out_token, size_t *i, int incr_i,
                      char *text_value, int64_t number_value,
                      size_t text_value_len) {
@@ -72,7 +72,7 @@ static bool _enqueue(Queue *q, int *num_tokens, token_type type,
     _cleanup_on_err(q);
     return false;
   }
-  q_enqueue(q, *out_token);
+  queue_enqueue(q, *out_token);
   ++(*num_tokens);
 
   if (incr_i > 0)
@@ -126,15 +126,16 @@ struct {
   token_type type;
 } kw_map[] = {{"and", TOKEN_OP_AND},       {"or", TOKEN_OP_OR},
               {"not", TOKEN_OP_NOT},       {"event", TOKEN_CMD_EVENT},
-              {"query", TOKEN_CMD_QUERY},  {"in", TOKEN_KW_IN},
-              {"id", TOKEN_KW_ID},         {"entity", TOKEN_KW_ENTITY},
-              {"cursor", TOKEN_KW_CURSOR}, {"take", TOKEN_KW_TAKE},
-              {"where", TOKEN_KW_WHERE},   {"by", TOKEN_KW_BY},
-              {"having", TOKEN_KW_HAVING}, {"count", TOKEN_KW_COUNT}};
+              {"query", TOKEN_CMD_QUERY},  {"index", TOKEN_CMD_INDEX},
+              {"in", TOKEN_KW_IN},         {"id", TOKEN_KW_ID},
+              {"entity", TOKEN_KW_ENTITY}, {"cursor", TOKEN_KW_CURSOR},
+              {"take", TOKEN_KW_TAKE},     {"where", TOKEN_KW_WHERE},
+              {"by", TOKEN_KW_BY},         {"having", TOKEN_KW_HAVING},
+              {"count", TOKEN_KW_COUNT},   {"key", TOKEN_KW_KEY}};
 
 // Return tokens from input string.
 // TODO: Create an iterator/stream, i.e. get_next_token()
-Queue *tok_tokenize(char *input) {
+queue_t *tok_tokenize(char *input) {
   int num_tokens = 0;
   size_t i = 0;
   if (!input)
@@ -143,7 +144,7 @@ Queue *tok_tokenize(char *input) {
   if (!input_len || input_len > MAX_COMMAND_LEN)
     return NULL;
 
-  Queue *q = q_create();
+  queue_t *q = queue_create();
 
   while (i < input_len) {
     token_t *t;
@@ -304,8 +305,8 @@ Queue *tok_tokenize(char *input) {
     }
   }
 
-  if (q_empty(q)) {
-    q_destroy(q);
+  if (queue_empty(q)) {
+    queue_destroy(q);
     return NULL;
   }
 

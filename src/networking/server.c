@@ -285,7 +285,7 @@ static void _work_cb(uv_work_t *req) {
   LOG_ACTION_DEBUG(ACT_CMD_PROCESSING, "client_id=%lld",
                    ctx->client->client_id);
 
-  Queue *tokens = NULL;
+  queue_t *tokens = NULL;
   parse_result_t *parsed = NULL;
   api_response_t *api_resp = NULL;
   serializer_result_t sr = {0};
@@ -339,7 +339,7 @@ static void _work_cb(uv_work_t *req) {
 cleanup:
   if (tokens) {
     tok_clear_all(tokens);
-    q_destroy(tokens);
+    queue_destroy(tokens);
   }
 
   if (parsed) {

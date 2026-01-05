@@ -7,137 +7,137 @@ void setUp(void) {}
 void tearDown(void) {}
 
 void test_create_and_destroy(void) {
-  Queue *q = q_create();
+  queue_t *q = queue_create();
   TEST_ASSERT_NOT_NULL(q);
-  TEST_ASSERT_TRUE(q_empty(q));
-  TEST_ASSERT_EQUAL_INT(0, q_size(q));
-  q_destroy(q);
+  TEST_ASSERT_TRUE(queue_empty(q));
+  TEST_ASSERT_EQUAL_INT(0, queue_size(q));
+  queue_destroy(q);
 }
 
 void test_enqueue_and_dequeue(void) {
-  Queue *q = q_create();
+  queue_t *q = queue_create();
   int a = 42, b = 99, c = -1;
-  q_enqueue(q, &a);
-  q_enqueue(q, &b);
-  q_enqueue(q, &c);
+  queue_enqueue(q, &a);
+  queue_enqueue(q, &b);
+  queue_enqueue(q, &c);
 
-  TEST_ASSERT_FALSE(q_empty(q));
-  TEST_ASSERT_EQUAL_INT(3, q_size(q));
+  TEST_ASSERT_FALSE(queue_empty(q));
+  TEST_ASSERT_EQUAL_INT(3, queue_size(q));
 
-  int *out = (int *)q_dequeue(q);
+  int *out = (int *)queue_dequeue(q);
   TEST_ASSERT_EQUAL_INT(a, *out);
 
-  out = (int *)q_dequeue(q);
+  out = (int *)queue_dequeue(q);
   TEST_ASSERT_EQUAL_INT(b, *out);
 
-  out = (int *)q_dequeue(q);
+  out = (int *)queue_dequeue(q);
   TEST_ASSERT_EQUAL_INT(c, *out);
 
-  TEST_ASSERT_TRUE(q_empty(q));
-  TEST_ASSERT_EQUAL_INT(0, q_size(q));
+  TEST_ASSERT_TRUE(queue_empty(q));
+  TEST_ASSERT_EQUAL_INT(0, queue_size(q));
 
   // Dequeue from empty queue
-  out = (int *)q_dequeue(q);
+  out = (int *)queue_dequeue(q);
   TEST_ASSERT_NULL(out);
 
-  q_destroy(q);
+  queue_destroy(q);
 }
 
 void test_peek(void) {
-  Queue *q = q_create();
+  queue_t *q = queue_create();
   int a = 123, b = 456;
-  TEST_ASSERT_NULL(q_peek(q));
+  TEST_ASSERT_NULL(queue_peek(q));
 
-  q_enqueue(q, &a);
-  TEST_ASSERT_EQUAL_PTR(&a, q_peek(q));
+  queue_enqueue(q, &a);
+  TEST_ASSERT_EQUAL_PTR(&a, queue_peek(q));
 
-  q_enqueue(q, &b);
-  TEST_ASSERT_EQUAL_PTR(&a, q_peek(q));
+  queue_enqueue(q, &b);
+  TEST_ASSERT_EQUAL_PTR(&a, queue_peek(q));
 
-  int *out = (int *)q_dequeue(q);
+  int *out = (int *)queue_dequeue(q);
   TEST_ASSERT_EQUAL_PTR(&a, out);
-  TEST_ASSERT_EQUAL_PTR(&b, q_peek(q));
+  TEST_ASSERT_EQUAL_PTR(&b, queue_peek(q));
 
-  q_dequeue(q);
-  TEST_ASSERT_NULL(q_peek(q));
+  queue_dequeue(q);
+  TEST_ASSERT_NULL(queue_peek(q));
 
-  q_destroy(q);
+  queue_destroy(q);
 }
 
 void test_size_and_empty(void) {
-  Queue *q = q_create();
-  TEST_ASSERT_TRUE(q_empty(q));
-  TEST_ASSERT_EQUAL_INT(0, q_size(q));
+  queue_t *q = queue_create();
+  TEST_ASSERT_TRUE(queue_empty(q));
+  TEST_ASSERT_EQUAL_INT(0, queue_size(q));
 
   int a = 1;
-  q_enqueue(q, &a);
-  TEST_ASSERT_FALSE(q_empty(q));
-  TEST_ASSERT_EQUAL_INT(1, q_size(q));
+  queue_enqueue(q, &a);
+  TEST_ASSERT_FALSE(queue_empty(q));
+  TEST_ASSERT_EQUAL_INT(1, queue_size(q));
 
-  q_dequeue(q);
-  TEST_ASSERT_TRUE(q_empty(q));
-  TEST_ASSERT_EQUAL_INT(0, q_size(q));
+  queue_dequeue(q);
+  TEST_ASSERT_TRUE(queue_empty(q));
+  TEST_ASSERT_EQUAL_INT(0, queue_size(q));
 
-  q_destroy(q);
+  queue_destroy(q);
 }
 
 void test_destroy_null(void) {
   // Should not crash
-  q_destroy(NULL);
+  queue_destroy(NULL);
 }
 
 void test_enqueue_null_queue(void) {
   // Should not crash
-  q_enqueue(NULL, NULL);
+  queue_enqueue(NULL, NULL);
 }
 
 void test_dequeue_null_queue(void) {
-  void *out = q_dequeue(NULL);
+  void *out = queue_dequeue(NULL);
   TEST_ASSERT_NULL(out);
 }
 
 void test_peek_null_queue(void) {
-  void *out = q_peek(NULL);
+  void *out = queue_peek(NULL);
   TEST_ASSERT_NULL(out);
 }
 
 void test_large_number_of_elements(void) {
-  Queue *q = q_create();
+  queue_t *q = queue_create();
   int N = 1000;
   int *arr = malloc(sizeof(int) * N);
   TEST_ASSERT_NOT_NULL(arr);
 
   for (int i = 0; i < N; ++i) {
     arr[i] = i;
-    q_enqueue(q, &arr[i]);
+    queue_enqueue(q, &arr[i]);
   }
-  TEST_ASSERT_EQUAL_INT(N, q_size(q));
+  TEST_ASSERT_EQUAL_INT(N, queue_size(q));
 
   for (int i = 0; i < N; ++i) {
-    int *out = (int *)q_dequeue(q);
+    int *out = (int *)queue_dequeue(q);
     TEST_ASSERT_EQUAL_INT(i, *out);
   }
-  TEST_ASSERT_TRUE(q_empty(q));
+  TEST_ASSERT_TRUE(queue_empty(q));
   free(arr);
-  q_destroy(q);
+  queue_destroy(q);
 }
 
 void test_mixed_types(void) {
-  Queue *q = q_create();
+  queue_t *q = queue_create();
   int a = 1;
   float b = 3.14;
   char *c = "hello";
-  q_enqueue(q, &a);
-  q_enqueue(q, &b);
-  q_enqueue(q, c);
+  queue_enqueue(q, &a);
+  queue_enqueue(q, &b);
+  queue_enqueue(q, c);
 
-  TEST_ASSERT_EQUAL_INT(3, q_size(q));
-  TEST_ASSERT_EQUAL_INT(a, *(int *)q_dequeue(q));
-  TEST_ASSERT_EQUAL_FLOAT(b, *(float *)q_dequeue(q));
-  TEST_ASSERT_EQUAL_STRING(c, (char *)q_dequeue(q));
+  TEST_ASSERT_EQUAL_INT(3, queue_size(q));
+  TEST_ASSERT_EQUAL_INT(a, *(int *)queue_dequeue(q));
+  TEST_ASSERT_EQUAL_FLOAT(b, *(float *)queue_dequeue(q));
+  TEST_ASSERT_EQUAL_STRING(c, (char *)queue_dequeue(q));
 
-  TEST_ASSERT_TRUE(q_empty(q));
-  q_destroy(q);
+  TEST_ASSERT_TRUE(queue_empty(q));
+  queue_destroy(q);
 }
 
 int main(void) {

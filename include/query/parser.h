@@ -19,7 +19,7 @@ typedef struct parse_result_s {
 
 // Parse command tokens into parse_result_t. Thread-safe; returns heap-allocated
 // parse_result_t. Caller must free parse_result_t with parse_free_result().
-parse_result_t *parse(Queue *tokens);
+parse_result_t *parse(queue_t *tokens);
 
 // Does not free AST on purpose - Engine takes ownership
 void parse_free_result(parse_result_t *r);
