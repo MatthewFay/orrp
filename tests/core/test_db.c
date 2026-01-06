@@ -1,5 +1,6 @@
 #include "core/db.h"
 #include "unity.h"
+#include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -680,6 +681,72 @@ void test_db_foreach_invalid(void) {
   db_abort_txn(txn);
 }
 
+typedef struct {
+  const char *key;
+  const char *value;
+  uint sleep;
+} thread_data_t;
+
+void *write_worker(void *arg) {
+  thread_data_t *data = (thread_data_t *)arg;
+  MDB_txn *txn = db_create_txn(test_env, false);
+
+  usleep(100000);
+
+  db_key_t key = {.type = DB_KEY_STRING, .key.s = (char *)data->key};
+  db_put(test_db, txn, &key, data->value, strlen(data->value), true, false);
+
+  return NULL;
+}
+
+void test_multithreaded_writes(void) {
+  pthread_t t1, t2;
+  thread_data_t d1 = {"t_key_1", "t_val_1", .sleep = 100000};
+  thread_data_t d2 = {"t_key_2", "t_val_2", .sleep = 101000};
+
+  pthread_create(&t1, NULL, write_worker, &d1);
+  pthread_create(&t2, NULL, write_worker, &d2);
+
+  pthread_join(t1, NULL);
+  pthread_join(t2, NULL);
+
+  MDB_txn *read_txn = db_create_txn(test_env, true);
+  db_get_result_t res;
+
+  db_key_t k1 = {.type = DB_KEY_STRING, .key.s = "t_key_1"};
+  TEST_ASSERT_TRUE(db_get(test_db, read_txn, &k1, &res));
+  TEST_ASSERT_EQUAL_MEMORY("t_val_1", res.value, strlen("t_val_1"));
+  db_get_result_clear(&res);
+
+  db_key_t k2 = {.type = DB_KEY_STRING, .key.s = "t_key_2"};
+  TEST_ASSERT_TRUE(db_get(test_db, read_txn, &k2, &res));
+  TEST_ASSERT_EQUAL_MEMORY("t_val_2", res.value, strlen("t_val_2"));
+  db_get_result_clear(&res);
+
+  db_abort_txn(read_txn);
+}
+
+void test_put_no_overwrite(void) {
+  MDB_txn *txn1 = db_create_txn(test_env, false);
+  db_key_t key = {.type = DB_KEY_STRING, .key.s = "unique_k"};
+
+  TEST_ASSERT_EQUAL(DB_PUT_OK,
+                    db_put(test_db, txn1, &key, "val1", 4, true, false));
+
+  MDB_txn *txn2 = db_create_txn(test_env, false);
+  TEST_ASSERT_EQUAL(DB_PUT_KEY_EXISTS,
+                    db_put(test_db, txn2, &key, "val2", 4, true, true));
+
+  MDB_txn *read_txn = db_create_txn(test_env, true);
+  db_get_result_t res;
+
+  TEST_ASSERT_TRUE(db_get(test_db, read_txn, &key, &res));
+  TEST_ASSERT_EQUAL_MEMORY("val1", res.value, 4);
+
+  db_get_result_clear(&res);
+  db_abort_txn(read_txn);
+}
+
 // Main test runner
 int main(void) {
   UNITY_BEGIN();
@@ -732,7 +799,6 @@ int main(void) {
   RUN_TEST(test_db_close_null_inputs);
   RUN_TEST(test_db_env_close_null);
 
-  // --- NEW TESTS ---
   // Cursor tests
   RUN_TEST(test_db_cursor_basic);
   RUN_TEST(test_db_cursor_empty);
@@ -743,6 +809,9 @@ int main(void) {
   RUN_TEST(test_db_foreach_early_exit);
   RUN_TEST(test_db_foreach_empty);
   RUN_TEST(test_db_foreach_invalid);
+
+  RUN_TEST(test_multithreaded_writes);
+  RUN_TEST(test_put_no_overwrite);
 
   return UNITY_END();
 }

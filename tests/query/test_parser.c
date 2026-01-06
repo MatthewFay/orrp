@@ -78,11 +78,11 @@ void test_event_success_minimal(void) {
   _assert_success(result);
   TEST_ASSERT_EQUAL(PARSER_OP_TYPE_WRITE, result->type);
 
-  ast_node_t *in_tag = _find_tag_by_key(result->ast, AST_KEY_IN);
+  ast_node_t *in_tag = _find_tag_by_key(result->ast, AST_KW_IN);
   TEST_ASSERT_NOT_NULL(in_tag);
   TEST_ASSERT_EQUAL_STRING("metrics", in_tag->tag.value->literal.string_value);
 
-  ast_node_t *entity_tag = _find_tag_by_key(result->ast, AST_KEY_ENTITY);
+  ast_node_t *entity_tag = _find_tag_by_key(result->ast, AST_KW_ENTITY);
   TEST_ASSERT_NOT_NULL(entity_tag);
   TEST_ASSERT_EQUAL_STRING("user-123",
                            entity_tag->tag.value->literal.string_value);
@@ -95,11 +95,11 @@ void test_event_success_numeric_val(void) {
   _assert_success(result);
   TEST_ASSERT_EQUAL(PARSER_OP_TYPE_WRITE, result->type);
 
-  ast_node_t *in_tag = _find_tag_by_key(result->ast, AST_KEY_IN);
+  ast_node_t *in_tag = _find_tag_by_key(result->ast, AST_KW_IN);
   TEST_ASSERT_NOT_NULL(in_tag);
   TEST_ASSERT_EQUAL_STRING("metrics", in_tag->tag.value->literal.string_value);
 
-  ast_node_t *entity_tag = _find_tag_by_key(result->ast, AST_KEY_ENTITY);
+  ast_node_t *entity_tag = _find_tag_by_key(result->ast, AST_KW_ENTITY);
   TEST_ASSERT_NOT_NULL(entity_tag);
   TEST_ASSERT_EQUAL_INT64(5, entity_tag->tag.value->literal.number_value);
 
@@ -112,11 +112,11 @@ void test_event_success_minimal2(void) {
   _assert_success(result);
   TEST_ASSERT_EQUAL(PARSER_OP_TYPE_WRITE, result->type);
 
-  ast_node_t *in_tag = _find_tag_by_key(result->ast, AST_KEY_IN);
+  ast_node_t *in_tag = _find_tag_by_key(result->ast, AST_KW_IN);
   TEST_ASSERT_NOT_NULL(in_tag);
   TEST_ASSERT_EQUAL_STRING("abc", in_tag->tag.value->literal.string_value);
 
-  ast_node_t *entity_tag = _find_tag_by_key(result->ast, AST_KEY_ENTITY);
+  ast_node_t *entity_tag = _find_tag_by_key(result->ast, AST_KW_ENTITY);
   TEST_ASSERT_NOT_NULL(entity_tag);
   TEST_ASSERT_EQUAL_STRING("fff", entity_tag->tag.value->literal.string_value);
 
@@ -132,8 +132,8 @@ void test_event_success_full_different_order(void) {
   TEST_ASSERT_NOT_NULL(clicks_tag);
   TEST_ASSERT_EQUAL_STRING("one", clicks_tag->tag.value->literal.string_value);
 
-  TEST_ASSERT_NOT_NULL(_find_tag_by_key(result->ast, AST_KEY_IN));
-  TEST_ASSERT_NOT_NULL(_find_tag_by_key(result->ast, AST_KEY_ENTITY));
+  TEST_ASSERT_NOT_NULL(_find_tag_by_key(result->ast, AST_KW_IN));
+  TEST_ASSERT_NOT_NULL(_find_tag_by_key(result->ast, AST_KW_ENTITY));
 
   parse_free_result(result);
 }
@@ -181,11 +181,11 @@ void test_query_success_minimal(void) {
   _assert_success(result);
   TEST_ASSERT_EQUAL(PARSER_OP_TYPE_READ, result->type);
 
-  ast_node_t *in_tag = _find_tag_by_key(result->ast, AST_KEY_IN);
+  ast_node_t *in_tag = _find_tag_by_key(result->ast, AST_KW_IN);
   TEST_ASSERT_NOT_NULL(in_tag);
   TEST_ASSERT_EQUAL_STRING("logs", in_tag->tag.value->literal.string_value);
 
-  ast_node_t *where_tag = _find_tag_by_key(result->ast, AST_KEY_WHERE);
+  ast_node_t *where_tag = _find_tag_by_key(result->ast, AST_KW_WHERE);
   TEST_ASSERT_NOT_NULL(where_tag);
   // The 'value' of the where tag is the root of the expression tree
   TEST_ASSERT_EQUAL(AST_LOGICAL_NODE, where_tag->tag.value->type);
@@ -197,8 +197,8 @@ void test_query_success_full_different_order(void) {
   parse_result_t *result = _parse_string("query where:(a:b) in:\"logs\"");
   _assert_success(result);
 
-  TEST_ASSERT_NOT_NULL(_find_tag_by_key(result->ast, AST_KEY_IN));
-  TEST_ASSERT_NOT_NULL(_find_tag_by_key(result->ast, AST_KEY_WHERE));
+  TEST_ASSERT_NOT_NULL(_find_tag_by_key(result->ast, AST_KW_IN));
+  TEST_ASSERT_NOT_NULL(_find_tag_by_key(result->ast, AST_KW_WHERE));
 
   parse_free_result(result);
 }
@@ -222,7 +222,7 @@ void test_where_precedence(void) {
       _parse_string("query in:\"abc\" where:(a or b and c)");
   _assert_success(result);
 
-  ast_node_t *where = _find_tag_by_key(result->ast, AST_KEY_WHERE)->tag.value;
+  ast_node_t *where = _find_tag_by_key(result->ast, AST_KW_WHERE)->tag.value;
   TEST_ASSERT_EQUAL(AST_LOGICAL_NODE, where->type);
   TEST_ASSERT_EQUAL(
       AST_LOGIC_NODE_OR,
@@ -244,7 +244,7 @@ void test_where_parentheses_override(void) {
       _parse_string("query in:\"abc\" where:((a or b) and c)");
   _assert_success(result);
 
-  ast_node_t *where = _find_tag_by_key(result->ast, AST_KEY_WHERE)->tag.value;
+  ast_node_t *where = _find_tag_by_key(result->ast, AST_KW_WHERE)->tag.value;
   TEST_ASSERT_EQUAL(AST_LOGICAL_NODE, where->type);
   TEST_ASSERT_EQUAL(AST_LOGIC_NODE_AND,
                     where->logical.op); // AND is the root
@@ -264,7 +264,7 @@ void test_where_not_operator(void) {
       _parse_string("query in:abc where:(not a and not b)");
   _assert_success(result);
 
-  ast_node_t *where = _find_tag_by_key(result->ast, AST_KEY_WHERE)->tag.value;
+  ast_node_t *where = _find_tag_by_key(result->ast, AST_KW_WHERE)->tag.value;
   TEST_ASSERT_EQUAL(AST_LOGICAL_NODE, where->type);
   TEST_ASSERT_EQUAL(AST_LOGIC_NODE_AND, where->logical.op);
 
@@ -278,7 +278,7 @@ void test_where_single_tag(void) {
   parse_result_t *result = _parse_string("query in:test_c where:(loc:ca)");
   _assert_success(result);
 
-  ast_node_t *where = _find_tag_by_key(result->ast, AST_KEY_WHERE)->tag.value;
+  ast_node_t *where = _find_tag_by_key(result->ast, AST_KW_WHERE)->tag.value;
   // Parser converts "key:val" inside expression to a Custom Tag Node
   TEST_ASSERT_EQUAL(AST_TAG_NODE, where->type);
   TEST_ASSERT_EQUAL(AST_TAG_KEY_CUSTOM, where->tag.key_type);
@@ -291,7 +291,7 @@ void test_where_quotes(void) {
   parse_result_t *result = _parse_string("query in:test_c where:(loc:\"ca\")");
   _assert_success(result);
 
-  ast_node_t *where = _find_tag_by_key(result->ast, AST_KEY_WHERE)->tag.value;
+  ast_node_t *where = _find_tag_by_key(result->ast, AST_KW_WHERE)->tag.value;
   TEST_ASSERT_EQUAL(AST_TAG_NODE, where->type);
   TEST_ASSERT_EQUAL_STRING("loc", where->tag.custom_key);
   TEST_ASSERT_EQUAL_STRING("ca", where->tag.value->literal.string_value);
@@ -305,7 +305,7 @@ void test_where_comparison(void) {
       "QUERY in:analytics_2025_01 where:(loc:ca AND (action:login > 3))");
   _assert_success(result);
 
-  ast_node_t *where = _find_tag_by_key(result->ast, AST_KEY_WHERE)->tag.value;
+  ast_node_t *where = _find_tag_by_key(result->ast, AST_KW_WHERE)->tag.value;
   TEST_ASSERT_EQUAL(AST_LOGICAL_NODE, where->type);
   TEST_ASSERT_EQUAL(AST_LOGIC_NODE_AND,
                     where->logical.op); // AND is at the top level

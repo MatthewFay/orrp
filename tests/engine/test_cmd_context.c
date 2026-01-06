@@ -37,9 +37,9 @@ static ast_node_t *make_str(const char *s) {
 void test_build_cmd_context_simple_event(void) {
   // AST: EVENT in:"metrics" entity:"user1"
   g_cmd_ast = ast_create_command_node(AST_CMD_EVENT, NULL);
-  ast_node_t *in_tag = ast_create_tag_node(AST_KEY_IN, make_str("metrics"));
+  ast_node_t *in_tag = ast_create_tag_node(AST_KW_IN, make_str("metrics"));
   ast_node_t *entity_tag =
-      ast_create_tag_node(AST_KEY_ENTITY, make_str("user1"));
+      ast_create_tag_node(AST_KW_ENTITY, make_str("user1"));
   ast_append_node(&g_cmd_ast->command.tags, in_tag);
   ast_append_node(&g_cmd_ast->command.tags, entity_tag);
 
@@ -61,9 +61,9 @@ void test_build_cmd_context_with_custom_tags(void) {
   // AST: EVENT in:"logs" entity:"req-abc" region:"us-east" status:"ok"
   g_cmd_ast = ast_create_command_node(AST_CMD_EVENT, NULL);
   ast_append_node(&g_cmd_ast->command.tags,
-                  ast_create_tag_node(AST_KEY_IN, make_str("logs")));
+                  ast_create_tag_node(AST_KW_IN, make_str("logs")));
   ast_append_node(&g_cmd_ast->command.tags,
-                  ast_create_tag_node(AST_KEY_ENTITY, make_str("req-abc")));
+                  ast_create_tag_node(AST_KW_ENTITY, make_str("req-abc")));
   ast_append_node(&g_cmd_ast->command.tags,
                   ast_create_custom_tag_node("region", make_str("us-east")));
   ast_append_node(&g_cmd_ast->command.tags,
@@ -95,9 +95,9 @@ void test_build_cmd_context_with_counter(void) {
   // AST: EVENT in:"stats" entity:"page-view" path:"/home" +count:1
   g_cmd_ast = ast_create_command_node(AST_CMD_EVENT, NULL);
   ast_append_node(&g_cmd_ast->command.tags,
-                  ast_create_tag_node(AST_KEY_IN, make_str("stats")));
+                  ast_create_tag_node(AST_KW_IN, make_str("stats")));
   ast_append_node(&g_cmd_ast->command.tags,
-                  ast_create_tag_node(AST_KEY_ENTITY, make_str("page-view")));
+                  ast_create_tag_node(AST_KW_ENTITY, make_str("page-view")));
   ast_append_node(&g_cmd_ast->command.tags,
                   ast_create_custom_tag_node("path", make_str("/home")));
   ast_append_node(
@@ -114,15 +114,14 @@ void test_build_cmd_context_query(void) {
   // AST: QUERY in:"errors" where:"type:segfault" take:50 cursor:"abc"
   g_cmd_ast = ast_create_command_node(AST_CMD_QUERY, NULL);
   ast_append_node(&g_cmd_ast->command.tags,
-                  ast_create_tag_node(AST_KEY_IN, make_str("errors")));
-  ast_append_node(
-      &g_cmd_ast->command.tags,
-      ast_create_tag_node(AST_KEY_WHERE, make_str("type:segfault")));
-  ast_append_node(
-      &g_cmd_ast->command.tags,
-      ast_create_tag_node(AST_KEY_TAKE, ast_create_number_literal_node(50)));
+                  ast_create_tag_node(AST_KW_IN, make_str("errors")));
   ast_append_node(&g_cmd_ast->command.tags,
-                  ast_create_tag_node(AST_KEY_CURSOR, make_str("abc")));
+                  ast_create_tag_node(AST_KW_WHERE, make_str("type:segfault")));
+  ast_append_node(
+      &g_cmd_ast->command.tags,
+      ast_create_tag_node(AST_KW_TAKE, ast_create_number_literal_node(50)));
+  ast_append_node(&g_cmd_ast->command.tags,
+                  ast_create_tag_node(AST_KW_CURSOR, make_str("abc")));
 
   g_cmd_ctx = build_cmd_context(g_cmd_ast, 0);
 
@@ -144,9 +143,9 @@ void test_build_cmd_context_mixed_tags(void) {
   // AST: EVENT in:"mixed" entity:"test" +c1:1 t2:"v2" +c3:1
   g_cmd_ast = ast_create_command_node(AST_CMD_EVENT, NULL);
   ast_append_node(&g_cmd_ast->command.tags,
-                  ast_create_tag_node(AST_KEY_IN, make_str("mixed")));
+                  ast_create_tag_node(AST_KW_IN, make_str("mixed")));
   ast_append_node(&g_cmd_ast->command.tags,
-                  ast_create_tag_node(AST_KEY_ENTITY, make_str("test")));
+                  ast_create_tag_node(AST_KW_ENTITY, make_str("test")));
   ast_append_node(
       &g_cmd_ast->command.tags,
       ast_create_custom_tag_node("c1", ast_create_number_literal_node(1)));

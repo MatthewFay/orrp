@@ -3,6 +3,7 @@
 #include "core/db.h"
 #include "core/mmap_array.h"
 #include "engine/container/container_types.h"
+#include "khash.h"
 #include "lmdb.h"
 #include "mpack.h"
 #include <stdbool.h>
@@ -54,8 +55,24 @@ void container_close(eng_container_t *c) {
       db_close(c->env, c->data.usr->user_dc_metadata_db);
       db_close(c->env, c->data.usr->events_db);
       db_close(c->env, c->data.usr->index_registry_local_db);
-      // TODO: close index dbs
-      // TODO: destroy index khash
+      kh_key_index_t *key_to_index = c->data.usr->key_to_index;
+      if (key_to_index) {
+        khint_t k;
+        for (k = kh_begin(key_to_index); k != kh_end(key_to_index); ++k) {
+          if (kh_exist(key_to_index, k)) {
+            const char *key_ptr = kh_key(key_to_index, k);
+            if (key_ptr) {
+              free((char *)key_ptr);
+            }
+            container_index_t ci = kh_val(key_to_index, k);
+            db_close(c->env, ci.index_db);
+            // Don't free `ci.index_def.key`, already freed as `key_ptr`
+          }
+        }
+
+        kh_destroy(key_index, key_to_index);
+        c->data.usr->key_to_index = NULL;
+      }
       mmap_array_close(&c->data.usr->event_to_entity_map);
       free(c->data.usr);
     } else {
@@ -176,7 +193,7 @@ static bool _init_user_local_index_registry(eng_container_t *user_container,
     // we can simply copy bytes since value is MessagePack
     if (db_put(user_container->data.usr->index_registry_local_db, usr_txn,
                &db_key, cursor_entry.value, cursor_entry.value_len, false,
-               false) == DB_PUT_ERR) {
+               false) != DB_PUT_OK) {
       continue;
     }
   }
@@ -241,7 +258,8 @@ static bool _init_user_indexes(eng_container_t *user_container,
     _format_index_db_name(index.index_def.key, db_name, sizeof(db_name));
 
     // db_open handles its own internal transaction
-    // setting `int_only_keys` to true since we only support int64 index for now
+    // setting `int_only_keys` to true since we only support int64 index for
+    // now
     if (!db_open(user_container->env, db_name, true,
                  DB_DUP_KEYS_FIXED_SIZE_VALS, &index.index_db)) {
       // Failed to open DB, free the key to avoid leak
@@ -249,6 +267,7 @@ static bool _init_user_indexes(eng_container_t *user_container,
       continue;
     }
 
+    // Using `index_def.key` as key ptr
     khiter_t k = kh_put(key_index, user_container->data.usr->key_to_index,
                         index.index_def.key, &ret);
 
@@ -346,45 +365,52 @@ container_result_t create_user_container(const char *name, const char *data_dir,
 static const container_index_def_t DEFAULT_INDEXES[] = {
     {.key = "ts", .type = CONTAINER_INDEX_TYPE_I64}, {0}};
 
+db_put_result_t sys_index_put(eng_container_t *sys_c, MDB_txn *sys_txn,
+                              const container_index_def_t *index_def) {
+  mpack_writer_t writer;
+  char *data;
+  size_t size;
+
+  mpack_writer_init_growable(&writer, &data, &size);
+  mpack_start_map(&writer, 2); // Map count: 2 (key, type)
+
+  mpack_write_cstr(&writer, "key");
+  mpack_write_cstr(&writer, index_def->key);
+
+  mpack_write_cstr(&writer, "type");
+  mpack_write_u32(&writer, index_def->type);
+
+  mpack_finish_map(&writer);
+
+  if (mpack_writer_destroy(&writer) != mpack_ok) {
+    free(data);
+    return DB_PUT_ERR;
+  }
+
+  db_key_t db_key = {.type = DB_KEY_STRING, .key.s = index_def->key};
+
+  db_put_result_t res = db_put(sys_c->data.sys->index_registry_global_db,
+                               sys_txn, &db_key, data, size, false, true);
+
+  free(data);
+  return res;
+}
+
 static bool _init_sys_index_registry(eng_container_t *sys_c) {
   MDB_txn *sys_txn = db_create_txn(sys_c->env, false);
-  if (!sys_txn) {
+  if (!sys_txn)
     return false;
-  }
-  db_key_t db_key;
-  db_key.type = DB_KEY_STRING;
+
   const container_index_def_t *ptr = DEFAULT_INDEXES;
   while (ptr->key != NULL) {
-    db_key.key.s = ptr->key;
-    uint32_t map_count = 2;
-    mpack_writer_t writer;
-    char *data;
-    size_t size;
-    mpack_writer_init_growable(&writer, &data, &size);
-    mpack_start_map(&writer, map_count);
-    mpack_write_cstr(&writer, "key");
-    mpack_write_cstr(&writer, ptr->key);
-    mpack_write_cstr(&writer, "type");
-    mpack_write_u32(&writer, ptr->type);
-    mpack_finish_map(&writer);
-    if (mpack_writer_destroy(&writer) != mpack_ok) {
-      free(data);
+    if (!sys_index_put(sys_c, sys_txn, ptr)) {
       db_abort_txn(sys_txn);
       return false;
     }
-    if (db_put(sys_c->data.sys->index_registry_global_db, sys_txn, &db_key,
-               data, size, false, false) == DB_PUT_ERR) {
-      free(data);
-      db_abort_txn(sys_txn);
-      return false;
-    }
-    free(data);
     ptr++;
   }
-  if (!db_commit_txn(sys_txn)) {
-    return false;
-  }
-  return true;
+
+  return db_commit_txn(sys_txn);
 }
 
 container_result_t create_system_container(const char *data_dir,

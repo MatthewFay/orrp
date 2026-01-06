@@ -20,4 +20,7 @@ bool cdb_get_system_db_handle(eng_container_t *c, eng_dc_sys_db_type_t db_type,
 
 void cdb_free_db_key_contents(eng_container_db_key_t *db_key);
 
+db_put_result_t sys_index_put(eng_container_t *sys_c, MDB_txn *sys_txn,
+                              const container_index_def_t *index_def);
+
 #endif

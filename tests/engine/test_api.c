@@ -44,9 +44,9 @@ void eng_shutdown(void) {}
 static ast_node_t *make_event_ast(const char *container, const char *entity) {
   ast_node_t *cmd = ast_create_command_node(AST_CMD_EVENT, NULL);
   ast_node_t *in_tag = ast_create_tag_node(
-      AST_KEY_IN, ast_create_string_literal_node(container, 1));
+      AST_KW_IN, ast_create_string_literal_node(container, 1));
   ast_node_t *entity_tag = ast_create_tag_node(
-      AST_KEY_ENTITY, ast_create_string_literal_node(entity, 1));
+      AST_KW_ENTITY, ast_create_string_literal_node(entity, 1));
   ast_append_node(&cmd->command.tags, in_tag);
   ast_append_node(&cmd->command.tags, entity_tag);
   return cmd;
@@ -57,9 +57,9 @@ static ast_node_t *make_query_ast(const char *container,
                                   const char *where_clause) {
   ast_node_t *cmd = ast_create_command_node(AST_CMD_QUERY, NULL);
   ast_node_t *in_tag = ast_create_tag_node(
-      AST_KEY_IN, ast_create_string_literal_node(container, 1));
+      AST_KW_IN, ast_create_string_literal_node(container, 1));
   ast_node_t *where_tag = ast_create_tag_node(
-      AST_KEY_WHERE, ast_create_string_literal_node(where_clause, 1));
+      AST_KW_WHERE, ast_create_string_literal_node(where_clause, 1));
   ast_append_node(&cmd->command.tags, in_tag);
   ast_append_node(&cmd->command.tags, where_tag);
   return cmd;
@@ -89,7 +89,7 @@ void test_api_event_success(void) {
 void test_api_event_invalid_ast_missing_in(void) {
   ast_node_t *cmd = ast_create_command_node(AST_CMD_EVENT, NULL);
   ast_node_t *entity_tag = ast_create_tag_node(
-      AST_KEY_ENTITY, ast_create_string_literal_node("user-1", 1));
+      AST_KW_ENTITY, ast_create_string_literal_node("user-1", 1));
   ast_append_node(&cmd->command.tags, entity_tag);
   api_response_t *resp = api_exec(cmd, 0);
   TEST_ASSERT_NOT_NULL(resp);
@@ -102,7 +102,7 @@ void test_api_event_invalid_ast_missing_in(void) {
 void test_api_event_invalid_ast_missing_entity(void) {
   ast_node_t *cmd = ast_create_command_node(AST_CMD_EVENT, NULL);
   ast_node_t *in_tag = ast_create_tag_node(
-      AST_KEY_IN, ast_create_string_literal_node("metrics", 1));
+      AST_KW_IN, ast_create_string_literal_node("metrics", 1));
   ast_append_node(&cmd->command.tags, in_tag);
   api_response_t *resp = api_exec(cmd, 0);
   TEST_ASSERT_NOT_NULL(resp);
@@ -115,9 +115,9 @@ void test_api_event_invalid_ast_missing_entity(void) {
 void test_api_event_invalid_ast_duplicate_custom_tag(void) {
   ast_node_t *cmd = ast_create_command_node(AST_CMD_EVENT, NULL);
   ast_node_t *in_tag = ast_create_tag_node(
-      AST_KEY_IN, ast_create_string_literal_node("metrics", 1));
+      AST_KW_IN, ast_create_string_literal_node("metrics", 1));
   ast_node_t *entity_tag = ast_create_tag_node(
-      AST_KEY_ENTITY, ast_create_string_literal_node("user-1, 1", 1));
+      AST_KW_ENTITY, ast_create_string_literal_node("user-1, 1", 1));
   ast_node_t *custom1 = ast_create_custom_tag_node(
       "loc", ast_create_string_literal_node("us", 1));
   ast_node_t *custom2 = ast_create_custom_tag_node(
@@ -135,10 +135,10 @@ void test_api_event_invalid_ast_duplicate_custom_tag(void) {
 
 void test_api_event_invalid_ast_invalid_container_name(void) {
   ast_node_t *cmd = ast_create_command_node(AST_CMD_EVENT, NULL);
-  ast_node_t *in_tag = ast_create_tag_node(
-      AST_KEY_IN, ast_create_string_literal_node("./db", 1));
+  ast_node_t *in_tag =
+      ast_create_tag_node(AST_KW_IN, ast_create_string_literal_node("./db", 1));
   ast_node_t *entity_tag = ast_create_tag_node(
-      AST_KEY_ENTITY, ast_create_string_literal_node("user-1", 1));
+      AST_KW_ENTITY, ast_create_string_literal_node("user-1", 1));
   ast_append_node(&cmd->command.tags, in_tag);
   ast_append_node(&cmd->command.tags, entity_tag);
   api_response_t *resp = api_exec(cmd, 0);
@@ -150,11 +150,11 @@ void test_api_event_invalid_ast_invalid_container_name(void) {
 void test_api_event_invalid_ast_duplicate_reserved_tag(void) {
   ast_node_t *cmd = ast_create_command_node(AST_CMD_EVENT, NULL);
   ast_node_t *in_tag1 = ast_create_tag_node(
-      AST_KEY_IN, ast_create_string_literal_node("metrics", 1));
+      AST_KW_IN, ast_create_string_literal_node("metrics", 1));
   ast_node_t *in_tag2 = ast_create_tag_node(
-      AST_KEY_IN, ast_create_string_literal_node("metrics2", 1));
+      AST_KW_IN, ast_create_string_literal_node("metrics2", 1));
   ast_node_t *entity_tag = ast_create_tag_node(
-      AST_KEY_ENTITY, ast_create_string_literal_node("user-1", 1));
+      AST_KW_ENTITY, ast_create_string_literal_node("user-1", 1));
   ast_append_node(&cmd->command.tags, in_tag1);
   ast_append_node(&cmd->command.tags, in_tag2);
   ast_append_node(&cmd->command.tags, entity_tag);
@@ -167,11 +167,11 @@ void test_api_event_invalid_ast_duplicate_reserved_tag(void) {
 void test_api_event_invalid_ast_where_tag(void) {
   ast_node_t *cmd = ast_create_command_node(AST_CMD_EVENT, NULL);
   ast_node_t *in_tag = ast_create_tag_node(
-      AST_KEY_IN, ast_create_string_literal_node("metrics", 1));
+      AST_KW_IN, ast_create_string_literal_node("metrics", 1));
   ast_node_t *entity_tag = ast_create_tag_node(
-      AST_KEY_ENTITY, ast_create_string_literal_node("user-1", 1));
+      AST_KW_ENTITY, ast_create_string_literal_node("user-1", 1));
   ast_node_t *where_tag = ast_create_tag_node(
-      AST_KEY_WHERE, ast_create_string_literal_node("should-not-be-here", 1));
+      AST_KW_WHERE, ast_create_string_literal_node("should-not-be-here", 1));
   ast_append_node(&cmd->command.tags, in_tag);
   ast_append_node(&cmd->command.tags, entity_tag);
   ast_append_node(&cmd->command.tags, where_tag);

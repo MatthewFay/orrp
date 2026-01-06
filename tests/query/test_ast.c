@@ -34,12 +34,12 @@ void test_number_literal_node(void) {
 void test_tag_node_reserved(void) {
   const char *str = "events";
   ast_node_t *val = ast_create_string_literal_node(str, strlen(str));
-  ast_node_t *tag = ast_create_tag_node(AST_KEY_IN, val);
+  ast_node_t *tag = ast_create_tag_node(AST_KW_IN, val);
 
   TEST_ASSERT_NOT_NULL(tag);
   TEST_ASSERT_EQUAL(AST_TAG_NODE, tag->type);
   TEST_ASSERT_EQUAL(AST_TAG_KEY_RESERVED, tag->tag.key_type);
-  TEST_ASSERT_EQUAL(AST_KEY_IN, tag->tag.reserved_key);
+  TEST_ASSERT_EQUAL(AST_KW_IN, tag->tag.reserved_key);
   TEST_ASSERT_EQUAL(val, tag->tag.value);
   TEST_ASSERT_NULL(tag->next);
   ast_free(tag);
@@ -125,7 +125,7 @@ void test_command_node(void) {
   // Build a list of tags
   ast_node_t *tags_list = NULL;
   ast_node_t *tag1 = ast_create_tag_node(
-      AST_KEY_IN, ast_create_string_literal_node("users", 5));
+      AST_KW_IN, ast_create_string_literal_node("users", 5));
   ast_node_t *tag2 = ast_create_custom_tag_node(
       "country", ast_create_string_literal_node("US", 2));
   ast_append_node(&tags_list, tag1);

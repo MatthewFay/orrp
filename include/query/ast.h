@@ -21,13 +21,13 @@ typedef enum {
 
 // An enum for all known, special-purpose tag keys
 typedef enum {
-  AST_KEY_IN,
-  AST_KEY_ENTITY,
-  AST_KEY_WHERE,
-  AST_KEY_TAKE,
-  AST_KEY_CURSOR,
-  AST_KEY_ID, // event id, for idempotency
-  AST_KEY,
+  AST_KW_IN,
+  AST_KW_ENTITY,
+  AST_KW_WHERE,
+  AST_KW_TAKE,
+  AST_KW_CURSOR,
+  AST_KW_ID, // event id, for idempotency
+  AST_KW_KEY,
 } ast_reserved_key_t;
 
 typedef enum { AST_TAG_KEY_RESERVED, AST_TAG_KEY_CUSTOM } ast_tag_key_type_t;

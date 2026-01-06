@@ -314,15 +314,26 @@ void eng_index(api_response_t *r, ast_node_t *ast) {
     return;
   }
 
-  if (!_eng_enqueue_cmd(cmd_ctx)) {
-    LOG_ACTION_WARN(ACT_CMD_ENQUEUE_FAILED,
-                    "context=eng_index reason=rate_limit");
-    r->err_msg = "Rate limit error, please try again";
-    return;
-  }
+  container_index_def_t index_def = {
+      .key = cmd_ctx->key_tag_value->literal.string_value,
+      .type = CONTAINER_INDEX_TYPE_I64};
+  db_put_result_t pr = container_sys_add_index(&index_def);
 
-  r->is_ok = true;
-  r->resp_type = API_RESP_TYPE_ACK;
+  switch (pr) {
+  case DB_PUT_OK:
+    r->is_ok = true;
+    r->resp_type = API_RESP_TYPE_ACK;
+    break;
+  case DB_PUT_KEY_EXISTS:
+    r->is_ok = false;
+    r->err_msg = "Duplicate index";
+    break;
+  case DB_PUT_ERR:
+    r->is_ok = false;
+    r->err_msg = "Error adding index";
+    break;
+  }
+  cmd_context_free(cmd_ctx);
 }
 
 static void _handle_query_result(eng_query_result_t *query_r, api_response_t *r,

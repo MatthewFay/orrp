@@ -20,22 +20,25 @@ cmd_ctx_t *build_cmd_context(ast_node_t *ast, int64_t arrival_ts) {
 
       if (tag->key_type == AST_TAG_KEY_RESERVED) {
         switch (tag->reserved_key) {
-        case AST_KEY_IN:
+        case AST_KW_IN:
           ctx->in_tag_value = tag->value;
           break;
-        case AST_KEY_ENTITY:
+        case AST_KW_ENTITY:
           ctx->entity_tag_value = tag->value;
           break;
-        case AST_KEY_WHERE:
+        case AST_KW_WHERE:
           ctx->where_tag_value = tag->value;
           break;
-        case AST_KEY_TAKE:
+        case AST_KW_TAKE:
           ctx->take_tag_value = tag->value;
           break;
-        case AST_KEY_CURSOR:
+        case AST_KW_CURSOR:
           ctx->cursor_tag_value = tag->value;
           break;
-        case AST_KEY_ID:
+        case AST_KW_ID:
+          break;
+        case AST_KW_KEY:
+          ctx->key_tag_value = tag->value;
           break;
         default:
           break;

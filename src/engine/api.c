@@ -62,24 +62,24 @@ static bool _validate_ast(ast_node_t *ast, custom_key **c_keys) {
       return false;
     if (t_node.key_type == AST_TAG_KEY_RESERVED) {
       switch (t_node.reserved_key) {
-      case AST_KEY_IN:
+      case AST_KW_IN:
         if (seen_in || cmd_type == AST_CMD_INDEX ||
             !_is_valid_container_name(t_node.value->literal.string_value))
           return false;
         seen_in = true;
         break;
-      case AST_KEY_ID:
+      case AST_KW_ID:
         return false; // not yet implemented
                       // if (seen_id || cmd_type != AST_CMD_EVENT)
                       //   return false;
                       // seen_id = true;
                       // break;
-      case AST_KEY_WHERE:
+      case AST_KW_WHERE:
         if (seen_where || cmd_type != AST_CMD_QUERY)
           return false;
         seen_where = true;
         break;
-      case AST_KEY_ENTITY:
+      case AST_KW_ENTITY:
         if (seen_entity || cmd_type != AST_CMD_EVENT)
           return false;
         seen_entity = true;
@@ -88,19 +88,19 @@ static bool _validate_ast(ast_node_t *ast, custom_key **c_keys) {
           return false;
         }
         break;
-      case AST_KEY_TAKE:
+      case AST_KW_TAKE:
         return false; // not yet implemented
         // if (seen_take || cmd_type != AST_CMD_QUERY)
         //   return false;
         // seen_take = true;
         // break;
-      case AST_KEY_CURSOR:
+      case AST_KW_CURSOR:
         return false; // not yet implemented
         // if (seen_cursor || cmd_type != AST_CMD_QUERY)
         //   return false;
         // seen_cursor = true;
         // break;
-      case AST_KEY:
+      case AST_KW_KEY:
         if (seen_key || cmd_type != AST_CMD_INDEX)
           return false;
         seen_key = true;

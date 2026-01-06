@@ -506,16 +506,16 @@ static ast_node_t *_parse_tag(queue_t *tokens, parse_result_t *r) {
     ast_reserved_key_t kt;
     switch (key_token_type) {
     case TOKEN_KW_IN:
-      kt = AST_KEY_IN;
+      kt = AST_KW_IN;
       break;
     // case TOKEN_KW_ID:
     //   kt = AST_KEY_ID;
     //   break;
     case TOKEN_KW_ENTITY:
-      kt = AST_KEY_ENTITY;
+      kt = AST_KW_ENTITY;
       break;
     case TOKEN_KW_WHERE:
-      kt = AST_KEY_WHERE;
+      kt = AST_KW_WHERE;
       break;
     // case TOKEN_KW_TAKE:
     //   kt = AST_KEY_TAKE;
@@ -524,7 +524,7 @@ static ast_node_t *_parse_tag(queue_t *tokens, parse_result_t *r) {
     //   kt = AST_KEY_CURSOR;
     //   break;
     case TOKEN_KW_KEY:
-      kt = AST_KEY;
+      kt = AST_KW_KEY;
       break;
     default:
       free(key_token);
@@ -557,7 +557,7 @@ static ast_node_t *_parse_tag(queue_t *tokens, parse_result_t *r) {
   }
   if (tag->tag.key_type == AST_TAG_KEY_RESERVED) {
     switch (tag->tag.reserved_key) {
-    case AST_KEY_WHERE:
+    case AST_KW_WHERE:
       // where: must be followed by a parenthesized expression
       if (first_val_token->type != TOKEN_SYM_LPAREN) {
         ast_free(tag);
@@ -583,7 +583,7 @@ static ast_node_t *_parse_tag(queue_t *tokens, parse_result_t *r) {
   if (first_val_token->type == TOKEN_IDENTIFER ||
       first_val_token->type == TOKEN_LITERAL_STRING) {
     first_val_token = queue_dequeue(tokens);
-    size_t valid_len = tag->tag.reserved_key == AST_KEY_ENTITY
+    size_t valid_len = tag->tag.reserved_key == AST_KW_ENTITY
                            ? MAX_ENTITY_STR_LEN
                            : MAX_TEXT_VAL_LEN;
     if (first_val_token->text_value_len > valid_len) {
