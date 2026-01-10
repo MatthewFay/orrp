@@ -3,6 +3,7 @@
 
 #include "core/db.h"
 #include "core/mmap_array.h"
+#include "engine/index/index_types.h"
 #include "khash.h"
 #include "lmdb.h"
 #include "uthash.h"
@@ -74,19 +75,7 @@ typedef enum {
 // Structs - Container Data Structures
 // ============================================================================
 
-typedef enum { CONTAINER_INDEX_TYPE_I64 } container_index_type_t;
-
-typedef struct {
-  char *key;
-  container_index_type_t type;
-} container_index_def_t;
-
-typedef struct {
-  container_index_def_t index_def;
-  MDB_dbi index_db;
-} container_index_t;
-
-KHASH_MAP_INIT_STR(key_index, container_index_t)
+KHASH_MAP_INIT_STR(key_index, index_t)
 
 /**
  * System data container (Global Directory)

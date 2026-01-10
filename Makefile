@@ -79,6 +79,7 @@ APP_SRCS = \
 			 src/engine/engine_writer/engine_writer_queue_msg.c \
 			 src/engine/engine_writer/engine_writer_queue.c \
 			 src/engine/engine_writer/engine_writer.c \
+			 src/engine/index/index.c \
 			 src/engine/op/op.c \
 			 src/engine/op_queue/op_queue_msg.c \
 			 src/engine/op_queue/op_queue.c \

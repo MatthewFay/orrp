@@ -11,6 +11,7 @@
 #include "engine/container/container_types.h"
 #include "engine/eng_eval/eng_eval.h"
 #include "engine/eng_query/eng_query.h"
+#include "engine/index/index.h"
 #include "engine/op_queue/op_queue.h"
 #include "engine/worker/worker.h"
 #include "engine_writer/engine_writer.h"
@@ -314,10 +315,9 @@ void eng_index(api_response_t *r, ast_node_t *ast) {
     return;
   }
 
-  container_index_def_t index_def = {
-      .key = cmd_ctx->key_tag_value->literal.string_value,
-      .type = CONTAINER_INDEX_TYPE_I64};
-  db_put_result_t pr = container_sys_add_index(&index_def);
+  index_def_t index_def = {.key = cmd_ctx->key_tag_value->literal.string_value,
+                           .type = INDEX_TYPE_I64};
+  db_put_result_t pr = index_add_sys(&index_def);
 
   switch (pr) {
   case DB_PUT_OK:

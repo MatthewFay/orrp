@@ -75,9 +75,4 @@ bool container_get_db_handle(eng_container_t *c, eng_container_db_key_t *db_key,
  */
 void container_free_db_key_contents(eng_container_db_key_t *db_key);
 
-/**
- * Adds an index to the system registry
- */
-db_put_result_t container_sys_add_index(const container_index_def_t *index_def);
-
 #endif // CONTAINER_H

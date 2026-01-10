@@ -1,7 +1,6 @@
 #include "container.h"
 #include "container_cache.h"
 #include "container_db.h"
-#include "core/db.h"
 #include "engine/container/container_types.h"
 #include "lmdb.h"
 #include "uv.h"
@@ -280,27 +279,4 @@ bool container_get_db_handle(eng_container_t *c, eng_container_db_key_t *db_key,
 
 void container_free_db_key_contents(eng_container_db_key_t *db_key) {
   cdb_free_db_key_contents(db_key);
-}
-
-db_put_result_t
-container_sys_add_index(const container_index_def_t *index_def) {
-  if (!index_def)
-    return DB_PUT_ERR;
-
-  container_result_t sys_cr = container_get_system();
-  if (!sys_cr.success) {
-    return DB_PUT_ERR;
-  }
-  eng_container_t *sys_c = sys_cr.container;
-  MDB_txn *sys_txn = db_create_txn(sys_c->env, false);
-  if (!sys_txn) {
-    return DB_PUT_ERR;
-  }
-
-  db_put_result_t pr = sys_index_put(sys_c, sys_txn, index_def);
-  if (pr != DB_PUT_OK) {
-    db_abort_txn(sys_txn);
-    return pr;
-  }
-  return db_commit_txn(sys_txn) ? DB_PUT_OK : DB_PUT_ERR;
 }
