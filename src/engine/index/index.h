@@ -4,11 +4,20 @@
 #include "core/db.h"
 #include "engine/container/container_types.h"
 #include "engine/index/index_types.h"
+#include <stdint.h>
 
-bool init_user_indexes(eng_container_t *user_container, bool is_new_container,
-                       eng_container_t *sys_c);
+// Returns true/false for index existence.
+// If true, `index_out` will be set to valid index.
+bool index_get(const char *key, eng_container_t *user_container,
+               index_t *index_out);
 
-bool init_sys_index_registry(eng_container_t *sys_c);
+// Returns false on error. Get count of indexes in user container.
+bool index_get_count(eng_container_t *user_container, uint32_t *count_out);
+
+bool index_init_user_registry(eng_container_t *user_container,
+                              bool is_new_container, eng_container_t *sys_c);
+
+bool index_init_sys_registry(eng_container_t *sys_c);
 
 /**
  * Adds an index to the system registry

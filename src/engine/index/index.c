@@ -2,7 +2,9 @@
 #include "core/data_constants.h"
 #include "engine/container/container.h"
 #include "engine/container/container_types.h"
+#include "engine/index/index_types.h"
 #include "mpack.h"
+#include <stdbool.h>
 
 static const index_def_t DEFAULT_INDEXES[] = {
     {.key = "ts", .type = INDEX_TYPE_I64}, {0}};
@@ -96,8 +98,8 @@ static bool _init_user_local_index_registry(eng_container_t *user_container,
   return true;
 }
 
-bool init_user_indexes(eng_container_t *user_container, bool is_new_container,
-                       eng_container_t *sys_c) {
+bool index_init_user_registry(eng_container_t *user_container,
+                              bool is_new_container, eng_container_t *sys_c) {
   if (!user_container || !sys_c)
     return false;
 
@@ -240,7 +242,7 @@ void index_destroy_key_index(eng_container_t *usr_c) {
   }
 }
 
- bool init_sys_index_registry(eng_container_t *sys_c) {
+bool index_init_sys_registry(eng_container_t *sys_c) {
   MDB_txn *sys_txn = db_create_txn(sys_c->env, false);
   if (!sys_txn)
     return false;
@@ -255,4 +257,26 @@ void index_destroy_key_index(eng_container_t *usr_c) {
   }
 
   return db_commit_txn(sys_txn);
+}
+
+bool index_get(const char *key, eng_container_t *user_container,
+               index_t *index_out) {
+  if (!user_container || !key)
+    return false;
+  memset(index_out, 0, sizeof(index_t));
+  kh_key_index_t *key_to_index = user_container->data.usr->key_to_index;
+  khint_t k = kh_get(key_index, key_to_index, key);
+  if (k != kh_end(key_to_index)) {
+    *index_out = kh_value(key_to_index, k);
+    return true;
+  }
+  return false;
+}
+
+bool index_get_count(eng_container_t *user_container, uint32_t *count_out) {
+  if (!user_container)
+    return false;
+  khint_t count = kh_size(user_container->data.usr->key_to_index);
+  *count_out = count;
+  return true;
 }

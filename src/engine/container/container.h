@@ -42,14 +42,9 @@ void container_release(eng_container_t *container);
 
 /**
  * Get a database handle from a user container
- *
- * @param c Container (must be USER type)
- * @param db_type Type of database to get
- * @param db_out Output parameter for database handle
- * @return true on success, false on failure
  */
 bool container_get_user_db_handle(eng_container_t *c,
-                                  eng_dc_user_db_type_t db_type,
+                                  eng_container_db_key_t *db_key,
                                   MDB_dbi *db_out);
 
 /**

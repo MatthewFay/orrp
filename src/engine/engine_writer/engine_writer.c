@@ -151,8 +151,7 @@ static bool _write_to_db(eng_container_t *c, MDB_txn *txn,
     }
     break;
   case CONTAINER_TYPE_USR:
-    if (!container_get_user_db_handle(c, entry->db_key.usr_db_type,
-                                      &target_db)) {
+    if (!container_get_user_db_handle(c, &entry->db_key, &target_db)) {
       LOG_ACTION_ERROR(ACT_DB_HANDLE_FAILED, "container=\"%s\" db_type=%d",
                        c->name, entry->db_key.usr_db_type);
       return false;
@@ -175,6 +174,7 @@ static bool _write_to_db(eng_container_t *c, MDB_txn *txn,
 static void _bump_flush_version(write_batch_t *container_batch) {
   write_batch_item_t *item = container_batch->head;
   uint32_t bumped = 0;
+  (void)bumped;
 
   while (item) {
     if (item->entry->bump_flush_version) {
@@ -279,12 +279,14 @@ static bool _deque(eng_writer_t *w, eng_writer_msg_t **msg_out) {
 static void _eng_writer_thread_func(void *arg) {
   eng_writer_t *writer = (eng_writer_t *)arg;
   const eng_writer_config_t *config = &writer->config;
+  (void)config;
   int backoff = 1;
   int spin_count = 0;
   bool have_work = false;
   uint64_t total_cycles = 0;
   uint64_t total_messages = 0;
   uint64_t total_entries = 0;
+  (void)total_entries;
 
   write_batch_t *batch_hash = NULL;
   eng_writer_msg_t *msg = NULL;

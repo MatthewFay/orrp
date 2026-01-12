@@ -64,6 +64,7 @@ typedef enum {
   USR_DB_METADATA,
   USR_DB_EVENTS,
   USR_DB_INDEX_REGISTRY_LOCAL,
+  USR_DB_INDEX,
   USR_DB_COUNT,
 } eng_dc_user_db_type_t;
 
@@ -156,6 +157,7 @@ typedef struct {
     eng_dc_user_db_type_t usr_db_type;
   };
   char *container_name; // NULL for system DBs
+  char *index_key; // if db type is INDEX, used to get index DB, NULL otherwise
   db_key_t db_key;
 } eng_container_db_key_t;
 

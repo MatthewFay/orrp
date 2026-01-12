@@ -3,8 +3,11 @@
 #include "engine/cmd_queue/cmd_queue_msg.h"
 #include "engine/container/container_types.h"
 #include "engine/engine_writer/engine_writer_queue_msg.h"
+#include "engine/index/index.h"
+#include "engine/index/index_types.h"
 #include "engine/worker/encoder.h"
 #include "query/ast.h"
+#include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -65,7 +68,7 @@ static bool _create_event_counter_entry(char *container_name, uint32_t event_id,
   *(uint32_t *)entry->value = event_id;
   entry->value_size = sizeof(uint32_t);
   entry->write_condition = WRITE_COND_INT32_GREATER_THAN;
-  return entry;
+  return true;
 }
 
 static bool _create_ent_counter_entry(uint32_t ent_id,
@@ -92,7 +95,7 @@ static bool _create_ent_counter_entry(uint32_t ent_id,
   *(uint32_t *)entry->value = ent_id;
   entry->value_size = sizeof(uint32_t);
   entry->write_condition = WRITE_COND_INT32_GREATER_THAN;
-  return entry;
+  return true;
 }
 
 static bool _create_ent_entry(uint32_t ent_id, ast_literal_node_t *ent_node,
@@ -125,21 +128,64 @@ static bool _create_ent_entry(uint32_t ent_id, ast_literal_node_t *ent_node,
   *(uint32_t *)entry->value = ent_id;
   entry->value_size = sizeof(uint32_t);
   entry->write_condition = WRITE_COND_ALWAYS;
-  return entry;
+  return true;
+}
+
+static bool _create_index_entries(uint32_t event_id, cmd_queue_msg_t *cmd_msg,
+                                  char *container_name,
+                                  eng_container_t *user_dc,
+                                  eng_writer_msg_t *msg) {
+  eng_container_db_key_t db_key = {0};
+  index_t index = {0};
+  ast_node_t *custom_tag = cmd_msg->command->custom_tags_head;
+  while (custom_tag) {
+    if (custom_tag->tag.value->literal.type != AST_LITERAL_NUMBER) {
+      // right now we only support i64 index so skip
+      custom_tag = custom_tag->next;
+      continue;
+    }
+    char *ct_key = custom_tag->tag.custom_key;
+    bool is_index = index_get(ct_key, user_dc, &index);
+    if (is_index) {
+      db_key.dc_type = CONTAINER_TYPE_USR;
+      db_key.container_name = strdup(container_name);
+      if (!db_key.container_name) {
+        return false;
+      }
+      db_key.index_key = strdup(ct_key);
+      db_key.usr_db_type = USR_DB_INDEX;
+      db_key.db_key.type = DB_KEY_I64;
+      db_key.db_key.key.i64 = custom_tag->tag.value->literal.number_value;
+      uint32_t i = msg->count++;
+      eng_writer_entry_t *entry = &msg->entries[i];
+      entry->db_key = db_key;
+      entry->bump_flush_version = false;
+      entry->value = malloc(sizeof(uint32_t));
+      *(uint32_t *)entry->value = event_id;
+      entry->value_size = sizeof(uint32_t);
+      entry->write_condition = WRITE_COND_ALWAYS;
+    }
+    custom_tag = custom_tag->next;
+  }
+  return true;
 }
 
 eng_writer_msg_t *worker_create_writer_msg(cmd_queue_msg_t *cmd_msg,
                                            char *container_name,
                                            uint32_t event_id, uint32_t ent_id,
                                            ast_literal_node_t *ent_node,
-                                           bool is_new_ent) {
-  eng_writer_msg_t *msg = malloc(sizeof(eng_writer_msg_t));
+                                           bool is_new_ent,
+                                           eng_container_t *user_dc) {
+  eng_writer_msg_t *msg = calloc(1, sizeof(eng_writer_msg_t));
   if (!msg) {
     return NULL;
   }
+  uint32_t index_count = 0;
+  index_get_count(user_dc, &index_count);
+
   // Greedy: At most 4 entries (sys entity counter, usr event counter, event
-  // data, entity external id -> int)
-  msg->entries = calloc(4, sizeof(eng_writer_entry_t));
+  // data, entity external id -> int) + num indexes
+  msg->entries = calloc(4 + index_count, sizeof(eng_writer_entry_t));
   if (!msg->entries) {
     free(msg);
     return NULL;
@@ -169,6 +215,11 @@ eng_writer_msg_t *worker_create_writer_msg(cmd_queue_msg_t *cmd_msg,
   }
 
   if (!_create_ent_entry(ent_id, ent_node, &msg->entries[msg->count++])) {
+    eng_writer_queue_free_msg(msg);
+    return NULL;
+  }
+  if (index_count > 0 &&
+      !_create_index_entries(event_id, cmd_msg, container_name, user_dc, msg)) {
     eng_writer_queue_free_msg(msg);
     return NULL;
   }

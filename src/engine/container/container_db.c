@@ -4,6 +4,7 @@
 #include "core/mmap_array.h"
 #include "engine/container/container_types.h"
 #include "engine/index/index.h"
+#include "engine/index/index_types.h"
 #include "lmdb.h"
 #include <stdbool.h>
 #include <stddef.h>
@@ -172,7 +173,7 @@ container_result_t create_user_container(const char *name, const char *data_dir,
     return result;
   }
 
-  if (!init_user_indexes(c, is_new_container, sys_c)) {
+  if (!index_init_user_registry(c, is_new_container, sys_c)) {
     container_close(c);
     result.error_code = CONTAINER_ERR_INDEX;
     result.error_msg = "Failed to initialize indexes";
@@ -252,7 +253,7 @@ container_result_t create_system_container(const char *data_dir,
     return result;
   }
 
-  if (is_new_container && !init_sys_index_registry(c)) {
+  if (is_new_container && !index_init_sys_registry(c)) {
     container_close(c);
     result.error_code = CONTAINER_ERR_INDEX;
     result.error_msg = "Failed to init system index registry";
@@ -264,13 +265,13 @@ container_result_t create_system_container(const char *data_dir,
   return result;
 }
 
-bool cdb_get_user_db_handle(eng_container_t *c, eng_dc_user_db_type_t db_type,
+bool cdb_get_user_db_handle(eng_container_t *c, eng_container_db_key_t *db_key,
                             MDB_dbi *db_out) {
   if (!c || c->type != CONTAINER_TYPE_USR || !db_out) {
     return false;
   }
 
-  switch (db_type) {
+  switch (db_key->usr_db_type) {
   case USR_DB_INVERTED_EVENT_INDEX:
     *db_out = c->data.usr->inverted_event_index_db;
     break;
@@ -282,6 +283,13 @@ bool cdb_get_user_db_handle(eng_container_t *c, eng_dc_user_db_type_t db_type,
     break;
   case USR_DB_INDEX_REGISTRY_LOCAL:
     *db_out = c->data.usr->index_registry_local_db;
+    break;
+  case USR_DB_INDEX:
+    if (db_key->index_key == NULL)
+      return false;
+    index_t ind = {0};
+    index_get(db_key->index_key, c, &ind);
+    *db_out = ind.index_db;
     break;
   default:
     return false;
@@ -325,5 +333,8 @@ void cdb_free_db_key_contents(eng_container_db_key_t *db_key) {
   free(db_key->container_name);
   if (db_key->db_key.type == DB_KEY_STRING) {
     free(db_key->db_key.key.s);
+  }
+  if (db_key->index_key) {
+    free(db_key->index_key);
   }
 }

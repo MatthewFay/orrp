@@ -223,7 +223,7 @@ static bool _get_user_dc(worker_t *worker, const char *container_name,
   return true;
 }
 
-static bool _get_next_event_id_for_container(worker_t *worker,
+static bool _get_next_event_id_for_container(worker_user_dc_t *user_dc,
                                              const char *container_name,
                                              uint32_t *event_id_out) {
   atomic_uint_fast32_t *next_event_id = NULL;
@@ -243,18 +243,7 @@ static bool _get_next_event_id_for_container(worker_t *worker,
                    container_name);
 
   // Cache miss - need to load from DB
-  worker_user_dc_t *user_dc = NULL;
-  if (!_get_user_dc(worker, container_name, &user_dc)) {
-    LOG_ACTION_ERROR(ACT_CONTAINER_OPEN_FAILED, "container=\"%s\"",
-                     container_name);
-    return false;
-  }
-  MDB_dbi db;
-  if (!container_get_user_db_handle(user_dc->dc, USR_DB_METADATA, &db)) {
-    LOG_ACTION_ERROR(ACT_DB_HANDLE_FAILED, "db=metadata container=\"%s\"",
-                     container_name);
-    return false;
-  }
+  MDB_dbi db = user_dc->dc->data.usr->user_dc_metadata_db;
 
   db_get_result_t r = {0};
   db_key_t db_key;
@@ -381,14 +370,8 @@ static bool _queue_up_ops(worker_t *worker, worker_ops_t *ops) {
   return true;
 }
 
-static bool _write_to_event_ent_map(worker_t *worker, char *container_name,
-                                    uint32_t ent_id, uint32_t event_id) {
-  worker_user_dc_t *user_dc = NULL;
-  if (!_get_user_dc(worker, container_name, &user_dc)) {
-    LOG_ACTION_ERROR(ACT_CONTAINER_OPEN_FAILED, "container=\"%s\"",
-                     container_name);
-    return false;
-  }
+static bool _write_to_event_ent_map(worker_user_dc_t *user_dc, uint32_t ent_id,
+                                    uint32_t event_id) {
   if (mmap_array_set(&user_dc->dc->data.usr->event_to_entity_map, event_id,
                      &ent_id) != 0) {
     // TODO: error handling
@@ -423,6 +406,13 @@ static bool _process_msg(worker_t *worker, cmd_queue_msg_t *msg,
   bool is_new_ent = false;
   ast_literal_node_t *ent_node = &msg->command->entity_tag_value->literal;
   char *container_name = msg->command->in_tag_value->literal.string_value;
+  worker_user_dc_t *user_dc = NULL;
+
+  if (!_get_user_dc(worker, container_name, &user_dc)) {
+    LOG_ACTION_ERROR(ACT_CONTAINER_OPEN_FAILED, "container=\"%s\"",
+                     container_name);
+    return false;
+  }
 
   if (!_get_entity_mapping(worker, sys_c_ptr, sys_txn_ptr, ent_node,
                            &ent_int_id, &is_new_ent, created_sys_txn_out)) {
@@ -432,20 +422,21 @@ static bool _process_msg(worker_t *worker, cmd_queue_msg_t *msg,
   }
 
   uint32_t event_id = 0;
-  if (!_get_next_event_id_for_container(worker, container_name, &event_id)) {
+  if (!_get_next_event_id_for_container(user_dc, container_name, &event_id)) {
     LOG_ENT_ERROR(ACT_EVENT_ID_FAILED, ent_node, "container=\"%s\"",
                   container_name);
     return false;
   }
 
-  if (!_write_to_event_ent_map(worker, container_name, ent_int_id, event_id)) {
+  if (!_write_to_event_ent_map(user_dc, ent_int_id, event_id)) {
     LOG_ENT_ERROR(ACT_EVENT_ID_FAILED, ent_node, "container=\"%s\"",
                   container_name);
     return false;
   }
 
-  eng_writer_msg_t *writer_msg = worker_create_writer_msg(
-      msg, container_name, event_id, ent_int_id, ent_node, is_new_ent);
+  eng_writer_msg_t *writer_msg =
+      worker_create_writer_msg(msg, container_name, event_id, ent_int_id,
+                               ent_node, is_new_ent, user_dc->dc);
   if (!writer_msg) {
     LOG_ENT_ERROR(ACT_WORKER_WRITER_MSG_FAILED, ent_node, "container=\"%s\"",
                   container_name);

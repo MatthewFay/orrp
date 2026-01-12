@@ -203,6 +203,7 @@ static eval_bitmap_t *_not(eval_bitmap_t *operand, eval_ctx_t *ctx,
 
 static eval_bitmap_t *_and(eval_bitmap_t *left, eval_bitmap_t *right,
                            eval_ctx_t *ctx, eng_eval_result_t *result) {
+  (void)result;
   if (left->own) {
     // We own Left, so we can mutate it in-place
     bitmap_and_inplace(left->bm, right->bm);
@@ -222,6 +223,7 @@ static eval_bitmap_t *_and(eval_bitmap_t *left, eval_bitmap_t *right,
 
 static eval_bitmap_t *_or(eval_bitmap_t *left, eval_bitmap_t *right,
                           eval_ctx_t *ctx, eng_eval_result_t *result) {
+  (void)result;
   if (left->own) {
     // We own Left, so we can mutate it in-place
     bitmap_or_inplace(left->bm, right->bm);

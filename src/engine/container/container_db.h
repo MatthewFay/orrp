@@ -12,7 +12,7 @@ container_result_t create_user_container(const char *name, const char *data_dir,
 container_result_t create_system_container(const char *data_dir,
                                            size_t max_container_size);
 
-bool cdb_get_user_db_handle(eng_container_t *c, eng_dc_user_db_type_t db_type,
+bool cdb_get_user_db_handle(eng_container_t *c, eng_container_db_key_t *db_key,
                             MDB_dbi *db_out);
 
 bool cdb_get_system_db_handle(eng_container_t *c, eng_dc_sys_db_type_t db_type,

@@ -107,7 +107,7 @@ _get_or_Create_cache_entry(eng_container_t *dc, consumer_cache_t *cache,
   LOG_ACTION_DEBUG(ACT_CACHE_MISS, "key=\"%s\"", key->ser_db_key);
 
   if (msg->op->db_key.dc_type == CONTAINER_TYPE_USR) {
-    if (!container_get_user_db_handle(dc, msg->op->db_key.usr_db_type, &db)) {
+    if (!container_get_user_db_handle(dc, &msg->op->db_key, &db)) {
       LOG_ACTION_ERROR(ACT_DB_HANDLE_FAILED, "container_type=user db_type=%d",
                        msg->op->db_key.usr_db_type);
       return NULL;
@@ -442,6 +442,7 @@ static void _consumer_thread_func(void *arg) {
   op_queue_msg_t *msg = NULL;
   bool batched_any = false;
   uint32_t msgs_batched = 0;
+  (void)msgs_batched;
   uint32_t cycle = 0;
   int backoff = 1;
   int spin_count = 0;
@@ -538,6 +539,7 @@ static void _consumer_thread_func(void *arg) {
       // Periodic stats
       if (total_cycles % 100000 == 0) {
         double active_pct = (active_cycles * 100.0) / total_cycles;
+        (void)active_pct;
         LOG_ACTION_INFO(ACT_CONSUMER_STATS,
                         "total_cycles=%llu active_pct=%.1f cache_entries=%u",
                         total_cycles, active_pct, consumer->cache.n_entries);
