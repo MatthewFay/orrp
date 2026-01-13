@@ -13,27 +13,34 @@ typedef struct {
   int called;
   ast_node_t *last_ast;
   int64_t last_ts;
-} mock_eng_event_state_t;
+} mock_eng_state_t;
 
-static mock_eng_event_state_t mock_state;
+static mock_eng_state_t mock_state;
 
 // Updated Mock Signature to accept arrival_ts
 void eng_event(api_response_t *resp, ast_node_t *ast, int64_t arrival_ts) {
   mock_state.called++;
   mock_state.last_ast = ast;
   mock_state.last_ts = arrival_ts;
-  // Simulate a successful event
   resp->is_ok = true;
   resp->err_msg = NULL;
   resp->op_type = API_EVENT;
 }
 
-void eng_query(api_response_t *r, ast_node_t *ast) {
-  (void)r;
-  (void)ast;
-  // For validation tests, we just check if API made it here
-  r->is_ok = true;
+void eng_query(api_response_t *resp, ast_node_t *ast) {
   mock_state.called++;
+  mock_state.last_ast = ast;
+  resp->is_ok = true;
+  resp->err_msg = NULL;
+  resp->op_type = API_QUERY;
+}
+
+void eng_index(api_response_t *resp, ast_node_t *ast) {
+  mock_state.called++;
+  mock_state.last_ast = ast;
+  resp->is_ok = true;
+  resp->err_msg = NULL;
+  resp->op_type = API_INDEX;
 }
 
 bool eng_init(void) { return true; }
@@ -65,6 +72,15 @@ static ast_node_t *make_query_ast(const char *container,
   return cmd;
 }
 
+// Helper to create a minimal valid INDEX AST
+static ast_node_t *make_index_ast(const char *key) {
+  ast_node_t *cmd = ast_create_command_node(AST_CMD_INDEX, NULL);
+  ast_node_t *key_tag =
+      ast_create_tag_node(AST_KW_KEY, ast_create_string_literal_node(key, 1));
+  ast_append_node(&cmd->command.tags, key_tag);
+  return cmd;
+}
+
 void setUp(void) { memset(&mock_state, 0, sizeof(mock_state)); }
 
 void tearDown(void) {
@@ -83,6 +99,26 @@ void test_api_event_success(void) {
   TEST_ASSERT_EQUAL(1, mock_state.called);
   TEST_ASSERT_EQUAL_INT64(ts, mock_state.last_ts);
   TEST_ASSERT_NOT_NULL(mock_state.last_ast);
+  free_api_response(resp);
+}
+
+void test_api_query_success(void) {
+  ast_node_t *ast = make_query_ast("metrics", "val > 10");
+  api_response_t *resp = api_exec(ast, 0);
+  TEST_ASSERT_NOT_NULL(resp);
+  TEST_ASSERT_TRUE(resp->is_ok);
+  TEST_ASSERT_EQUAL(API_QUERY, resp->op_type);
+  TEST_ASSERT_EQUAL(1, mock_state.called);
+  free_api_response(resp);
+}
+
+void test_api_index_success(void) {
+  ast_node_t *ast = make_index_ast("my_field");
+  api_response_t *resp = api_exec(ast, 0);
+  TEST_ASSERT_NOT_NULL(resp);
+  TEST_ASSERT_TRUE(resp->is_ok);
+  TEST_ASSERT_EQUAL(API_INDEX, resp->op_type);
+  TEST_ASSERT_EQUAL(1, mock_state.called);
   free_api_response(resp);
 }
 
@@ -108,6 +144,57 @@ void test_api_event_invalid_ast_missing_entity(void) {
   TEST_ASSERT_NOT_NULL(resp);
   TEST_ASSERT_FALSE(resp->is_ok);
   TEST_ASSERT_EQUAL_STRING("Error: Invalid command", resp->err_msg);
+  TEST_ASSERT_EQUAL(0, mock_state.called);
+  free_api_response(resp);
+}
+
+void test_api_query_invalid_missing_where(void) {
+  ast_node_t *cmd = ast_create_command_node(AST_CMD_QUERY, NULL);
+  ast_node_t *in_tag = ast_create_tag_node(
+      AST_KW_IN, ast_create_string_literal_node("metrics", 1));
+  ast_append_node(&cmd->command.tags, in_tag);
+  api_response_t *resp = api_exec(cmd, 0);
+  TEST_ASSERT_NOT_NULL(resp);
+  TEST_ASSERT_FALSE(resp->is_ok);
+  TEST_ASSERT_EQUAL(0, mock_state.called);
+  free_api_response(resp);
+}
+
+void test_api_index_invalid_missing_key(void) {
+  // Index commands require a KEY tag
+  ast_node_t *cmd = ast_create_command_node(AST_CMD_INDEX, NULL);
+  // Note: INDEX commands in this implementation forbid the IN tag
+  api_response_t *resp = api_exec(cmd, 0);
+  TEST_ASSERT_NOT_NULL(resp);
+  TEST_ASSERT_FALSE(resp->is_ok);
+  TEST_ASSERT_EQUAL(0, mock_state.called);
+  free_api_response(resp);
+}
+
+void test_api_index_invalid_with_in_tag(void) {
+  // The implementation explicitly forbids IN tags for INDEX commands
+  ast_node_t *cmd = make_index_ast("field1");
+  ast_node_t *in_tag = ast_create_tag_node(
+      AST_KW_IN, ast_create_string_literal_node("metrics", 1));
+  ast_append_node(&cmd->command.tags, in_tag);
+
+  api_response_t *resp = api_exec(cmd, 0);
+  TEST_ASSERT_NOT_NULL(resp);
+  TEST_ASSERT_FALSE(resp->is_ok);
+  TEST_ASSERT_EQUAL(0, mock_state.called);
+  free_api_response(resp);
+}
+
+void test_api_query_invalid_custom_tag(void) {
+  // Custom tags are only allowed for EVENT commands
+  ast_node_t *cmd = make_query_ast("metrics", "x > 1");
+  ast_node_t *custom = ast_create_custom_tag_node(
+      "meta", ast_create_string_literal_node("val", 1));
+  ast_append_node(&cmd->command.tags, custom);
+
+  api_response_t *resp = api_exec(cmd, 0);
+  TEST_ASSERT_NOT_NULL(resp);
+  TEST_ASSERT_FALSE(resp->is_ok);
   TEST_ASSERT_EQUAL(0, mock_state.called);
   free_api_response(resp);
 }
@@ -191,8 +278,14 @@ void test_api_event_invalid_ast_null(void) {
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_api_event_success);
+  RUN_TEST(test_api_query_success);
+  RUN_TEST(test_api_index_success);
   RUN_TEST(test_api_event_invalid_ast_missing_in);
   RUN_TEST(test_api_event_invalid_ast_missing_entity);
+  RUN_TEST(test_api_query_invalid_missing_where);
+  RUN_TEST(test_api_index_invalid_missing_key);
+  RUN_TEST(test_api_index_invalid_with_in_tag);
+  RUN_TEST(test_api_query_invalid_custom_tag);
   RUN_TEST(test_api_event_invalid_ast_duplicate_custom_tag);
   RUN_TEST(test_api_event_invalid_ast_invalid_container_name);
   RUN_TEST(test_api_event_invalid_ast_duplicate_reserved_tag);

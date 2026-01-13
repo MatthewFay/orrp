@@ -153,7 +153,7 @@ void db_get_result_clear(db_get_result_t *res) {
   }
 }
 
-// Returns false on error, true if found or not found
+// Returns false on error, true if found or not found (check `result_out`)
 bool db_get(MDB_dbi db, MDB_txn *txn, db_key_t *key,
             db_get_result_t *result_out) {
   if (txn == NULL || key == NULL || result_out == NULL)

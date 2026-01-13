@@ -549,11 +549,6 @@ void test_db_cursor_basic(void) {
 
   while (db_cursor_next(cursor, &entry)) {
     // Check keys are in order (a, b, c) because MDB_NEXT iterates sequentially
-    // Since we inserted strings, LMDB sorts them lexically.
-    // Note: LMDB returns the raw key bytes, not a null-terminated string if we
-    // didn't store null. In db_put for string, we used strlen(), so no null
-    // terminator in DB.
-
     TEST_ASSERT_EQUAL(strlen(keys[count]), entry.key_len);
     TEST_ASSERT_EQUAL_MEMORY(keys[count], entry.key, entry.key_len);
 
@@ -734,6 +729,8 @@ void test_put_no_overwrite(void) {
                     db_put(test_db, txn1, &key, "val1", 4, true, false));
 
   MDB_txn *txn2 = db_create_txn(test_env, false);
+  // Attempt to put distinct value "val2" with no_overwrite=true.
+  // Should fail because key exists.
   TEST_ASSERT_EQUAL(DB_PUT_KEY_EXISTS,
                     db_put(test_db, txn2, &key, "val2", 4, true, true));
 
@@ -745,6 +742,75 @@ void test_put_no_overwrite(void) {
 
   db_get_result_clear(&res);
   db_abort_txn(read_txn);
+}
+
+void test_dup_keys_insertion_and_traversal(void) {
+  // Use a separate DB handle for Duplicate Keys to avoid config conflict with
+  // default test_db
+  MDB_dbi dup_db;
+  bool ret = db_open(test_env, "dup_db_test", false, DB_DUP_KEYS, &dup_db);
+  TEST_ASSERT_TRUE(ret);
+
+  MDB_txn *txn = db_create_txn(test_env, false);
+  db_key_t key = {.type = DB_KEY_STRING, .key.s = "common_key"};
+
+  // Insert multiple values for the same key
+  // Note: LMDB stores duplicates sorted. "val1" < "val2" < "val3"
+  db_put(dup_db, txn, &key, "val1", 4, false, false);
+  db_put(dup_db, txn, &key, "val3", 4, false, false);
+  db_put(dup_db, txn, &key, "val2", 4, false, false);
+
+  db_commit_txn(txn);
+
+  // Iterate to verify we see all 3 values in order
+  MDB_txn *read_txn = db_create_txn(test_env, true);
+  MDB_cursor *cursor = db_cursor_open(read_txn, dup_db);
+
+  db_cursor_entry_t entry;
+  int count = 0;
+
+  while (db_cursor_next(cursor, &entry)) {
+    if (entry.key_len == strlen("common_key") &&
+        strncmp(entry.key, "common_key", entry.key_len) == 0) {
+
+      // Verify sort order
+      if (count == 0)
+        TEST_ASSERT_EQUAL_MEMORY("val1", entry.value, 4);
+      if (count == 1)
+        TEST_ASSERT_EQUAL_MEMORY("val2", entry.value, 4);
+      if (count == 2)
+        TEST_ASSERT_EQUAL_MEMORY("val3", entry.value, 4);
+      count++;
+    }
+  }
+
+  TEST_ASSERT_EQUAL(3, count);
+
+  db_cursor_close(cursor);
+  db_abort_txn(read_txn);
+  db_close(test_env, dup_db);
+}
+
+void test_dup_keys_no_overwrite_behavior(void) {
+  // Verify that MDB_NOOVERWRITE fails if key exists, even if duplicates are
+  // allowed
+  MDB_dbi dup_db;
+  db_open(test_env, "dup_db_overwrite", false, DB_DUP_KEYS, &dup_db);
+
+  MDB_txn *txn = db_create_txn(test_env, false);
+  db_key_t key = {.type = DB_KEY_STRING, .key.s = "dup_key"};
+
+  // First put
+  db_put_result_t r1 = db_put(dup_db, txn, &key, "val1", 4, false, false);
+  TEST_ASSERT_EQUAL(DB_PUT_OK, r1);
+
+  // Second put with different value but no_overwrite = true
+  // Even though DB_DUP_KEYS is on, no_overwrite checks if the *Key* exists.
+  db_put_result_t r2 = db_put(dup_db, txn, &key, "val2", 4, false, true);
+  TEST_ASSERT_EQUAL(DB_PUT_KEY_EXISTS, r2);
+
+  db_abort_txn(txn); // Cleanup
+  db_close(test_env, dup_db);
 }
 
 // Main test runner
@@ -811,7 +877,10 @@ int main(void) {
   RUN_TEST(test_db_foreach_invalid);
 
   RUN_TEST(test_multithreaded_writes);
+
   RUN_TEST(test_put_no_overwrite);
+  RUN_TEST(test_dup_keys_insertion_and_traversal);
+  RUN_TEST(test_dup_keys_no_overwrite_behavior);
 
   return UNITY_END();
 }
