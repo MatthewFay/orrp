@@ -3,6 +3,8 @@
 
 #include "khash.h"
 
+// Generic map structures
+
 KHASH_MAP_INIT_STR(str_u32, uint32_t)
 KHASH_MAP_INIT_INT64(i64_u32, uint32_t)
 

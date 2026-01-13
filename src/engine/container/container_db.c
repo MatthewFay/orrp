@@ -4,7 +4,6 @@
 #include "core/mmap_array.h"
 #include "engine/container/container_types.h"
 #include "engine/index/index.h"
-#include "engine/index/index_types.h"
 #include "lmdb.h"
 #include <stdbool.h>
 #include <stddef.h>
@@ -54,15 +53,16 @@ void container_close(eng_container_t *c) {
       db_close(c->env, c->data.usr->inverted_event_index_db);
       db_close(c->env, c->data.usr->user_dc_metadata_db);
       db_close(c->env, c->data.usr->events_db);
-      db_close(c->env, c->data.usr->index_registry_local_db);
-      index_destroy_key_index(c);
+      index_close_registry(c->env, c->data.usr->index_registry_local_db,
+                           &c->data.usr->key_to_index);
       mmap_array_close(&c->data.usr->event_to_entity_map);
       free(c->data.usr);
     } else {
       db_close(c->env, c->data.sys->sys_dc_metadata_db);
       db_close(c->env, c->data.sys->int_to_entity_id_db);
       db_close(c->env, c->data.sys->str_to_entity_id_db);
-      db_close(c->env, c->data.sys->index_registry_global_db);
+      index_close_registry(c->env, c->data.sys->index_registry_global_db, NULL);
+
       mmap_array_close(&c->data.sys->entity_id_map);
       free(c->data.sys);
     }
@@ -173,7 +173,18 @@ container_result_t create_user_container(const char *name, const char *data_dir,
     return result;
   }
 
-  if (!index_init_user_registry(c, is_new_container, sys_c)) {
+  index_write_reg_opts_t opts = {.src = INDEX_WRITE_FROM_DB,
+                                 .src_env = sys_c->env,
+                                 .src_dbi =
+                                     sys_c->data.sys->index_registry_global_db};
+  if (is_new_container && !index_write_registry(c->env, ir, &opts)) {
+    container_close(c);
+    result.error_code = CONTAINER_ERR_INDEX;
+    result.error_msg = "Failed to initialize indexes";
+    return result;
+  }
+
+  if (!index_open_registry(c->env, ir, &c->data.usr->key_to_index)) {
     container_close(c);
     result.error_code = CONTAINER_ERR_INDEX;
     result.error_msg = "Failed to initialize indexes";
@@ -253,7 +264,13 @@ container_result_t create_system_container(const char *data_dir,
     return result;
   }
 
-  if (is_new_container && !index_init_sys_registry(c)) {
+  index_write_reg_opts_t opts = {
+      .src = INDEX_WRITE_DEFAULTS,
+  };
+
+  if (is_new_container &&
+      !index_write_registry(c->env, c->data.sys->index_registry_global_db,
+                            &opts)) {
     container_close(c);
     result.error_code = CONTAINER_ERR_INDEX;
     result.error_msg = "Failed to init system index registry";
@@ -288,7 +305,7 @@ bool cdb_get_user_db_handle(eng_container_t *c, eng_container_db_key_t *db_key,
     if (db_key->index_key == NULL)
       return false;
     index_t ind = {0};
-    index_get(db_key->index_key, c, &ind);
+    index_get(db_key->index_key, c->data.usr->key_to_index, &ind);
     *db_out = ind.index_db;
     break;
   default:

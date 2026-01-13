@@ -317,7 +317,17 @@ void eng_index(api_response_t *r, ast_node_t *ast) {
 
   index_def_t index_def = {.key = cmd_ctx->key_tag_value->literal.string_value,
                            .type = INDEX_TYPE_I64};
-  db_put_result_t pr = index_add_sys(&index_def);
+
+  container_result_t scr = container_get_system();
+  if (!scr.success) {
+    cmd_context_free(cmd_ctx);
+    r->err_msg = "Unable to get system container";
+    return;
+  }
+
+  db_put_result_t pr =
+      index_add(&index_def, scr.container->env,
+                scr.container->data.sys->index_registry_global_db);
 
   switch (pr) {
   case DB_PUT_OK:

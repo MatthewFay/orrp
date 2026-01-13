@@ -4,7 +4,6 @@
 #include "engine/container/container_types.h"
 #include "engine/engine_writer/engine_writer_queue_msg.h"
 #include "engine/index/index.h"
-#include "engine/index/index_types.h"
 #include "engine/worker/encoder.h"
 #include "query/ast.h"
 #include <stdbool.h>
@@ -145,7 +144,7 @@ static bool _create_index_entries(uint32_t event_id, cmd_queue_msg_t *cmd_msg,
       continue;
     }
     char *ct_key = custom_tag->tag.custom_key;
-    bool is_index = index_get(ct_key, user_dc, &index);
+    bool is_index = index_get(ct_key, user_dc->data.usr->key_to_index, &index);
     if (is_index) {
       db_key.dc_type = CONTAINER_TYPE_USR;
       db_key.container_name = strdup(container_name);
@@ -181,7 +180,7 @@ eng_writer_msg_t *worker_create_writer_msg(cmd_queue_msg_t *cmd_msg,
     return NULL;
   }
   uint32_t index_count = 0;
-  index_get_count(user_dc, &index_count);
+  index_get_count(user_dc->data.usr->key_to_index, &index_count);
 
   // Greedy: At most 4 entries (sys entity counter, usr event counter, event
   // data, entity external id -> int) + num indexes

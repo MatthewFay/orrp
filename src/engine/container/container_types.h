@@ -3,8 +3,7 @@
 
 #include "core/db.h"
 #include "core/mmap_array.h"
-#include "engine/index/index_types.h"
-#include "khash.h"
+#include "engine/index/index.h"
 #include "lmdb.h"
 #include "uthash.h"
 #include "uv.h" // IWYU pragma: keep
@@ -68,15 +67,11 @@ typedef enum {
   USR_DB_COUNT,
 } eng_dc_user_db_type_t;
 
-// we set this higher to account for indexes
-#define USR_CONTAINER_MAX_NUM_DBS 32
-#define USR_CONTAINER_MAX_NUM_INDEXES USR_CONTAINER_MAX_NUM_DBS - USR_DB_COUNT
+#define USR_CONTAINER_MAX_NUM_DBS MAX_NUM_INDEXES + USR_DB_COUNT
 
 // ============================================================================
 // Structs - Container Data Structures
 // ============================================================================
-
-KHASH_MAP_INIT_STR(key_index, index_t)
 
 /**
  * System data container (Global Directory)
@@ -126,7 +121,7 @@ typedef struct {
 
   MDB_dbi index_registry_local_db;
 
-  khash_t(key_index) * key_to_index;
+  kh_key_index_t *key_to_index;
 } eng_user_dc_t;
 
 typedef struct container_cache_node_s container_cache_node_t;

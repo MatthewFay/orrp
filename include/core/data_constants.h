@@ -30,4 +30,6 @@
 
 #define MAX_CONTAINER_SIZE ONE_GIBIBYTE
 
+#define MAX_NUM_INDEXES 32
+
 #endif
