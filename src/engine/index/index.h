@@ -38,8 +38,10 @@ typedef enum {
 
 typedef struct {
   index_write_reg_src_t src;
-  MDB_env *src_env;
+  // only set if source is INDEX_WRITE_FROM_DB --
   MDB_dbi src_dbi;
+  MDB_txn *src_read_txn; // txn used to copy from src
+  // --
 } index_write_reg_opts_t;
 
 // Write a new index registry - either from another db or using defaults
@@ -57,6 +59,5 @@ db_put_result_t index_add(const index_def_t *index_def, MDB_env *env,
                           MDB_dbi dbi);
 
 // Destroy the key index map and close registry
-void index_close_registry(MDB_env *env, MDB_dbi registry_db,
-                          khash_t(key_index) * *key_to_index);
+void index_close_registry(MDB_env *env, khash_t(key_index) * *key_to_index);
 #endif

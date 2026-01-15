@@ -169,7 +169,7 @@ static bool _get_entity_mapping(worker_t *worker, eng_container_t **sys_c_ptr,
 }
 
 static bool _get_user_dc(worker_t *worker, const char *container_name,
-                         worker_user_dc_t **user_dc_out) {
+                         worker_user_dc_t **user_dc_out, MDB_txn *sys_txn) {
   worker_user_dc_t *user_dc = NULL;
   HASH_FIND_STR(worker->user_dcs, container_name, user_dc);
   if (user_dc) {
@@ -177,7 +177,7 @@ static bool _get_user_dc(worker_t *worker, const char *container_name,
     return true;
   }
 
-  container_result_t cr = container_get_or_create_user(container_name);
+  container_result_t cr = container_get_or_create_user(container_name, sys_txn);
   if (!cr.success) {
     LOG_ACTION_ERROR(ACT_CONTAINER_OPEN_FAILED, "container=\"%s\"",
                      container_name);
@@ -408,7 +408,7 @@ static bool _process_msg(worker_t *worker, cmd_queue_msg_t *msg,
   char *container_name = msg->command->in_tag_value->literal.string_value;
   worker_user_dc_t *user_dc = NULL;
 
-  if (!_get_user_dc(worker, container_name, &user_dc)) {
+  if (!_get_user_dc(worker, container_name, &user_dc, *sys_txn_ptr)) {
     LOG_ACTION_ERROR(ACT_CONTAINER_OPEN_FAILED, "container=\"%s\"",
                      container_name);
     return false;

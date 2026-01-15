@@ -141,22 +141,12 @@ static bool _write_to_db(eng_container_t *c, MDB_txn *txn,
     return false;
   }
 
-  switch (c->type) {
-  case CONTAINER_TYPE_SYS:
-    if (!container_get_system_db_handle(c, entry->db_key.sys_db_type,
-                                        &target_db)) {
-      LOG_ACTION_ERROR(ACT_DB_HANDLE_FAILED, "container=\"%s\" db_type=%d",
-                       c->name, entry->db_key.usr_db_type);
-      return false;
-    }
-    break;
-  case CONTAINER_TYPE_USR:
-    if (!container_get_user_db_handle(c, &entry->db_key, &target_db)) {
-      LOG_ACTION_ERROR(ACT_DB_HANDLE_FAILED, "container=\"%s\" db_type=%d",
-                       c->name, entry->db_key.usr_db_type);
-      return false;
-    }
-    break;
+  if (!container_get_db_handle(c, &entry->db_key, &target_db)) {
+    LOG_ACTION_ERROR(ACT_DB_HANDLE_FAILED,
+                     "container_name=%s usr_db_type=%d sys_db_type=%d",
+                     entry->db_key.container_name, entry->db_key.usr_db_type,
+                     entry->db_key.sys_db_type);
+    return false;
   }
 
   // TODO: HANDLE WRITE CONDITION
@@ -207,7 +197,7 @@ static void _flush_to_db(write_batch_t *hash) {
     container_result_t cr =
         strcmp(batch->container_name, SYS_CONTAINER_NAME) == 0
             ? container_get_system()
-            : container_get_or_create_user(batch->container_name);
+            : container_get_or_create_user(batch->container_name, NULL);
     if (!cr.success) {
       LOG_ACTION_ERROR(ACT_CONTAINER_OPEN_FAILED, "container=\"%s\"",
                        batch->container_name);

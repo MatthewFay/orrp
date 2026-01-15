@@ -88,13 +88,8 @@ static bool _write_from_db(MDB_dbi dbi, index_write_reg_opts_t *opts,
                            MDB_txn *txn) {
   db_cursor_entry_t cursor_entry;
   db_key_t db_key;
-  MDB_txn *src_txn = db_create_txn(opts->src_env, true);
-  if (!src_txn) {
-    return false;
-  }
-  MDB_cursor *src_cursor = db_cursor_open(src_txn, opts->src_dbi);
+  MDB_cursor *src_cursor = db_cursor_open(opts->src_read_txn, opts->src_dbi);
   if (!src_cursor) {
-    db_abort_txn(src_txn);
     return false;
   }
 
@@ -110,14 +105,14 @@ static bool _write_from_db(MDB_dbi dbi, index_write_reg_opts_t *opts,
   }
 
   db_cursor_close(src_cursor);
-  db_abort_txn(src_txn);
 
   return true;
 }
 
 bool index_write_registry(MDB_env *env, MDB_dbi dbi,
                           index_write_reg_opts_t *opts) {
-  if (!(env && opts)) {
+  if (!env || !opts ||
+      (opts->src == INDEX_WRITE_FROM_DB && opts->src_read_txn == NULL)) {
     return false;
   }
   MDB_txn *txn = db_create_txn(env, false);
@@ -130,22 +125,25 @@ bool index_write_registry(MDB_env *env, MDB_dbi dbi,
   } else {
     const index_def_t *ptr = DEFAULT_INDEXES;
     while (ptr->key != NULL) {
-      if (!_index_put(dbi, txn, ptr)) {
+      if (_index_put(dbi, txn, ptr) != DB_PUT_OK) {
         db_abort_txn(txn);
         return false;
       }
       ptr++;
     }
+    result = true;
   }
-  if (result && !db_commit_txn(txn)) {
-    return false;
+
+  if (result) {
+    return db_commit_txn(txn);
   }
-  return true;
+  db_abort_txn(txn);
+  return false;
 }
 
 bool index_open_registry(MDB_env *env, MDB_dbi dbi,
                          khash_t(key_index) * *key_to_index) {
-  if (!(env && key_to_index))
+  if (!env || !key_to_index)
     return false;
 
   index_def_t defs[MAX_NUM_INDEXES];
@@ -207,7 +205,7 @@ bool index_open_registry(MDB_env *env, MDB_dbi dbi,
 
 db_put_result_t index_add(const index_def_t *index_def, MDB_env *env,
                           MDB_dbi dbi) {
-  if (!(index_def && env))
+  if (!index_def || !env)
     return DB_PUT_ERR;
 
   MDB_txn *txn = db_create_txn(env, false);
@@ -225,7 +223,7 @@ db_put_result_t index_add(const index_def_t *index_def, MDB_env *env,
 
 bool index_get(const char *key, khash_t(key_index) * key_to_index,
                index_t *index_out) {
-  if (!key_to_index)
+  if (!key || !key_to_index)
     return false;
   memset(index_out, 0, sizeof(index_t));
   khint_t k = kh_get(key_index, key_to_index, key);
@@ -244,8 +242,7 @@ bool index_get_count(khash_t(key_index) * key_to_index, uint32_t *count_out) {
   return true;
 }
 
-void index_close_registry(MDB_env *env, MDB_dbi registry_db,
-                          khash_t(key_index) * *key_to_index) {
+void index_close_registry(MDB_env *env, khash_t(key_index) * *key_to_index) {
   if (key_to_index && *key_to_index) {
     khint_t k;
     for (k = kh_begin(*key_to_index); k != kh_end(*key_to_index); ++k) {
@@ -262,5 +259,4 @@ void index_close_registry(MDB_env *env, MDB_dbi registry_db,
     kh_destroy(key_index, *key_to_index);
     *key_to_index = NULL;
   }
-  db_close(env, registry_db);
 }

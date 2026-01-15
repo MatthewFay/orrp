@@ -239,6 +239,7 @@ void db_abort_txn(MDB_txn *txn) {
   if (!txn)
     return;
   mdb_txn_abort(txn);
+  // fixme: need double pointer
   txn = NULL;
 }
 

@@ -431,8 +431,8 @@ void eng_query(api_response_t *r, ast_node_t *ast) {
     r->err_msg = "Unable to get sys txn";
     return;
   }
-  container_result_t cr =
-      container_get_or_create_user(cmd_ctx->in_tag_value->literal.string_value);
+  container_result_t cr = container_get_or_create_user(
+      cmd_ctx->in_tag_value->literal.string_value, sys_txn);
   if (!cr.success) {
     db_abort_txn(sys_txn);
     r->err_msg = "Unable to get user container";

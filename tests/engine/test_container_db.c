@@ -21,19 +21,39 @@ static void create_test_dir(void) {
   }
 }
 
-// Helper to recursively remove directory
-static void remove_test_dir(void) {
-  // char cmd[512];
-  // snprintf(cmd, sizeof(cmd), "rm -rf %s", TEST_DATA_DIR);
-  // system(cmd);
+// Helper to safely remove specific test files
+static void remove_test_files(void) {
+  // Remove system container files
+  char path[512];
+  snprintf(path, sizeof(path), "%s/%s.mdb", TEST_DATA_DIR, SYS_CONTAINER_NAME);
+  unlink(path);
+
+  snprintf(path, sizeof(path), "%s/%s_ent.bin", TEST_DATA_DIR,
+           SYS_CONTAINER_NAME);
+  unlink(path);
+
+  // Remove known user container files
+  const char *user_names[] = {"test_user", "test",       "user1",      "user2",
+                              "user3",     "container1", "container2", NULL};
+  for (int i = 0; user_names[i] != NULL; i++) {
+    snprintf(path, sizeof(path), "%s/%s.mdb", TEST_DATA_DIR, user_names[i]);
+    unlink(path);
+
+    snprintf(path, sizeof(path), "%s/%s_evt_ent.bin", TEST_DATA_DIR,
+             user_names[i]);
+    unlink(path);
+  }
+
+  // Remove the test directory itself (will only succeed if empty)
+  rmdir(TEST_DATA_DIR);
 }
 
 void setUp(void) {
-  remove_test_dir();
+  remove_test_files();
   create_test_dir();
 }
 
-void tearDown(void) { remove_test_dir(); }
+void tearDown(void) { remove_test_files(); }
 
 // ============= container_close tests =============
 
@@ -44,13 +64,19 @@ void test_container_close_null(void) {
 }
 
 void test_container_close_user_container(void) {
+  container_result_t sys_result =
+      create_system_container(TEST_DATA_DIR, TEST_CONTAINER_SIZE);
+  TEST_ASSERT_TRUE(sys_result.success);
+
   container_result_t result =
-      create_user_container("test_user", TEST_DATA_DIR, TEST_CONTAINER_SIZE);
+      create_user_container("test_user", TEST_DATA_DIR, TEST_CONTAINER_SIZE,
+                            sys_result.container, NULL);
   TEST_ASSERT_TRUE(result.success);
   TEST_ASSERT_NOT_NULL(result.container);
 
   // Should close without error
   container_close(result.container);
+  container_close(sys_result.container);
   TEST_ASSERT_TRUE(true);
 }
 
@@ -63,75 +89,6 @@ void test_container_close_system_container(void) {
   // Should close without error
   container_close(result.container);
   TEST_ASSERT_TRUE(true);
-}
-
-// ============= create_user_container tests =============
-
-void test_create_user_container_success(void) {
-  container_result_t result =
-      create_user_container("test_user", TEST_DATA_DIR, TEST_CONTAINER_SIZE);
-
-  TEST_ASSERT_TRUE(result.success);
-  TEST_ASSERT_NOT_NULL(result.container);
-  TEST_ASSERT_NULL(result.error_msg);
-  TEST_ASSERT_EQUAL(CONTAINER_OK, result.error_code);
-
-  // Check container properties
-  TEST_ASSERT_NOT_NULL(result.container->name);
-  TEST_ASSERT_EQUAL_STRING("test_user", result.container->name);
-  TEST_ASSERT_NOT_NULL(result.container->env);
-  TEST_ASSERT_EQUAL(CONTAINER_TYPE_USR, result.container->type);
-  TEST_ASSERT_NOT_NULL(result.container->data.usr);
-
-  // Verify all user databases are opened
-  TEST_ASSERT_NOT_EQUAL(0, result.container->data.usr->inverted_event_index_db);
-  TEST_ASSERT_NOT_EQUAL(0, result.container->data.usr->user_dc_metadata_db);
-  TEST_ASSERT_NOT_EQUAL(0, result.container->data.usr->events_db);
-
-  // Note: We assume mmap arrays are initialized successfully if result.success
-  // is true because the create function validates the mmap_array_open return
-  // code.
-
-  container_close(result.container);
-}
-
-void test_create_user_container_with_different_names(void) {
-  container_result_t result1 =
-      create_user_container("container1", TEST_DATA_DIR, TEST_CONTAINER_SIZE);
-  container_result_t result2 =
-      create_user_container("container2", TEST_DATA_DIR, TEST_CONTAINER_SIZE);
-
-  TEST_ASSERT_TRUE(result1.success);
-  TEST_ASSERT_TRUE(result2.success);
-  TEST_ASSERT_EQUAL_STRING("container1", result1.container->name);
-  TEST_ASSERT_EQUAL_STRING("container2", result2.container->name);
-
-  container_close(result1.container);
-  container_close(result2.container);
-}
-
-void test_create_user_container_path_too_long(void) {
-  char long_name[300];
-  memset(long_name, 'a', sizeof(long_name) - 1);
-  long_name[sizeof(long_name) - 1] = '\0';
-
-  container_result_t result =
-      create_user_container(long_name, TEST_DATA_DIR, TEST_CONTAINER_SIZE);
-
-  TEST_ASSERT_FALSE(result.success);
-  TEST_ASSERT_NULL(result.container);
-  TEST_ASSERT_EQUAL(CONTAINER_ERR_PATH_TOO_LONG, result.error_code);
-  TEST_ASSERT_NOT_NULL(result.error_msg);
-}
-
-void test_create_user_container_invalid_data_dir(void) {
-  // Try to create in non-existent directory
-  container_result_t result = create_user_container(
-      "test", "/nonexistent/path/xyz", TEST_CONTAINER_SIZE);
-
-  TEST_ASSERT_FALSE(result.success);
-  TEST_ASSERT_NULL(result.container);
-  TEST_ASSERT_EQUAL(CONTAINER_ERR_ENV_CREATE, result.error_code);
 }
 
 // ============= create_system_container tests =============
@@ -152,11 +109,12 @@ void test_create_system_container_success(void) {
   TEST_ASSERT_EQUAL(CONTAINER_TYPE_SYS, result.container->type);
   TEST_ASSERT_NOT_NULL(result.container->data.sys);
 
-  // Verify all system databases are opened
-  // Updated to match new struct members
+  // Verify all system databases are opened (non-zero handles)
   TEST_ASSERT_NOT_EQUAL(0, result.container->data.sys->int_to_entity_id_db);
   TEST_ASSERT_NOT_EQUAL(0, result.container->data.sys->str_to_entity_id_db);
   TEST_ASSERT_NOT_EQUAL(0, result.container->data.sys->sys_dc_metadata_db);
+  TEST_ASSERT_NOT_EQUAL(0,
+                        result.container->data.sys->index_registry_global_db);
 
   container_close(result.container);
 }
@@ -186,151 +144,352 @@ void test_create_system_container_reopen(void) {
   container_close(result2.container);
 }
 
-// ============= cdb_get_user_db_handle tests =============
+// ============= create_user_container tests =============
 
-void test_cdb_get_user_db_handle_null_container(void) {
+void test_create_user_container_success(void) {
+  container_result_t sys_result =
+      create_system_container(TEST_DATA_DIR, TEST_CONTAINER_SIZE);
+  TEST_ASSERT_TRUE(sys_result.success);
+
+  container_result_t result =
+      create_user_container("test_user", TEST_DATA_DIR, TEST_CONTAINER_SIZE,
+                            sys_result.container, NULL);
+
+  TEST_ASSERT_TRUE(result.success);
+  TEST_ASSERT_NOT_NULL(result.container);
+  TEST_ASSERT_NULL(result.error_msg);
+  TEST_ASSERT_EQUAL(CONTAINER_OK, result.error_code);
+
+  // Check container properties
+  TEST_ASSERT_NOT_NULL(result.container->name);
+  TEST_ASSERT_EQUAL_STRING("test_user", result.container->name);
+  TEST_ASSERT_NOT_NULL(result.container->env);
+  TEST_ASSERT_EQUAL(CONTAINER_TYPE_USR, result.container->type);
+  TEST_ASSERT_NOT_NULL(result.container->data.usr);
+
+  // Verify all user databases are opened
+  TEST_ASSERT_NOT_EQUAL(0, result.container->data.usr->inverted_event_index_db);
+  TEST_ASSERT_NOT_EQUAL(0, result.container->data.usr->user_dc_metadata_db);
+  TEST_ASSERT_NOT_EQUAL(0, result.container->data.usr->events_db);
+  TEST_ASSERT_NOT_EQUAL(0, result.container->data.usr->index_registry_local_db);
+
+  container_close(result.container);
+  container_close(sys_result.container);
+}
+
+void test_create_user_container_with_sys_txn(void) {
+  container_result_t sys_result =
+      create_system_container(TEST_DATA_DIR, TEST_CONTAINER_SIZE);
+  TEST_ASSERT_TRUE(sys_result.success);
+
+  // Create a read transaction for system container
+  MDB_txn *sys_txn = db_create_txn(sys_result.container->env, true);
+  TEST_ASSERT_NOT_NULL(sys_txn);
+
+  container_result_t result =
+      create_user_container("test_user", TEST_DATA_DIR, TEST_CONTAINER_SIZE,
+                            sys_result.container, sys_txn);
+
+  TEST_ASSERT_TRUE(result.success);
+  TEST_ASSERT_NOT_NULL(result.container);
+
+  // Abort the transaction (read-only, so abort is fine)
+  db_abort_txn(sys_txn);
+
+  container_close(result.container);
+  container_close(sys_result.container);
+}
+
+void test_create_user_container_with_different_names(void) {
+  container_result_t sys_result =
+      create_system_container(TEST_DATA_DIR, TEST_CONTAINER_SIZE);
+  TEST_ASSERT_TRUE(sys_result.success);
+
+  container_result_t result1 =
+      create_user_container("container1", TEST_DATA_DIR, TEST_CONTAINER_SIZE,
+                            sys_result.container, NULL);
+  container_result_t result2 =
+      create_user_container("container2", TEST_DATA_DIR, TEST_CONTAINER_SIZE,
+                            sys_result.container, NULL);
+
+  TEST_ASSERT_TRUE(result1.success);
+  TEST_ASSERT_TRUE(result2.success);
+  TEST_ASSERT_EQUAL_STRING("container1", result1.container->name);
+  TEST_ASSERT_EQUAL_STRING("container2", result2.container->name);
+
+  container_close(result1.container);
+  container_close(result2.container);
+  container_close(sys_result.container);
+}
+
+void test_create_user_container_path_too_long(void) {
+  container_result_t sys_result =
+      create_system_container(TEST_DATA_DIR, TEST_CONTAINER_SIZE);
+  TEST_ASSERT_TRUE(sys_result.success);
+
+  char long_name[300];
+  memset(long_name, 'a', sizeof(long_name) - 1);
+  long_name[sizeof(long_name) - 1] = '\0';
+
+  container_result_t result =
+      create_user_container(long_name, TEST_DATA_DIR, TEST_CONTAINER_SIZE,
+                            sys_result.container, NULL);
+
+  TEST_ASSERT_FALSE(result.success);
+  TEST_ASSERT_NULL(result.container);
+  TEST_ASSERT_EQUAL(CONTAINER_ERR_PATH_TOO_LONG, result.error_code);
+  TEST_ASSERT_NOT_NULL(result.error_msg);
+
+  container_close(sys_result.container);
+}
+
+void test_create_user_container_invalid_data_dir(void) {
+  container_result_t sys_result =
+      create_system_container(TEST_DATA_DIR, TEST_CONTAINER_SIZE);
+  TEST_ASSERT_TRUE(sys_result.success);
+
+  // Try to create in non-existent directory
+  container_result_t result =
+      create_user_container("test", "/nonexistent/path/xyz",
+                            TEST_CONTAINER_SIZE, sys_result.container, NULL);
+
+  TEST_ASSERT_FALSE(result.success);
+  TEST_ASSERT_NULL(result.container);
+  TEST_ASSERT_EQUAL(CONTAINER_ERR_ENV_CREATE, result.error_code);
+
+  container_close(sys_result.container);
+}
+
+void test_create_user_container_null_system_container(void) {
+  container_result_t result = create_user_container(
+      "test_user", TEST_DATA_DIR, TEST_CONTAINER_SIZE, NULL, NULL);
+
+  // Should fail gracefully
+  TEST_ASSERT_FALSE(result.success);
+  TEST_ASSERT_NULL(result.container);
+}
+
+void test_create_user_container_null_name(void) {
+  container_result_t sys_result =
+      create_system_container(TEST_DATA_DIR, TEST_CONTAINER_SIZE);
+  TEST_ASSERT_TRUE(sys_result.success);
+
+  container_result_t result = create_user_container(
+      NULL, TEST_DATA_DIR, TEST_CONTAINER_SIZE, sys_result.container, NULL);
+
+  TEST_ASSERT_FALSE(result.success);
+  TEST_ASSERT_NULL(result.container);
+
+  container_close(sys_result.container);
+}
+
+void test_create_user_container_null_data_dir(void) {
+  container_result_t sys_result =
+      create_system_container(TEST_DATA_DIR, TEST_CONTAINER_SIZE);
+  TEST_ASSERT_TRUE(sys_result.success);
+
+  container_result_t result = create_user_container(
+      "test", NULL, TEST_CONTAINER_SIZE, sys_result.container, NULL);
+
+  TEST_ASSERT_FALSE(result.success);
+  TEST_ASSERT_NULL(result.container);
+
+  container_close(sys_result.container);
+}
+
+void test_create_user_container_zero_size(void) {
+  container_result_t sys_result =
+      create_system_container(TEST_DATA_DIR, TEST_CONTAINER_SIZE);
+  TEST_ASSERT_TRUE(sys_result.success);
+
+  container_result_t result = create_user_container("test", TEST_DATA_DIR, 0,
+                                                    sys_result.container, NULL);
+
+  TEST_ASSERT_FALSE(result.success);
+  TEST_ASSERT_NULL(result.container);
+
+  container_close(sys_result.container);
+}
+
+void test_create_user_container_reuses_provided_txn(void) {
+  container_result_t sys_result =
+      create_system_container(TEST_DATA_DIR, TEST_CONTAINER_SIZE);
+  TEST_ASSERT_TRUE(sys_result.success);
+
+  // Create a read transaction
+  MDB_txn *sys_txn = db_create_txn(sys_result.container->env, true);
+  TEST_ASSERT_NOT_NULL(sys_txn);
+
+  // Create multiple user containers with the same transaction
+  container_result_t result1 =
+      create_user_container("user1", TEST_DATA_DIR, TEST_CONTAINER_SIZE,
+                            sys_result.container, sys_txn);
+  TEST_ASSERT_TRUE(result1.success);
+
+  container_result_t result2 =
+      create_user_container("user2", TEST_DATA_DIR, TEST_CONTAINER_SIZE,
+                            sys_result.container, sys_txn);
+  TEST_ASSERT_TRUE(result2.success);
+
+  // Transaction should still be valid
+  db_abort_txn(sys_txn);
+
+  container_close(result1.container);
+  container_close(result2.container);
+  container_close(sys_result.container);
+}
+
+// ============= cdb_get_db_handle tests =============
+
+void test_cdb_get_db_handle_null_container(void) {
   MDB_dbi db_out;
-  bool result =
-      cdb_get_user_db_handle(NULL, USR_DB_INVERTED_EVENT_INDEX, &db_out);
+  eng_container_db_key_t db_key = {0};
+  db_key.usr_db_type = USR_DB_INVERTED_EVENT_INDEX;
+
+  bool result = cdb_get_db_handle(NULL, &db_key, &db_out);
   TEST_ASSERT_FALSE(result);
 }
 
-void test_cdb_get_user_db_handle_null_output(void) {
-  container_result_t result =
-      create_user_container("test", TEST_DATA_DIR, TEST_CONTAINER_SIZE);
-  TEST_ASSERT_TRUE(result.success);
-
-  bool get_result = cdb_get_user_db_handle(result.container,
-                                           USR_DB_INVERTED_EVENT_INDEX, NULL);
-  TEST_ASSERT_FALSE(get_result);
-
-  container_close(result.container);
-}
-
-void test_cdb_get_user_db_handle_wrong_container_type(void) {
+void test_cdb_get_db_handle_null_db_key(void) {
   container_result_t result =
       create_system_container(TEST_DATA_DIR, TEST_CONTAINER_SIZE);
   TEST_ASSERT_TRUE(result.success);
 
   MDB_dbi db_out;
-  bool get_result = cdb_get_user_db_handle(
-      result.container, USR_DB_INVERTED_EVENT_INDEX, &db_out);
+  bool get_result = cdb_get_db_handle(result.container, NULL, &db_out);
   TEST_ASSERT_FALSE(get_result);
 
   container_close(result.container);
 }
 
-void test_cdb_get_user_db_handle_all_db_types(void) {
-  container_result_t result =
-      create_user_container("test", TEST_DATA_DIR, TEST_CONTAINER_SIZE);
+void test_cdb_get_db_handle_null_output(void) {
+  container_result_t sys_result =
+      create_system_container(TEST_DATA_DIR, TEST_CONTAINER_SIZE);
+  TEST_ASSERT_TRUE(sys_result.success);
+
+  container_result_t result = create_user_container(
+      "test", TEST_DATA_DIR, TEST_CONTAINER_SIZE, sys_result.container, NULL);
+  TEST_ASSERT_TRUE(result.success);
+
+  eng_container_db_key_t db_key = {0};
+  db_key.usr_db_type = USR_DB_INVERTED_EVENT_INDEX;
+
+  bool get_result = cdb_get_db_handle(result.container, &db_key, NULL);
+  TEST_ASSERT_FALSE(get_result);
+
+  container_close(result.container);
+  container_close(sys_result.container);
+}
+
+void test_cdb_get_db_handle_user_dbs(void) {
+  container_result_t sys_result =
+      create_system_container(TEST_DATA_DIR, TEST_CONTAINER_SIZE);
+  TEST_ASSERT_TRUE(sys_result.success);
+
+  container_result_t result = create_user_container(
+      "test", TEST_DATA_DIR, TEST_CONTAINER_SIZE, sys_result.container, NULL);
   TEST_ASSERT_TRUE(result.success);
 
   MDB_dbi db_out;
+  eng_container_db_key_t db_key = {0};
 
-  // Test Inverted Index
-  TEST_ASSERT_TRUE(cdb_get_user_db_handle(
-      result.container, USR_DB_INVERTED_EVENT_INDEX, &db_out));
+  // Test Inverted Event Index
+  db_key.usr_db_type = USR_DB_INVERTED_EVENT_INDEX;
+  TEST_ASSERT_TRUE(cdb_get_db_handle(result.container, &db_key, &db_out));
   TEST_ASSERT_EQUAL(result.container->data.usr->inverted_event_index_db,
                     db_out);
 
   // Test Metadata
-  TEST_ASSERT_TRUE(
-      cdb_get_user_db_handle(result.container, USR_DB_METADATA, &db_out));
+  db_key.usr_db_type = USR_DB_METADATA;
+  TEST_ASSERT_TRUE(cdb_get_db_handle(result.container, &db_key, &db_out));
   TEST_ASSERT_EQUAL(result.container->data.usr->user_dc_metadata_db, db_out);
 
-  // Test Events DB (Newly added check)
-  TEST_ASSERT_TRUE(
-      cdb_get_user_db_handle(result.container, USR_DB_EVENTS, &db_out));
+  // Test Events DB
+  db_key.usr_db_type = USR_DB_EVENTS;
+  TEST_ASSERT_TRUE(cdb_get_db_handle(result.container, &db_key, &db_out));
   TEST_ASSERT_EQUAL(result.container->data.usr->events_db, db_out);
 
-  container_close(result.container);
-}
-
-void test_cdb_get_user_db_handle_invalid_db_type(void) {
-  container_result_t result =
-      create_user_container("test", TEST_DATA_DIR, TEST_CONTAINER_SIZE);
-  TEST_ASSERT_TRUE(result.success);
-
-  MDB_dbi db_out;
-  bool get_result = cdb_get_user_db_handle(result.container,
-                                           999, // invalid type
-                                           &db_out);
-  TEST_ASSERT_FALSE(get_result);
+  // Test Index Registry Local
+  db_key.usr_db_type = USR_DB_INDEX_REGISTRY_LOCAL;
+  TEST_ASSERT_TRUE(cdb_get_db_handle(result.container, &db_key, &db_out));
+  TEST_ASSERT_EQUAL(result.container->data.usr->index_registry_local_db,
+                    db_out);
 
   container_close(result.container);
+  container_close(sys_result.container);
 }
 
-// ============= cdb_get_system_db_handle tests =============
-
-void test_cdb_get_system_db_handle_null_container(void) {
-  MDB_dbi db_out;
-  bool result =
-      cdb_get_system_db_handle(NULL, SYS_DB_INT_TO_ENTITY_ID, &db_out);
-  TEST_ASSERT_FALSE(result);
-}
-
-void test_cdb_get_system_db_handle_null_output(void) {
-  container_result_t result =
-      create_system_container(TEST_DATA_DIR, TEST_CONTAINER_SIZE);
-  TEST_ASSERT_TRUE(result.success);
-
-  bool get_result =
-      cdb_get_system_db_handle(result.container, SYS_DB_INT_TO_ENTITY_ID, NULL);
-  TEST_ASSERT_FALSE(get_result);
-
-  container_close(result.container);
-}
-
-void test_cdb_get_system_db_handle_wrong_container_type(void) {
-  container_result_t result =
-      create_user_container("test", TEST_DATA_DIR, TEST_CONTAINER_SIZE);
-  TEST_ASSERT_TRUE(result.success);
-
-  MDB_dbi db_out;
-  bool get_result = cdb_get_system_db_handle(result.container,
-                                             SYS_DB_INT_TO_ENTITY_ID, &db_out);
-  TEST_ASSERT_FALSE(get_result);
-
-  container_close(result.container);
-}
-
-void test_cdb_get_system_db_handle_all_db_types(void) {
+void test_cdb_get_db_handle_system_dbs(void) {
   container_result_t result =
       create_system_container(TEST_DATA_DIR, TEST_CONTAINER_SIZE);
   TEST_ASSERT_TRUE(result.success);
 
   MDB_dbi db_out;
+  eng_container_db_key_t db_key = {0};
 
   // Test Int to Entity ID
-  TEST_ASSERT_TRUE(cdb_get_system_db_handle(result.container,
-                                            SYS_DB_INT_TO_ENTITY_ID, &db_out));
+  db_key.sys_db_type = SYS_DB_INT_TO_ENTITY_ID;
+  TEST_ASSERT_TRUE(cdb_get_db_handle(result.container, &db_key, &db_out));
   TEST_ASSERT_EQUAL(result.container->data.sys->int_to_entity_id_db, db_out);
 
   // Test String to Entity ID
-  TEST_ASSERT_TRUE(cdb_get_system_db_handle(result.container,
-                                            SYS_DB_STR_TO_ENTITY_ID, &db_out));
+  db_key.sys_db_type = SYS_DB_STR_TO_ENTITY_ID;
+  TEST_ASSERT_TRUE(cdb_get_db_handle(result.container, &db_key, &db_out));
   TEST_ASSERT_EQUAL(result.container->data.sys->str_to_entity_id_db, db_out);
 
   // Test Metadata
-  TEST_ASSERT_TRUE(
-      cdb_get_system_db_handle(result.container, SYS_DB_METADATA, &db_out));
+  db_key.sys_db_type = SYS_DB_METADATA;
+  TEST_ASSERT_TRUE(cdb_get_db_handle(result.container, &db_key, &db_out));
   TEST_ASSERT_EQUAL(result.container->data.sys->sys_dc_metadata_db, db_out);
+
+  // Test Index Registry Global
+  db_key.sys_db_type = SYS_DB_INDEX_REGISTRY_GLOBAL;
+  TEST_ASSERT_TRUE(cdb_get_db_handle(result.container, &db_key, &db_out));
+  TEST_ASSERT_EQUAL(result.container->data.sys->index_registry_global_db,
+                    db_out);
 
   container_close(result.container);
 }
 
-void test_cdb_get_system_db_handle_invalid_db_type(void) {
-  container_result_t result =
+void test_cdb_get_db_handle_invalid_db_type(void) {
+  container_result_t sys_result =
       create_system_container(TEST_DATA_DIR, TEST_CONTAINER_SIZE);
+  TEST_ASSERT_TRUE(sys_result.success);
+
+  container_result_t result = create_user_container(
+      "test", TEST_DATA_DIR, TEST_CONTAINER_SIZE, sys_result.container, NULL);
   TEST_ASSERT_TRUE(result.success);
 
   MDB_dbi db_out;
-  bool get_result = cdb_get_system_db_handle(result.container,
-                                             999, // invalid type
-                                             &db_out);
+  eng_container_db_key_t db_key = {0};
+  db_key.usr_db_type = 999; // invalid type
+
+  bool get_result = cdb_get_db_handle(result.container, &db_key, &db_out);
   TEST_ASSERT_FALSE(get_result);
 
   container_close(result.container);
+  container_close(sys_result.container);
+}
+
+void test_cdb_get_db_handle_index_db_null_key(void) {
+  container_result_t sys_result =
+      create_system_container(TEST_DATA_DIR, TEST_CONTAINER_SIZE);
+  TEST_ASSERT_TRUE(sys_result.success);
+
+  container_result_t result = create_user_container(
+      "test", TEST_DATA_DIR, TEST_CONTAINER_SIZE, sys_result.container, NULL);
+  TEST_ASSERT_TRUE(result.success);
+
+  MDB_dbi db_out;
+  eng_container_db_key_t db_key = {0};
+  db_key.usr_db_type = USR_DB_INDEX;
+  db_key.index_key = NULL; // Should fail with NULL index_key
+
+  bool get_result = cdb_get_db_handle(result.container, &db_key, &db_out);
+  TEST_ASSERT_FALSE(get_result);
+
+  container_close(result.container);
+  container_close(sys_result.container);
 }
 
 // ============= cdb_free_db_key_contents tests =============
@@ -356,7 +515,7 @@ void test_cdb_free_db_key_contents_with_int_key(void) {
   eng_container_db_key_t db_key = {0};
   db_key.container_name = strdup("test_container");
   db_key.db_key.type = DB_KEY_U32;
-  db_key.db_key.key.u32 = 42; // Fixed: accessing correct union member u32
+  db_key.db_key.key.u32 = 42;
 
   // Should free without error (string key should not be freed)
   cdb_free_db_key_contents(&db_key);
@@ -374,29 +533,60 @@ void test_cdb_free_db_key_contents_null_container_name(void) {
   TEST_ASSERT_TRUE(true);
 }
 
+void test_cdb_free_db_key_contents_with_index_key(void) {
+  eng_container_db_key_t db_key = {0};
+  db_key.dc_type = CONTAINER_TYPE_USR;
+  db_key.usr_db_type = USR_DB_INDEX;
+  db_key.container_name = strdup("test_container");
+  db_key.db_key.type = DB_KEY_U32;
+  db_key.db_key.key.u32 = 42;
+  db_key.index_key = strdup("my_index");
+
+  // Should free all allocated fields
+  cdb_free_db_key_contents(&db_key);
+  TEST_ASSERT_TRUE(true);
+}
+
+void test_cdb_free_db_key_contents_index_key_wrong_type(void) {
+  eng_container_db_key_t db_key = {0};
+  db_key.dc_type = CONTAINER_TYPE_SYS; // System container
+  db_key.container_name = strdup("test_container");
+  db_key.db_key.type = DB_KEY_U32;
+  db_key.db_key.key.u32 = 42;
+  db_key.index_key = strdup("my_index");
+
+  // Should NOT free index_key since it's not USR_DB_INDEX
+  cdb_free_db_key_contents(&db_key);
+  TEST_ASSERT_TRUE(true);
+}
+
 // ============= Integration tests =============
 
 void test_create_user_and_system_containers_together(void) {
   container_result_t sys_result =
       create_system_container(TEST_DATA_DIR, TEST_CONTAINER_SIZE);
-  container_result_t usr_result =
-      create_user_container("user1", TEST_DATA_DIR, TEST_CONTAINER_SIZE);
+  container_result_t usr_result = create_user_container(
+      "user1", TEST_DATA_DIR, TEST_CONTAINER_SIZE, sys_result.container, NULL);
 
   TEST_ASSERT_TRUE(sys_result.success);
   TEST_ASSERT_TRUE(usr_result.success);
   TEST_ASSERT_NOT_EQUAL(sys_result.container->env, usr_result.container->env);
 
-  container_close(sys_result.container);
   container_close(usr_result.container);
+  container_close(sys_result.container);
 }
 
 void test_multiple_user_containers(void) {
-  container_result_t result1 =
-      create_user_container("user1", TEST_DATA_DIR, TEST_CONTAINER_SIZE);
-  container_result_t result2 =
-      create_user_container("user2", TEST_DATA_DIR, TEST_CONTAINER_SIZE);
-  container_result_t result3 =
-      create_user_container("user3", TEST_DATA_DIR, TEST_CONTAINER_SIZE);
+  container_result_t sys_result =
+      create_system_container(TEST_DATA_DIR, TEST_CONTAINER_SIZE);
+  TEST_ASSERT_TRUE(sys_result.success);
+
+  container_result_t result1 = create_user_container(
+      "user1", TEST_DATA_DIR, TEST_CONTAINER_SIZE, sys_result.container, NULL);
+  container_result_t result2 = create_user_container(
+      "user2", TEST_DATA_DIR, TEST_CONTAINER_SIZE, sys_result.container, NULL);
+  container_result_t result3 = create_user_container(
+      "user3", TEST_DATA_DIR, TEST_CONTAINER_SIZE, sys_result.container, NULL);
 
   TEST_ASSERT_TRUE(result1.success);
   TEST_ASSERT_TRUE(result2.success);
@@ -405,6 +595,62 @@ void test_multiple_user_containers(void) {
   container_close(result1.container);
   container_close(result2.container);
   container_close(result3.container);
+  container_close(sys_result.container);
+}
+
+void test_user_container_reopen(void) {
+  container_result_t sys_result =
+      create_system_container(TEST_DATA_DIR, TEST_CONTAINER_SIZE);
+  TEST_ASSERT_TRUE(sys_result.success);
+
+  // Create and close
+  container_result_t result1 =
+      create_user_container("test_user", TEST_DATA_DIR, TEST_CONTAINER_SIZE,
+                            sys_result.container, NULL);
+  TEST_ASSERT_TRUE(result1.success);
+  container_close(result1.container);
+
+  // Reopen - should succeed (not new, so won't init index)
+  container_result_t result2 =
+      create_user_container("test_user", TEST_DATA_DIR, TEST_CONTAINER_SIZE,
+                            sys_result.container, NULL);
+  TEST_ASSERT_TRUE(result2.success);
+  TEST_ASSERT_NOT_NULL(result2.container);
+
+  container_close(result2.container);
+  container_close(sys_result.container);
+}
+
+void test_multiple_containers_with_shared_txn(void) {
+  container_result_t sys_result =
+      create_system_container(TEST_DATA_DIR, TEST_CONTAINER_SIZE);
+  TEST_ASSERT_TRUE(sys_result.success);
+
+  // Create one transaction to share across multiple container creations
+  MDB_txn *sys_txn = db_create_txn(sys_result.container->env, true);
+  TEST_ASSERT_NOT_NULL(sys_txn);
+
+  container_result_t result1 =
+      create_user_container("user1", TEST_DATA_DIR, TEST_CONTAINER_SIZE,
+                            sys_result.container, sys_txn);
+  TEST_ASSERT_TRUE(result1.success);
+
+  container_result_t result2 =
+      create_user_container("user2", TEST_DATA_DIR, TEST_CONTAINER_SIZE,
+                            sys_result.container, sys_txn);
+  TEST_ASSERT_TRUE(result2.success);
+
+  container_result_t result3 =
+      create_user_container("user3", TEST_DATA_DIR, TEST_CONTAINER_SIZE,
+                            sys_result.container, sys_txn);
+  TEST_ASSERT_TRUE(result3.success);
+
+  db_abort_txn(sys_txn);
+
+  container_close(result1.container);
+  container_close(result2.container);
+  container_close(result3.container);
+  container_close(sys_result.container);
 }
 
 // ============= Main test runner =============
@@ -417,40 +663,45 @@ int main(void) {
   RUN_TEST(test_container_close_user_container);
   RUN_TEST(test_container_close_system_container);
 
-  // create_user_container tests
-  RUN_TEST(test_create_user_container_success);
-  RUN_TEST(test_create_user_container_with_different_names);
-  RUN_TEST(test_create_user_container_path_too_long);
-  RUN_TEST(test_create_user_container_invalid_data_dir);
-
   // create_system_container tests
   RUN_TEST(test_create_system_container_success);
   RUN_TEST(test_create_system_container_invalid_data_dir);
   RUN_TEST(test_create_system_container_reopen);
 
-  // cdb_get_user_db_handle tests
-  RUN_TEST(test_cdb_get_user_db_handle_null_container);
-  RUN_TEST(test_cdb_get_user_db_handle_null_output);
-  RUN_TEST(test_cdb_get_user_db_handle_wrong_container_type);
-  RUN_TEST(test_cdb_get_user_db_handle_all_db_types);
-  RUN_TEST(test_cdb_get_user_db_handle_invalid_db_type);
+  // create_user_container tests
+  RUN_TEST(test_create_user_container_success);
+  RUN_TEST(test_create_user_container_with_sys_txn);
+  RUN_TEST(test_create_user_container_with_different_names);
+  RUN_TEST(test_create_user_container_path_too_long);
+  RUN_TEST(test_create_user_container_invalid_data_dir);
+  RUN_TEST(test_create_user_container_null_system_container);
+  RUN_TEST(test_create_user_container_null_name);
+  RUN_TEST(test_create_user_container_null_data_dir);
+  RUN_TEST(test_create_user_container_zero_size);
+  RUN_TEST(test_create_user_container_reuses_provided_txn);
 
-  // cdb_get_system_db_handle tests
-  RUN_TEST(test_cdb_get_system_db_handle_null_container);
-  RUN_TEST(test_cdb_get_system_db_handle_null_output);
-  RUN_TEST(test_cdb_get_system_db_handle_wrong_container_type);
-  RUN_TEST(test_cdb_get_system_db_handle_all_db_types);
-  RUN_TEST(test_cdb_get_system_db_handle_invalid_db_type);
+  // cdb_get_db_handle tests
+  RUN_TEST(test_cdb_get_db_handle_null_container);
+  RUN_TEST(test_cdb_get_db_handle_null_db_key);
+  RUN_TEST(test_cdb_get_db_handle_null_output);
+  RUN_TEST(test_cdb_get_db_handle_user_dbs);
+  RUN_TEST(test_cdb_get_db_handle_system_dbs);
+  RUN_TEST(test_cdb_get_db_handle_invalid_db_type);
+  RUN_TEST(test_cdb_get_db_handle_index_db_null_key);
 
   // cdb_free_db_key_contents tests
   RUN_TEST(test_cdb_free_db_key_contents_null);
   RUN_TEST(test_cdb_free_db_key_contents_with_string_key);
   RUN_TEST(test_cdb_free_db_key_contents_with_int_key);
   RUN_TEST(test_cdb_free_db_key_contents_null_container_name);
+  RUN_TEST(test_cdb_free_db_key_contents_with_index_key);
+  RUN_TEST(test_cdb_free_db_key_contents_index_key_wrong_type);
 
   // Integration tests
   RUN_TEST(test_create_user_and_system_containers_together);
   RUN_TEST(test_multiple_user_containers);
+  RUN_TEST(test_user_container_reopen);
+  RUN_TEST(test_multiple_containers_with_shared_txn);
 
   return UNITY_END();
 }

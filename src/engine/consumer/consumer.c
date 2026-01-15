@@ -106,18 +106,12 @@ _get_or_Create_cache_entry(eng_container_t *dc, consumer_cache_t *cache,
   }
   LOG_ACTION_DEBUG(ACT_CACHE_MISS, "key=\"%s\"", key->ser_db_key);
 
-  if (msg->op->db_key.dc_type == CONTAINER_TYPE_USR) {
-    if (!container_get_user_db_handle(dc, &msg->op->db_key, &db)) {
-      LOG_ACTION_ERROR(ACT_DB_HANDLE_FAILED, "container_type=user db_type=%d",
-                       msg->op->db_key.usr_db_type);
-      return NULL;
-    }
-  } else {
-    if (!container_get_system_db_handle(dc, msg->op->db_key.sys_db_type, &db)) {
-      LOG_ACTION_ERROR(ACT_DB_HANDLE_FAILED, "container_type=system db_type=%d",
-                       msg->op->db_key.sys_db_type);
-      return NULL;
-    }
+  if (!container_get_db_handle(dc, &msg->op->db_key, &db)) {
+    LOG_ACTION_ERROR(ACT_DB_HANDLE_FAILED,
+                     "container_name=%s usr_db_type=%d sys_db_type=%d",
+                     msg->op->db_key.container_name,
+                     msg->op->db_key.usr_db_type, msg->op->db_key.sys_db_type);
+    return NULL;
   }
 
   if (!db_get(db, txn, &msg->op->db_key.db_key, &r)) {
@@ -297,7 +291,7 @@ static int _process_batch(consumer_t *consumer,
   if (batch->container_type == CONTAINER_TYPE_SYS) {
     cr = container_get_system();
   } else {
-    cr = container_get_or_create_user(batch->container_name);
+    cr = container_get_or_create_user(batch->container_name, NULL);
   }
   if (!cr.success) {
     LOG_ACTION_ERROR(ACT_CONTAINER_OPEN_FAILED, "container=\"%s\"",

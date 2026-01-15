@@ -190,7 +190,24 @@ static void _assert_ids(api_response_t *res, uint32_t *expected, size_t count) {
 static void _assert_obj_at_index(const char *cmd, uint32_t index,
                                  uint32_t expected_id, kv_pair_t *expected_kvs,
                                  size_t kv_count) {
-  api_response_t *res = run_command(cmd);
+  api_response_t *res = NULL;
+
+  // Polling loop: Wait until we have enough results to check the specific index
+  for (int i = 0; i < POLL_RETRIES; i++) {
+    if (res)
+      free_api_response(res);
+
+    res = run_command(cmd);
+
+    // We need success, list type, and count greater than the index we are
+    // requesting
+    if (res && res->is_ok && res->resp_type == API_RESP_TYPE_LIST_OBJ &&
+        res->payload.list_obj.count > index) {
+      break;
+    }
+
+    usleep(POLL_SLEEP_US);
+  }
 
   TEST_ASSERT_NOT_NULL(res);
   TEST_ASSERT_TRUE(res->is_ok);
@@ -399,11 +416,11 @@ void test_QUERY_VerifyContent_ShouldReturnCorrectTags(void) {
 
   // ID 1
   _write_event(c, "loc:ca env:prod user:matt");
-  usleep(100000); // Allow write
+  // usleep(100000); // Removed sleep
 
   // ID 2
   _write_event(c, "loc:ny env:dev user:john");
-  usleep(100000);
+  // usleep(100000); // Removed sleep
 
   // Query specific item
   char cmd[256];
@@ -412,7 +429,8 @@ void test_QUERY_VerifyContent_ShouldReturnCorrectTags(void) {
   // Expect ID 1 with specific tags
   kv_pair_t expected[] = {{"loc", "ca"}, {"env", "prod"}, {"user", "matt"}};
 
-  // We expect exactly 1 result (ID 1), at index 0
+  // We expect exactly 1 result (ID 1), at index 0.
+  // The assertion helper now polls until index 0 exists.
   _assert_obj_at_index(cmd, 0, 1, expected, 3);
 }
 

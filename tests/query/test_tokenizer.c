@@ -66,7 +66,7 @@ void test_tokenize_simple_operators(void) {
   assert_next_token(tokens, TOKEN_SYM_COLON, NULL, 0);
 
   // Ensure the queue is properly terminated
-  TEST_ASSERT_TRUE(q_empty(tokens));
+  TEST_ASSERT_TRUE(queue_empty(tokens));
 
   tok_clear_all(tokens);
   queue_destroy(tokens);

@@ -50,18 +50,36 @@ void container_close(eng_container_t *c) {
 
   if (c->env) {
     if (c->type == CONTAINER_TYPE_USR) {
-      db_close(c->env, c->data.usr->inverted_event_index_db);
-      db_close(c->env, c->data.usr->user_dc_metadata_db);
-      db_close(c->env, c->data.usr->events_db);
-      index_close_registry(c->env, c->data.usr->index_registry_local_db,
-                           &c->data.usr->key_to_index);
+      if (c->data.usr->inverted_event_index_db)
+        db_close(c->env, c->data.usr->inverted_event_index_db);
+
+      if (c->data.usr->user_dc_metadata_db)
+        db_close(c->env, c->data.usr->user_dc_metadata_db);
+
+      if (c->data.usr->events_db)
+        db_close(c->env, c->data.usr->events_db);
+
+      index_close_registry(c->env, &c->data.usr->key_to_index);
+
+      if (c->data.usr->index_registry_local_db)
+        db_close(c->env, c->data.usr->index_registry_local_db);
+
       mmap_array_close(&c->data.usr->event_to_entity_map);
       free(c->data.usr);
     } else {
-      db_close(c->env, c->data.sys->sys_dc_metadata_db);
-      db_close(c->env, c->data.sys->int_to_entity_id_db);
-      db_close(c->env, c->data.sys->str_to_entity_id_db);
-      index_close_registry(c->env, c->data.sys->index_registry_global_db, NULL);
+      if (c->data.sys->sys_dc_metadata_db)
+        db_close(c->env, c->data.sys->sys_dc_metadata_db);
+
+      if (c->data.sys->int_to_entity_id_db)
+        db_close(c->env, c->data.sys->int_to_entity_id_db);
+
+      if (c->data.sys->str_to_entity_id_db)
+        db_close(c->env, c->data.sys->str_to_entity_id_db);
+
+      index_close_registry(c->env, NULL);
+
+      if (c->data.sys->index_registry_global_db)
+        db_close(c->env, c->data.sys->index_registry_global_db);
 
       mmap_array_close(&c->data.sys->entity_id_map);
       free(c->data.sys);
@@ -69,7 +87,8 @@ void container_close(eng_container_t *c) {
     db_env_close(c->env);
   }
 
-  free(c->name);
+  if (c->name)
+    free(c->name);
   free(c);
 }
 
@@ -100,11 +119,39 @@ eng_container_t *create_container_struct(eng_dc_type_t type) {
   return c;
 }
 
+static bool _init_user_index(eng_container_t *sys_c, MDB_txn *sys_read_txn,
+                             MDB_dbi index_reg_db) {
+  bool created_txn = false;
+  if (sys_read_txn == NULL) {
+    sys_read_txn = db_create_txn(sys_c->env, true);
+    created_txn = true;
+  }
+  if (sys_read_txn == NULL) {
+    return false;
+  }
+  index_write_reg_opts_t opts = {.src = INDEX_WRITE_FROM_DB,
+                                 .src_dbi =
+                                     sys_c->data.sys->index_registry_global_db,
+                                 .src_read_txn = sys_read_txn};
+
+  bool index_success = index_write_registry(sys_c->env, index_reg_db, &opts);
+  if (created_txn) {
+    db_abort_txn(sys_read_txn);
+  }
+  return index_success;
+}
+
 container_result_t create_user_container(const char *name, const char *data_dir,
                                          size_t max_container_size,
-                                         eng_container_t *sys_c) {
+                                         eng_container_t *sys_c,
+                                         MDB_txn *sys_read_txn) {
+
   container_result_t result = {0};
 
+  if (!name || !data_dir || max_container_size <= 0 || !sys_c) {
+    result.error_msg = "Invalid args";
+    return result;
+  }
   char c_path[MAX_CONTAINER_PATH_LENGTH];
   if (_build_container_path(c_path, sizeof(c_path), data_dir, name) < 0) {
     result.error_code = CONTAINER_ERR_PATH_TOO_LONG;
@@ -148,7 +195,7 @@ container_result_t create_user_container(const char *name, const char *data_dir,
   bool ir = db_open(c->env, USR_DB_INDEX_REGISTRY_LOCAL_NAME, false,
                     DB_DUP_NONE, &c->data.usr->index_registry_local_db);
 
-  if (!(iei && meta && edb && ir)) {
+  if (!iei || !meta || !edb || !ir) {
     container_close(c);
     result.error_code = CONTAINER_ERR_DB_OPEN;
     result.error_msg = "Failed to open one or more databases";
@@ -173,11 +220,7 @@ container_result_t create_user_container(const char *name, const char *data_dir,
     return result;
   }
 
-  index_write_reg_opts_t opts = {.src = INDEX_WRITE_FROM_DB,
-                                 .src_env = sys_c->env,
-                                 .src_dbi =
-                                     sys_c->data.sys->index_registry_global_db};
-  if (is_new_container && !index_write_registry(c->env, ir, &opts)) {
+  if (is_new_container && !_init_user_index(sys_c, sys_read_txn, ir)) {
     container_close(c);
     result.error_code = CONTAINER_ERR_INDEX;
     result.error_msg = "Failed to initialize indexes";
@@ -243,7 +286,7 @@ container_result_t create_system_container(const char *data_dir,
   bool ir = db_open(c->env, SYS_DB_INDEX_REGISTRY_GLOBAL_NAME, false,
                     DB_DUP_NONE, &c->data.sys->index_registry_global_db);
 
-  if (!(ent_str_to_id && ent_int_to_id && meta && ir)) {
+  if (!ent_str_to_id || !ent_int_to_id || !meta || !ir) {
     container_close(c);
     result.error_code = CONTAINER_ERR_DB_OPEN;
     result.error_msg = "Failed to open system databases";
@@ -282,8 +325,9 @@ container_result_t create_system_container(const char *data_dir,
   return result;
 }
 
-bool cdb_get_user_db_handle(eng_container_t *c, eng_container_db_key_t *db_key,
-                            MDB_dbi *db_out) {
+static bool _cdb_get_user_db_handle(eng_container_t *c,
+                                    eng_container_db_key_t *db_key,
+                                    MDB_dbi *db_out) {
   if (!c || c->type != CONTAINER_TYPE_USR || !db_out) {
     return false;
   }
@@ -315,13 +359,14 @@ bool cdb_get_user_db_handle(eng_container_t *c, eng_container_db_key_t *db_key,
   return true;
 }
 
-bool cdb_get_system_db_handle(eng_container_t *c, eng_dc_sys_db_type_t db_type,
-                              MDB_dbi *db_out) {
+static bool _cdb_get_system_db_handle(eng_container_t *c,
+                                      eng_container_db_key_t *db_key,
+                                      MDB_dbi *db_out) {
   if (!c || c->type != CONTAINER_TYPE_SYS || !db_out) {
     return false;
   }
 
-  switch (db_type) {
+  switch (db_key->sys_db_type) {
   case SYS_DB_STR_TO_ENTITY_ID:
     *db_out = c->data.sys->str_to_entity_id_db;
     break;
@@ -343,6 +388,17 @@ bool cdb_get_system_db_handle(eng_container_t *c, eng_dc_sys_db_type_t db_type,
   return true;
 }
 
+bool cdb_get_db_handle(eng_container_t *c, eng_container_db_key_t *db_key,
+                       MDB_dbi *db_out) {
+  if (!c || !db_key || !db_out) {
+    return false;
+  }
+  if (c->type == CONTAINER_TYPE_SYS) {
+    return _cdb_get_system_db_handle(c, db_key, db_out);
+  }
+  return _cdb_get_user_db_handle(c, db_key, db_out);
+}
+
 void cdb_free_db_key_contents(eng_container_db_key_t *db_key) {
   if (!db_key) {
     return;
@@ -351,7 +407,8 @@ void cdb_free_db_key_contents(eng_container_db_key_t *db_key) {
   if (db_key->db_key.type == DB_KEY_STRING) {
     free(db_key->db_key.key.s);
   }
-  if (db_key->index_key) {
+  if (db_key->dc_type == CONTAINER_TYPE_USR &&
+      db_key->usr_db_type == USR_DB_INDEX && db_key->index_key) {
     free(db_key->index_key);
   }
 }

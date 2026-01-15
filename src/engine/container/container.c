@@ -131,7 +131,8 @@ static container_cache_node_t *_create_cache_node(eng_container_t *c) {
   return node;
 }
 
-container_result_t container_get_or_create_user(const char *name) {
+container_result_t container_get_or_create_user(const char *name,
+                                                MDB_txn *sys_read_txn) {
   container_result_t result = {0};
 
   if (!g_container_state.initialized) {
@@ -193,9 +194,9 @@ container_result_t container_get_or_create_user(const char *name) {
     _container_evict_lru(g_container_state.cache);
   }
 
-  container_result_t create_result =
-      create_user_container(name, g_container_state.data_dir,
-                            g_container_state.max_container_size, sys_c);
+  container_result_t create_result = create_user_container(
+      name, g_container_state.data_dir, g_container_state.max_container_size,
+      sys_c, sys_read_txn);
   if (!create_result.success) {
     uv_rwlock_wrunlock(&g_container_state.cache_rwlock);
     return create_result;
@@ -254,27 +255,12 @@ void container_release(eng_container_t *container) {
   }
 }
 
-bool container_get_user_db_handle(eng_container_t *c,
-                                  eng_container_db_key_t *db_key,
-                                  MDB_dbi *db_out) {
-  return cdb_get_user_db_handle(c, db_key, db_out);
-}
-
-bool container_get_system_db_handle(eng_container_t *c,
-                                    eng_dc_sys_db_type_t db_type,
-                                    MDB_dbi *db_out) {
-  return cdb_get_system_db_handle(c, db_type, db_out);
-}
-
 bool container_get_db_handle(eng_container_t *c, eng_container_db_key_t *db_key,
                              MDB_dbi *db_out) {
   if (!c || !db_key || !db_out) {
     return false;
   }
-  if (db_key->dc_type == CONTAINER_TYPE_SYS) {
-    return cdb_get_system_db_handle(c, db_key->sys_db_type, db_out);
-  }
-  return cdb_get_user_db_handle(c, db_key, db_out);
+  return cdb_get_db_handle(c, db_key, db_out);
 }
 
 void container_free_db_key_contents(eng_container_db_key_t *db_key) {

@@ -241,6 +241,7 @@ test: bin/test_bin_log \
 			bin/test_container \
 			bin/test_eng_eval \
 			bin/test_eng_key_format \
+			bin/test_index \
 			bin/test_routing \
 			bin/test_encoder \
 			bin/test_serializer \
@@ -288,6 +289,8 @@ test: bin/test_bin_log \
 	./bin/test_eng_eval
 	@echo "--- Running eng_key_format test ---"
 	./bin/test_eng_key_format
+	@echo "--- Running index test ---"
+	./bin/test_index
 	@echo "--- Running routing test ---"
 	./bin/test_routing
 	@echo "--- Running encoder test ---"
@@ -329,6 +332,7 @@ test_build: bin/test_bin_log \
 						bin/test_container \
 						bin/test_eng_eval \
 						bin/test_eng_key_format \
+						bin/test_index \
 						bin/test_routing \
 						bin/test_encoder \
 						bin/test_serializer \
@@ -448,6 +452,7 @@ bin/test_container_db: tests/engine/test_container_db.c \
 							src/engine/container/container_db.c \
 							src/core/db.c \
 							src/core/mmap_array.c \
+							src/engine/index/index.c \
 										$(wildcard lib/lmdb/*.c) \
 											$(wildcard lib/mpack/*.c) \
 							${UNITY_SRC} | $(BIN_DIR)
@@ -460,6 +465,7 @@ bin/test_container: tests/engine/test_container.c \
 							src/engine/container/container_cache.c \
 							src/core/db.c \
 							src/core/mmap_array.c \
+							src/engine/index/index.c \
 										$(wildcard lib/lmdb/*.c) \
 											$(wildcard lib/mpack/*.c) \
 							${UNITY_SRC} | $(BIN_DIR) $(LIBUV_A)
@@ -479,6 +485,15 @@ bin/test_eng_eval: tests/engine/test_eng_eval.c \
 bin/test_eng_key_format: tests/engine/test_eng_key_format.c \
 							src/engine/eng_key_format/eng_key_format.c \
 							src/query/ast.c \
+							${UNITY_SRC} | $(BIN_DIR)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
+
+# Rule to build the index test executable
+bin/test_index: tests/engine/test_index.c \
+							src/engine/index/index.c \
+							src/core/db.c \
+							$(wildcard lib/lmdb/*.c) \
+							$(wildcard lib/mpack/*.c) \
 							${UNITY_SRC} | $(BIN_DIR)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
 

@@ -2,6 +2,7 @@
 #define CONTAINER_H
 
 #include "container_types.h"
+#include "lmdb.h"
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -22,13 +23,17 @@ bool container_init(size_t cache_capacity, const char *data_dir,
  * Must be called once at shutdown
  */
 void container_shutdown(void);
+
 /**
  * Get or create a user container. Thread-safe
+ * Optional: Pass a system container read transaction, else one will be created
+ * for you if needed. This transaction is only used if container is new.
  *
  * @param name Container name
  * @return Result object with container or error details
  */
-container_result_t container_get_or_create_user(const char *name);
+container_result_t container_get_or_create_user(const char *name,
+                                                MDB_txn *sys_read_txn);
 
 /**
  * Get the system container
@@ -39,25 +44,6 @@ container_result_t container_get_system(void);
  * Release a User container. Thread-safe
  */
 void container_release(eng_container_t *container);
-
-/**
- * Get a database handle from a user container
- */
-bool container_get_user_db_handle(eng_container_t *c,
-                                  eng_container_db_key_t *db_key,
-                                  MDB_dbi *db_out);
-
-/**
- * Get a database handle from the system container
- *
- * @param c Container (must be SYSTEM type)
- * @param db_type Type of database to get
- * @param db_out Output parameter for database handle
- * @return true on success, false on failure
- */
-bool container_get_system_db_handle(eng_container_t *c,
-                                    eng_dc_sys_db_type_t db_type,
-                                    MDB_dbi *db_out);
 
 /**
  * Get a database handle from a container
