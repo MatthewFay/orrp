@@ -291,7 +291,7 @@ static int _process_batch(consumer_t *consumer,
   if (batch->container_type == CONTAINER_TYPE_SYS) {
     cr = container_get_system();
   } else {
-    cr = container_get_or_create_user(batch->container_name, NULL);
+    cr = container_get_user(batch->container_name, true, NULL);
   }
   if (!cr.success) {
     LOG_ACTION_ERROR(ACT_CONTAINER_OPEN_FAILED, "container=\"%s\"",

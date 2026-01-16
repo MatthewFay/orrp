@@ -141,10 +141,10 @@ static bool _init_user_index(eng_container_t *sys_c, MDB_txn *sys_read_txn,
   return index_success;
 }
 
-container_result_t create_user_container(const char *name, const char *data_dir,
-                                         size_t max_container_size,
-                                         eng_container_t *sys_c,
-                                         MDB_txn *sys_read_txn) {
+container_result_t open_user_container(const char *name, const char *data_dir,
+                                       size_t max_container_size,
+                                       eng_container_t *sys_c,
+                                       MDB_txn *sys_read_txn, bool create) {
 
   container_result_t result = {0};
 
@@ -160,6 +160,12 @@ container_result_t create_user_container(const char *name, const char *data_dir,
   }
 
   bool is_new_container = _is_new_container(c_path);
+
+  if (is_new_container && !create) {
+    result.error_code = CONTAINER_ERR_NOT_FOUND;
+    result.error_msg = "Container does not exist";
+    return result;
+  }
 
   eng_container_t *c = create_container_struct(CONTAINER_TYPE_USR);
   if (!c) {

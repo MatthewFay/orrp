@@ -131,8 +131,8 @@ static container_cache_node_t *_create_cache_node(eng_container_t *c) {
   return node;
 }
 
-container_result_t container_get_or_create_user(const char *name,
-                                                MDB_txn *sys_read_txn) {
+container_result_t container_get_user(const char *name, bool create,
+                                      MDB_txn *sys_read_txn) {
   container_result_t result = {0};
 
   if (!g_container_state.initialized) {
@@ -194,9 +194,9 @@ container_result_t container_get_or_create_user(const char *name,
     _container_evict_lru(g_container_state.cache);
   }
 
-  container_result_t create_result = create_user_container(
+  container_result_t create_result = open_user_container(
       name, g_container_state.data_dir, g_container_state.max_container_size,
-      sys_c, sys_read_txn);
+      sys_c, sys_read_txn, create);
   if (!create_result.success) {
     uv_rwlock_wrunlock(&g_container_state.cache_rwlock);
     return create_result;

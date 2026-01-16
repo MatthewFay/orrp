@@ -184,7 +184,8 @@ typedef enum {
   CONTAINER_ERR_DB_OPEN,
   CONTAINER_ERR_CACHE_FULL,
   CONTAINER_ERR_MMAP,
-  CONTAINER_ERR_INDEX
+  CONTAINER_ERR_INDEX,
+  CONTAINER_ERR_NOT_FOUND
 } container_error_code_t;
 
 typedef struct {

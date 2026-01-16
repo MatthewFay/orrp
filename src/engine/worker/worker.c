@@ -177,7 +177,7 @@ static bool _get_user_dc(worker_t *worker, const char *container_name,
     return true;
   }
 
-  container_result_t cr = container_get_or_create_user(container_name, sys_txn);
+  container_result_t cr = container_get_user(container_name, true, sys_txn);
   if (!cr.success) {
     LOG_ACTION_ERROR(ACT_CONTAINER_OPEN_FAILED, "container=\"%s\"",
                      container_name);

@@ -25,15 +25,12 @@ bool container_init(size_t cache_capacity, const char *data_dir,
 void container_shutdown(void);
 
 /**
- * Get or create a user container. Thread-safe
- * Optional: Pass a system container read transaction, else one will be created
- * for you if needed. This transaction is only used if container is new.
- *
- * @param name Container name
- * @return Result object with container or error details
+ * Get user container. Thread-safe.
+ * Set `create` to true to create if does not exist.
+ * Optional sys_read_txn used during creation
  */
-container_result_t container_get_or_create_user(const char *name,
-                                                MDB_txn *sys_read_txn);
+container_result_t container_get_user(const char *name, bool create,
+                                      MDB_txn *sys_read_txn);
 
 /**
  * Get the system container

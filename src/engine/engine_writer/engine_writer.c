@@ -197,7 +197,7 @@ static void _flush_to_db(write_batch_t *hash) {
     container_result_t cr =
         strcmp(batch->container_name, SYS_CONTAINER_NAME) == 0
             ? container_get_system()
-            : container_get_or_create_user(batch->container_name, NULL);
+            : container_get_user(batch->container_name, true, NULL);
     if (!cr.success) {
       LOG_ACTION_ERROR(ACT_CONTAINER_OPEN_FAILED, "container=\"%s\"",
                        batch->container_name);

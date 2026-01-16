@@ -187,7 +187,7 @@ void test_system_container_has_all_databases(void) {
 void test_get_user_container_success(void) {
   container_init(TEST_CACHE_CAPACITY, TEST_DATA_DIR, TEST_CONTAINER_SIZE);
 
-  container_result_t result = container_get_or_create_user("test_user", NULL);
+  container_result_t result = container_get_user("test_user", true, NULL);
 
   TEST_ASSERT_TRUE(result.success);
   TEST_ASSERT_NOT_NULL(result.container);
@@ -210,7 +210,7 @@ void test_get_user_container_with_sys_txn(void) {
   TEST_ASSERT_NOT_NULL(sys_txn);
 
   // Create user container with explicit transaction
-  container_result_t result = container_get_or_create_user("with_txn", sys_txn);
+  container_result_t result = container_get_user("with_txn", true, sys_txn);
 
   TEST_ASSERT_TRUE(result.success);
   TEST_ASSERT_NOT_NULL(result.container);
@@ -224,7 +224,7 @@ void test_get_user_container_without_sys_txn(void) {
   container_init(TEST_CACHE_CAPACITY, TEST_DATA_DIR, TEST_CONTAINER_SIZE);
 
   // Create user container without explicit transaction
-  container_result_t result = container_get_or_create_user("without_txn", NULL);
+  container_result_t result = container_get_user("without_txn", true, NULL);
 
   TEST_ASSERT_TRUE(result.success);
   TEST_ASSERT_NOT_NULL(result.container);
@@ -244,13 +244,13 @@ void test_get_user_container_txn_reuse(void) {
   TEST_ASSERT_NOT_NULL(sys_txn);
 
   // Create multiple containers with same transaction
-  container_result_t r1 = container_get_or_create_user("txn_test_1", sys_txn);
+  container_result_t r1 = container_get_user("txn_test_1", true, sys_txn);
   TEST_ASSERT_TRUE(r1.success);
 
-  container_result_t r2 = container_get_or_create_user("txn_test_2", sys_txn);
+  container_result_t r2 = container_get_user("txn_test_2", true, sys_txn);
   TEST_ASSERT_TRUE(r2.success);
 
-  container_result_t r3 = container_get_or_create_user("txn_test_3", sys_txn);
+  container_result_t r3 = container_get_user("txn_test_3", true, sys_txn);
   TEST_ASSERT_TRUE(r3.success);
 
   db_abort_txn(sys_txn);
@@ -264,19 +264,19 @@ void test_get_user_container_cached_no_txn_needed(void) {
   container_init(TEST_CACHE_CAPACITY, TEST_DATA_DIR, TEST_CONTAINER_SIZE);
 
   // First access creates the container (txn will be used if new)
-  container_result_t r1 = container_get_or_create_user("cached", NULL);
+  container_result_t r1 = container_get_user("cached", true, NULL);
   TEST_ASSERT_TRUE(r1.success);
   container_release(r1.container);
 
   // Second access gets from cache (no txn needed since not creating)
-  container_result_t r2 = container_get_or_create_user("cached", NULL);
+  container_result_t r2 = container_get_user("cached", true, NULL);
   TEST_ASSERT_TRUE(r2.success);
   TEST_ASSERT_EQUAL_PTR(r1.container, r2.container);
   container_release(r2.container);
 }
 
 void test_get_user_container_without_init(void) {
-  container_result_t result = container_get_or_create_user("test_user", NULL);
+  container_result_t result = container_get_user("test_user", true, NULL);
 
   TEST_ASSERT_FALSE(result.success);
   TEST_ASSERT_NULL(result.container);
@@ -286,7 +286,7 @@ void test_get_user_container_without_init(void) {
 void test_get_user_container_null_name(void) {
   container_init(TEST_CACHE_CAPACITY, TEST_DATA_DIR, TEST_CONTAINER_SIZE);
 
-  container_result_t result = container_get_or_create_user(NULL, NULL);
+  container_result_t result = container_get_user(NULL, true, NULL);
 
   TEST_ASSERT_FALSE(result.success);
   TEST_ASSERT_NULL(result.container);
@@ -296,7 +296,7 @@ void test_get_user_container_null_name(void) {
 void test_get_user_container_empty_name(void) {
   container_init(TEST_CACHE_CAPACITY, TEST_DATA_DIR, TEST_CONTAINER_SIZE);
 
-  container_result_t result = container_get_or_create_user("", NULL);
+  container_result_t result = container_get_user("", true, NULL);
 
   TEST_ASSERT_FALSE(result.success);
   TEST_ASSERT_EQUAL(CONTAINER_ERR_INVALID_NAME, result.error_code);
@@ -306,7 +306,7 @@ void test_get_user_container_system_name_rejected(void) {
   container_init(TEST_CACHE_CAPACITY, TEST_DATA_DIR, TEST_CONTAINER_SIZE);
 
   container_result_t result =
-      container_get_or_create_user(SYS_CONTAINER_NAME, NULL);
+      container_get_user(SYS_CONTAINER_NAME, true, NULL);
 
   TEST_ASSERT_FALSE(result.success);
   TEST_ASSERT_EQUAL(CONTAINER_ERR_INVALID_NAME, result.error_code);
@@ -315,7 +315,7 @@ void test_get_user_container_system_name_rejected(void) {
 void test_user_container_has_all_databases(void) {
   container_init(TEST_CACHE_CAPACITY, TEST_DATA_DIR, TEST_CONTAINER_SIZE);
 
-  container_result_t result = container_get_or_create_user("test_user", NULL);
+  container_result_t result = container_get_user("test_user", true, NULL);
   TEST_ASSERT_TRUE(result.success);
 
   MDB_dbi db_out;
@@ -336,14 +336,14 @@ void test_user_container_has_all_databases(void) {
 void test_user_container_persists_across_restarts(void) {
   // First session: create container
   container_init(TEST_CACHE_CAPACITY, TEST_DATA_DIR, TEST_CONTAINER_SIZE);
-  container_result_t result1 = container_get_or_create_user("persistent", NULL);
+  container_result_t result1 = container_get_user("persistent", true, NULL);
   TEST_ASSERT_TRUE(result1.success);
   container_release(result1.container);
   container_shutdown();
 
   // Second session: access same container
   container_init(TEST_CACHE_CAPACITY, TEST_DATA_DIR, TEST_CONTAINER_SIZE);
-  container_result_t result2 = container_get_or_create_user("persistent", NULL);
+  container_result_t result2 = container_get_user("persistent", true, NULL);
   TEST_ASSERT_TRUE(result2.success);
   TEST_ASSERT_EQUAL_STRING("persistent", result2.container->name);
   container_release(result2.container);
@@ -354,12 +354,12 @@ void test_user_container_persists_across_restarts(void) {
 void test_container_cached_on_second_access(void) {
   container_init(TEST_CACHE_CAPACITY, TEST_DATA_DIR, TEST_CONTAINER_SIZE);
 
-  container_result_t result1 = container_get_or_create_user("cached", NULL);
+  container_result_t result1 = container_get_user("cached", true, NULL);
   TEST_ASSERT_TRUE(result1.success);
   eng_container_t *first_ptr = result1.container;
   container_release(result1.container);
 
-  container_result_t result2 = container_get_or_create_user("cached", NULL);
+  container_result_t result2 = container_get_user("cached", true, NULL);
   TEST_ASSERT_TRUE(result2.success);
 
   // Should be the same pointer (cached)
@@ -370,9 +370,9 @@ void test_container_cached_on_second_access(void) {
 void test_cache_capacity_respected(void) {
   container_init(3, TEST_DATA_DIR, TEST_CONTAINER_SIZE); // Small cache
 
-  container_result_t r1 = container_get_or_create_user("c1", NULL);
-  container_result_t r2 = container_get_or_create_user("c2", NULL);
-  container_result_t r3 = container_get_or_create_user("c3", NULL);
+  container_result_t r1 = container_get_user("c1", true, NULL);
+  container_result_t r2 = container_get_user("c2", true, NULL);
+  container_result_t r3 = container_get_user("c3", true, NULL);
 
   TEST_ASSERT_TRUE(r1.success);
   TEST_ASSERT_TRUE(r2.success);
@@ -386,19 +386,19 @@ void test_cache_capacity_respected(void) {
 void test_lru_eviction(void) {
   container_init(2, TEST_DATA_DIR, TEST_CONTAINER_SIZE); // Cache of 2
 
-  container_result_t r1 = container_get_or_create_user("c1", NULL);
+  container_result_t r1 = container_get_user("c1", true, NULL);
   container_release(r1.container);
   eng_container_t *c1_ptr = r1.container;
 
-  container_result_t r2 = container_get_or_create_user("c2", NULL);
+  container_result_t r2 = container_get_user("c2", true, NULL);
   container_release(r2.container);
 
   // Access c3, should evict c1 (LRU)
-  container_result_t r3 = container_get_or_create_user("c3", NULL);
+  container_result_t r3 = container_get_user("c3", true, NULL);
   container_release(r3.container);
 
   // Access c1 again - should be a new pointer (was evicted)
-  container_result_t r1_new = container_get_or_create_user("c1", NULL);
+  container_result_t r1_new = container_get_user("c1", true, NULL);
   TEST_ASSERT_NOT_EQUAL(c1_ptr, r1_new.container);
   container_release(r1_new.container);
 }
@@ -406,13 +406,13 @@ void test_lru_eviction(void) {
 void test_container_with_references_not_evicted(void) {
   container_init(2, TEST_DATA_DIR, TEST_CONTAINER_SIZE);
 
-  container_result_t r1 = container_get_or_create_user("c1", NULL);
+  container_result_t r1 = container_get_user("c1", true, NULL);
   // Don't release r1 - keep reference
 
-  container_result_t r2 = container_get_or_create_user("c2", NULL);
+  container_result_t r2 = container_get_user("c2", true, NULL);
   container_release(r2.container);
 
-  container_result_t r3 = container_get_or_create_user("c3", NULL);
+  container_result_t r3 = container_get_user("c3", true, NULL);
   container_release(r3.container);
 
   // c1 should still be valid (has reference)
@@ -425,9 +425,9 @@ void test_container_with_references_not_evicted(void) {
 void test_multiple_references_to_same_container(void) {
   container_init(TEST_CACHE_CAPACITY, TEST_DATA_DIR, TEST_CONTAINER_SIZE);
 
-  container_result_t r1 = container_get_or_create_user("shared", NULL);
-  container_result_t r2 = container_get_or_create_user("shared", NULL);
-  container_result_t r3 = container_get_or_create_user("shared", NULL);
+  container_result_t r1 = container_get_user("shared", true, NULL);
+  container_result_t r2 = container_get_user("shared", true, NULL);
+  container_result_t r3 = container_get_user("shared", true, NULL);
 
   TEST_ASSERT_EQUAL_PTR(r1.container, r2.container);
   TEST_ASSERT_EQUAL_PTR(r2.container, r3.container);
@@ -453,7 +453,7 @@ void test_get_db_handle_null_container(void) {
 void test_get_db_handle_null_db_key(void) {
   container_init(TEST_CACHE_CAPACITY, TEST_DATA_DIR, TEST_CONTAINER_SIZE);
 
-  container_result_t result = container_get_or_create_user("test", NULL);
+  container_result_t result = container_get_user("test", true, NULL);
   TEST_ASSERT_TRUE(result.success);
 
   MDB_dbi db_out;
@@ -466,7 +466,7 @@ void test_get_db_handle_null_db_key(void) {
 void test_get_db_handle_null_output(void) {
   container_init(TEST_CACHE_CAPACITY, TEST_DATA_DIR, TEST_CONTAINER_SIZE);
 
-  container_result_t result = container_get_or_create_user("test", NULL);
+  container_result_t result = container_get_user("test", true, NULL);
   TEST_ASSERT_TRUE(result.success);
 
   eng_container_db_key_t db_key = {0};
@@ -481,7 +481,7 @@ void test_get_db_handle_null_output(void) {
 void test_all_user_db_types_accessible(void) {
   container_init(TEST_CACHE_CAPACITY, TEST_DATA_DIR, TEST_CONTAINER_SIZE);
 
-  container_result_t result = container_get_or_create_user("test", NULL);
+  container_result_t result = container_get_user("test", true, NULL);
   TEST_ASSERT_TRUE(result.success);
 
   MDB_dbi db_out;
@@ -579,7 +579,7 @@ static void *concurrent_access_thread(void *arg) {
     char name[32];
     snprintf(name, sizeof(name), "container_%d", i % 5);
 
-    container_result_t result = container_get_or_create_user(name, NULL);
+    container_result_t result = container_get_user(name, true, NULL);
     if (result.success) {
       usleep(100); // Small delay
       container_release(result.container);
@@ -612,7 +612,7 @@ static void *concurrent_same_container_thread(void *arg) {
   thread_arg_t *targ = (thread_arg_t *)arg;
 
   for (int i = 0; i < targ->num_operations; i++) {
-    container_result_t result = container_get_or_create_user("shared", NULL);
+    container_result_t result = container_get_user("shared", true, NULL);
     if (result.success) {
       usleep(50);
       container_release(result.container);
@@ -651,7 +651,7 @@ void test_very_long_container_name(void) {
   memset(long_name, 'a', sizeof(long_name) - 1);
   long_name[sizeof(long_name) - 1] = '\0';
 
-  container_result_t result = container_get_or_create_user(long_name, NULL);
+  container_result_t result = container_get_user(long_name, true, NULL);
 
   // Should fail due to path length
   TEST_ASSERT_FALSE(result.success);
@@ -661,7 +661,7 @@ void test_special_characters_in_name(void) {
   container_init(TEST_CACHE_CAPACITY, TEST_DATA_DIR, TEST_CONTAINER_SIZE);
 
   container_result_t result =
-      container_get_or_create_user("user_with-dash.dot", NULL);
+      container_get_user("user_with-dash.dot", true, NULL);
   TEST_ASSERT_TRUE(result.success);
   container_release(result.container);
 }
@@ -672,7 +672,7 @@ void test_rapid_create_and_release(void) {
   for (int i = 0; i < 20; i++) {
     char name[32];
     snprintf(name, sizeof(name), "rapid_%d", i);
-    container_result_t result = container_get_or_create_user(name, NULL);
+    container_result_t result = container_get_user(name, true, NULL);
     TEST_ASSERT_TRUE(result.success);
     container_release(result.container);
   }
@@ -685,7 +685,7 @@ void test_release_null_container(void) {
   TEST_ASSERT_TRUE(true);
 }
 void test_release_without_init(void) {
-  container_result_t result = container_get_or_create_user("test", NULL);
+  container_result_t result = container_get_user("test", true, NULL);
   // Should not crash even though container_get failed
   container_release(result.container);
   TEST_ASSERT_TRUE(true);
@@ -711,8 +711,8 @@ void test_full_lifecycle(void) {
   container_result_t sys = container_get_system();
   TEST_ASSERT_TRUE(sys.success);
   // Create multiple user containers
-  container_result_t u1 = container_get_or_create_user("user1", NULL);
-  container_result_t u2 = container_get_or_create_user("user2", NULL);
+  container_result_t u1 = container_get_user("user1", true, NULL);
+  container_result_t u2 = container_get_user("user2", true, NULL);
   TEST_ASSERT_TRUE(u1.success);
   TEST_ASSERT_TRUE(u2.success);
   // Access databases
@@ -734,7 +734,7 @@ void test_init_shutdown_reinit(void) {
   bool init1 =
       container_init(TEST_CACHE_CAPACITY, TEST_DATA_DIR, TEST_CONTAINER_SIZE);
   TEST_ASSERT_TRUE(init1);
-  container_result_t u1 = container_get_or_create_user("user1", NULL);
+  container_result_t u1 = container_get_user("user1", true, NULL);
   TEST_ASSERT_TRUE(u1.success);
   container_release(u1.container);
   container_shutdown();
@@ -743,7 +743,7 @@ void test_init_shutdown_reinit(void) {
       container_init(TEST_CACHE_CAPACITY, TEST_DATA_DIR, TEST_CONTAINER_SIZE);
   TEST_ASSERT_TRUE(init2);
   // Should be able to access same container
-  container_result_t u2 = container_get_or_create_user("user1", NULL);
+  container_result_t u2 = container_get_user("user1", true, NULL);
   TEST_ASSERT_TRUE(u2.success);
   TEST_ASSERT_EQUAL_STRING("user1", u2.container->name);
   container_release(u2.container);
@@ -755,9 +755,9 @@ void test_full_lifecycle_with_shared_txn(void) {
   // Create one transaction for multiple container creations
   MDB_txn *sys_txn = db_create_txn(sys.container->env, true);
   TEST_ASSERT_NOT_NULL(sys_txn);
-  container_result_t u1 = container_get_or_create_user("user1", sys_txn);
-  container_result_t u2 = container_get_or_create_user("user2", sys_txn);
-  container_result_t u3 = container_get_or_create_user("user3", sys_txn);
+  container_result_t u1 = container_get_user("user1", true, sys_txn);
+  container_result_t u2 = container_get_user("user2", true, sys_txn);
+  container_result_t u3 = container_get_user("user3", true, sys_txn);
   TEST_ASSERT_TRUE(u1.success);
   TEST_ASSERT_TRUE(u2.success);
   TEST_ASSERT_TRUE(u3.success);
