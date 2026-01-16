@@ -273,6 +273,7 @@ static void _encode_err(work_ctx_t *ctx, serializer_result_t *sr,
                         const char *err_msg) {
   serializer_encode_err(err_msg, sr);
   ctx->response = ctx->response_to_free = sr->response;
+  ctx->response_size = sr->response_size;
 }
 
 /**
