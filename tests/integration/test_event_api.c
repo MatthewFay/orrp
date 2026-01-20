@@ -21,7 +21,7 @@ static api_response_t *run_command(const char *command_string) {
   // 2. Parse
   parse_result_t *parse_res = parse(tokens);
   tok_clear_all(tokens); // Clean up tokens
-  if (!parse_res || parse_res->type == PARSER_OP_TYPE_ERROR) {
+  if (!parse_res || !parse_res->success) {
     // Create a mock api_response for parsing errors
     api_response_t *err_res = calloc(1, sizeof(api_response_t));
     err_res->err_msg =

@@ -53,6 +53,7 @@ typedef struct token_s {
 
 queue_t *tok_tokenize(char *input);
 
+// Frees all tokens in queue. Does not free queue itself.
 void tok_clear_all(queue_t *tokens);
 
 void tok_free(token_t *token);

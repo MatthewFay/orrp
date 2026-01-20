@@ -11,6 +11,23 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define _COMP_OP_TOKEN_CASES                                                   \
+  case TOKEN_OP_EQ:                                                            \
+  case TOKEN_OP_NEQ:                                                           \
+  case TOKEN_OP_GT:                                                            \
+  case TOKEN_OP_GTE:                                                           \
+  case TOKEN_OP_LT:                                                            \
+  case TOKEN_OP_LTE:
+
+static bool _is_comparison_op(token_type type) {
+  switch (type) {
+    _COMP_OP_TOKEN_CASES
+    return true;
+  default:
+    return false;
+  }
+}
+
 // Parse the next tag, if it exists
 static ast_node_t *_parse_tag(queue_t *tokens, parse_result_t *r);
 
@@ -34,38 +51,6 @@ static bool _parse_tags(queue_t *tokens, ast_node_t *cmd_node,
     }
   }
   return true;
-}
-
-static void _parse_event(queue_t *tokens, parse_result_t *r) {
-  ast_command_type_t cmd_type = AST_CMD_EVENT;
-  ast_node_t *cmd_node = ast_create_command_node(cmd_type, NULL);
-  if (!cmd_node) {
-    r->error_message = "Failed to allocate command node";
-    return;
-  }
-  if (!_parse_tags(tokens, cmd_node, r)) {
-    ast_free(cmd_node);
-    return;
-  }
-
-  r->type = PARSER_OP_TYPE_WRITE;
-  r->ast = cmd_node;
-}
-
-static void _parse_index(queue_t *tokens, parse_result_t *r) {
-  ast_command_type_t cmd_type = AST_CMD_INDEX;
-  ast_node_t *cmd_node = ast_create_command_node(cmd_type, NULL);
-  if (!cmd_node) {
-    r->error_message = "Failed to allocate command node";
-    return;
-  }
-  if (!_parse_tags(tokens, cmd_node, r)) {
-    ast_free(cmd_node);
-    return;
-  }
-
-  r->type = PARSER_OP_TYPE_WRITE;
-  r->ast = cmd_node;
 }
 
 // Helper function to build a logical node from the stacks.
@@ -106,9 +91,7 @@ static bool _apply_operator(c_stack_t *value_stack, c_stack_t *op_stack) {
                                          left_node, right_node);
     }
     // Handle comparison operators
-    else if (op_token->type == TOKEN_OP_EQ || op_token->type == TOKEN_OP_NEQ ||
-             op_token->type == TOKEN_OP_GT || op_token->type == TOKEN_OP_GTE ||
-             op_token->type == TOKEN_OP_LT || op_token->type == TOKEN_OP_LTE) {
+    else if (_is_comparison_op(op_token->type)) {
 
       ast_comparison_op_t comp_op;
       switch (op_token->type) {
@@ -163,12 +146,7 @@ static int _get_precedence(token_type type) {
   switch (type) {
   case TOKEN_OP_NOT:
     return 4; // Highest precedence
-  case TOKEN_OP_EQ:
-  case TOKEN_OP_NEQ:
-  case TOKEN_OP_GT:
-  case TOKEN_OP_GTE:
-  case TOKEN_OP_LT:
-  case TOKEN_OP_LTE:
+    _COMP_OP_TOKEN_CASES
     return 3;
   case TOKEN_OP_AND:
     return 2;
@@ -186,8 +164,8 @@ static associativity get_associativity(token_type type) {
   return LEFT;
 }
 
-static void *cleanup_stacks_and_return_null(c_stack_t *value_stack,
-                                            c_stack_t *op_stack) {
+static void *_cleanup_stacks_and_return_null(c_stack_t *value_stack,
+                                             c_stack_t *op_stack) {
   while (!stack_is_empty(value_stack))
     ast_free(stack_pop(value_stack));
   while (!stack_is_empty(op_stack))
@@ -216,19 +194,19 @@ static ast_node_t *_parse_exp(queue_t *tokens, parse_result_t *r) {
   }
   if (!stack_push(op_stack, lparen)) {
     tok_free(lparen);
-    return cleanup_stacks_and_return_null(value_stack, op_stack);
+    return _cleanup_stacks_and_return_null(value_stack, op_stack);
   }
 
   int paren_depth = 1;
 
-  // A state flag to track whether we expect an operand (like an identifier or
-  // '(') or an operator (like 'AND' or ')').
-  bool expect_operand = true;
+  // Tracks if the next token should begin a primary expression (identifier,
+  // literal, or '(') or continue one (operator or ')').
+  bool expecting_primary = true;
 
   while (!queue_empty(tokens) && paren_depth > 0) {
     token_t *token = queue_peek(tokens);
 
-    if (expect_operand) {
+    if (expecting_primary) {
       if (token->type == TOKEN_IDENTIFER ||
           token->type == TOKEN_LITERAL_NUMBER) {
         token_t *operand_tok = queue_dequeue(tokens);
@@ -244,7 +222,7 @@ static ast_node_t *_parse_exp(queue_t *tokens, parse_result_t *r) {
           if (!val_tok) {
             tok_free(operand_tok);
             r->error_message = "Unexpected end of query after tag key";
-            return cleanup_stacks_and_return_null(value_stack, op_stack);
+            return _cleanup_stacks_and_return_null(value_stack, op_stack);
           }
 
           char *final_val_str = NULL;
@@ -261,7 +239,7 @@ static ast_node_t *_parse_exp(queue_t *tokens, parse_result_t *r) {
             tok_free(val_tok);
             r->error_message =
                 "Invalid tag value. Expected identifier, string, or number.";
-            return cleanup_stacks_and_return_null(value_stack, op_stack);
+            return _cleanup_stacks_and_return_null(value_stack, op_stack);
           }
 
           ast_node_t *tag_val_node =
@@ -283,28 +261,27 @@ static ast_node_t *_parse_exp(queue_t *tokens, parse_result_t *r) {
 
         if (!node || !stack_push(value_stack, node)) {
           ast_free(node);
-          return cleanup_stacks_and_return_null(value_stack, op_stack);
+          return _cleanup_stacks_and_return_null(value_stack, op_stack);
         }
-        expect_operand = false; // After an operand, we expect an operator.
+
+        expecting_primary = false; // After an operand, we expect an operator.
       } else if (token->type == TOKEN_OP_NOT ||
                  token->type == TOKEN_SYM_LPAREN) {
         paren_depth++;
         token_t *op_to_push = queue_dequeue(tokens);
         if (!stack_push(op_stack, op_to_push)) {
           tok_free(op_to_push);
-          return cleanup_stacks_and_return_null(value_stack, op_stack);
+          return _cleanup_stacks_and_return_null(value_stack, op_stack);
         }
-        expect_operand =
+        expecting_primary =
             true; // After a prefix op or '(', we expect an operand.
       } else {
         r->error_message = "Syntax error: Unexpected token, expected operand.";
-        return cleanup_stacks_and_return_null(value_stack, op_stack);
+        return _cleanup_stacks_and_return_null(value_stack, op_stack);
       }
     } else { // We expect a binary operator or a right parenthesis
       if (token->type == TOKEN_OP_AND || token->type == TOKEN_OP_OR ||
-          token->type == TOKEN_OP_EQ || token->type == TOKEN_OP_NEQ ||
-          token->type == TOKEN_OP_GT || token->type == TOKEN_OP_GTE ||
-          token->type == TOKEN_OP_LT || token->type == TOKEN_OP_LTE) {
+          _is_comparison_op(token->type)) {
         token_t *op1 = token;
         while (!stack_is_empty(op_stack)) {
           token_t *op2 = stack_peek(op_stack);
@@ -316,7 +293,7 @@ static ast_node_t *_parse_exp(queue_t *tokens, parse_result_t *r) {
               (get_associativity(op1->type) == RIGHT &&
                _get_precedence(op2->type) > _get_precedence(op1->type))) {
             if (!_apply_operator(value_stack, op_stack)) {
-              return cleanup_stacks_and_return_null(value_stack, op_stack);
+              return _cleanup_stacks_and_return_null(value_stack, op_stack);
             }
           } else {
             break;
@@ -325,9 +302,9 @@ static ast_node_t *_parse_exp(queue_t *tokens, parse_result_t *r) {
         token_t *op_to_push = queue_dequeue(tokens);
         if (!stack_push(op_stack, op_to_push)) {
           tok_free(op_to_push);
-          return cleanup_stacks_and_return_null(value_stack, op_stack);
+          return _cleanup_stacks_and_return_null(value_stack, op_stack);
         }
-        expect_operand = true; // After a binary op, we expect an operand.
+        expecting_primary = true; // After a binary op, we expect an operand.
       } else if (token->type == TOKEN_SYM_RPAREN) {
         paren_depth--;
         bool found_lparen = false;
@@ -338,18 +315,18 @@ static ast_node_t *_parse_exp(queue_t *tokens, parse_result_t *r) {
             break;
           }
           if (!_apply_operator(value_stack, op_stack)) {
-            return cleanup_stacks_and_return_null(value_stack, op_stack);
+            return _cleanup_stacks_and_return_null(value_stack, op_stack);
           }
         }
         if (!found_lparen) {
           r->error_message = "Mismatched parentheses";
-          return cleanup_stacks_and_return_null(value_stack, op_stack);
+          return _cleanup_stacks_and_return_null(value_stack, op_stack);
         }
         tok_free(queue_dequeue(tokens)); // Consume and discard the ')'
-        expect_operand = false; // After a ')', we expect a binary operator.
+        expecting_primary = false; // After a ')', we expect a binary operator.
       } else {
         r->error_message = "Syntax error: Unexpected token, expected operator.";
-        return cleanup_stacks_and_return_null(value_stack, op_stack);
+        return _cleanup_stacks_and_return_null(value_stack, op_stack);
       }
     }
   }
@@ -358,10 +335,10 @@ static ast_node_t *_parse_exp(queue_t *tokens, parse_result_t *r) {
   while (!stack_is_empty(op_stack)) {
     if (((token_t *)stack_peek(op_stack))->type == TOKEN_SYM_LPAREN) {
       r->error_message = "Mismatched parentheses";
-      return cleanup_stacks_and_return_null(value_stack, op_stack);
+      return _cleanup_stacks_and_return_null(value_stack, op_stack);
     }
     if (!_apply_operator(value_stack, op_stack)) {
-      return cleanup_stacks_and_return_null(value_stack, op_stack);
+      return _cleanup_stacks_and_return_null(value_stack, op_stack);
     }
   }
 
@@ -369,7 +346,7 @@ static ast_node_t *_parse_exp(queue_t *tokens, parse_result_t *r) {
   if (!stack_is_empty(value_stack)) {
     ast_free(exp_tree);
     r->error_message = "Invalid expression structure";
-    return cleanup_stacks_and_return_null(value_stack, op_stack);
+    return _cleanup_stacks_and_return_null(value_stack, op_stack);
   }
 
   stack_free(value_stack);
@@ -378,43 +355,31 @@ static ast_node_t *_parse_exp(queue_t *tokens, parse_result_t *r) {
   return exp_tree;
 }
 
-static void _parse_query(queue_t *tokens, parse_result_t *r) {
-  ast_command_type_t cmd_type = AST_CMD_QUERY;
-  ast_node_t *cmd_node = ast_create_command_node(cmd_type, NULL);
-  if (!cmd_node) {
-    r->error_message = "Failed to allocate command node";
-    return;
-  }
-  if (!_parse_tags(tokens, cmd_node, r)) {
-    ast_free(cmd_node);
-    return;
-  }
-
-  r->type = PARSER_OP_TYPE_READ;
-  r->ast = cmd_node;
-}
-
 static parse_result_t *_create_result(void) {
   parse_result_t *r = malloc(sizeof(parse_result_t));
   r->ast = NULL;
-  r->type = PARSER_OP_TYPE_ERROR;
+  r->success = false;
   r->error_message = NULL;
   return r;
 }
 
-static bool _is_token_a_command(const token_t *token) {
-  if (!token) {
+static bool _resolve_cmd_type(token_t *token, ast_command_type_t *type_out) {
+  if (!token || !type_out)
     return false;
-  }
-
   switch (token->type) {
   case TOKEN_CMD_QUERY:
+    *type_out = AST_CMD_QUERY;
+    break;
   case TOKEN_CMD_EVENT:
+    *type_out = AST_CMD_EVENT;
+    break;
   case TOKEN_CMD_INDEX:
-    return true;
+    *type_out = AST_CMD_INDEX;
+    break;
   default:
     return false;
   }
+  return true;
 }
 
 parse_result_t *parse(queue_t *tokens) {
@@ -428,27 +393,27 @@ parse_result_t *parse(queue_t *tokens) {
     return r;
   }
   token_t *cmd_token = queue_dequeue(tokens);
-  if (!cmd_token || !_is_token_a_command(cmd_token)) {
+  ast_command_type_t cmd_type;
+
+  if (!_resolve_cmd_type(cmd_token, &cmd_type)) {
     tok_clear_all(tokens);
     r->error_message = "Invalid command!";
     return r;
   }
 
-  switch (cmd_token->type) {
-  case TOKEN_CMD_EVENT:
-    _parse_event(tokens, r);
-    break;
-  case TOKEN_CMD_QUERY:
-    _parse_query(tokens, r);
-    break;
-  case TOKEN_CMD_INDEX:
-    _parse_index(tokens, r);
-    break;
-  default:
-    tok_free(cmd_token);
-    tok_clear_all(tokens);
-    r->error_message = "Unrecognized command!";
+  if (queue_empty(tokens)) {
+    r->error_message = "Invalid input: no key-value tags";
     return r;
+  }
+
+  ast_node_t *cmd_node = ast_create_command_node(cmd_type, NULL);
+  if (!cmd_node) {
+    r->error_message = "Failed to allocate command node";
+  } else if (!_parse_tags(tokens, cmd_node, r)) {
+    ast_free(cmd_node);
+  } else {
+    r->success = true;
+    r->ast = cmd_node;
   }
 
   tok_free(cmd_token);

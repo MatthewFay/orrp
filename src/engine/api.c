@@ -1,148 +1,12 @@
 #include "engine/api.h"
-#include "core/data_constants.h"
 #include "engine.h"
+#include "engine/validator/validator.h"
 #include "query/ast.h"
-#include "uthash.h"
 #include <ctype.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-
-typedef struct {
-  char *key;
-  UT_hash_handle hh;
-} custom_key;
-
-static bool _is_valid_filename(const char *filename) {
-  if (filename == NULL || filename[0] == '\0') {
-    return false;
-  }
-
-  size_t len = strlen(filename);
-  if (len > 64 || filename[0] == '.' || filename[len - 1] == '.') {
-    return false;
-  }
-
-  for (size_t i = 0; i < len; i++) {
-    unsigned char c = (unsigned char)filename[i];
-    if (!isalnum(c) && c != '_' && c != '-') {
-      return false;
-    }
-  }
-
-  return true;
-}
-
-static bool _is_valid_container_name(const char *name) {
-  // Container names are used as part of file name
-  return _is_valid_filename(name);
-}
-static bool _validate_ast(ast_node_t *ast, custom_key **c_keys) {
-  if (!ast)
-    return false;
-  bool seen_in = false;
-  // bool seen_id = false;
-  bool seen_where = false;
-  bool seen_entity = false;
-  // bool seen_take = false;
-  // bool seen_cursor = false;
-  bool seen_key = false;
-
-  if (ast->type != AST_COMMAND_NODE || !ast->command.tags ||
-      ast->command.tags->type != AST_TAG_NODE)
-    return false;
-
-  ast_command_type_t cmd_type = ast->command.type;
-  custom_key *c_key = NULL;
-  ast_node_t *tag = ast->command.tags;
-  while (tag) {
-    ast_tag_node_t t_node = tag->tag;
-    if (!t_node.value)
-      return false;
-    if (t_node.key_type == AST_TAG_KEY_RESERVED) {
-      switch (t_node.reserved_key) {
-      case AST_KW_IN:
-        if (seen_in || cmd_type == AST_CMD_INDEX ||
-            !_is_valid_container_name(t_node.value->literal.string_value))
-          return false;
-        seen_in = true;
-        break;
-      case AST_KW_ID:
-        return false; // not yet implemented
-                      // if (seen_id || cmd_type != AST_CMD_EVENT)
-                      //   return false;
-                      // seen_id = true;
-                      // break;
-      case AST_KW_WHERE:
-        if (seen_where || cmd_type != AST_CMD_QUERY)
-          return false;
-        seen_where = true;
-        break;
-      case AST_KW_ENTITY:
-        if (seen_entity || cmd_type != AST_CMD_EVENT)
-          return false;
-        seen_entity = true;
-        if (t_node.value->literal.type == AST_LITERAL_STRING &&
-            t_node.value->literal.string_value_len > MAX_ENTITY_STR_LEN) {
-          return false;
-        }
-        break;
-      case AST_KW_TAKE:
-        return false; // not yet implemented
-        // if (seen_take || cmd_type != AST_CMD_QUERY)
-        //   return false;
-        // seen_take = true;
-        // break;
-      case AST_KW_CURSOR:
-        return false; // not yet implemented
-        // if (seen_cursor || cmd_type != AST_CMD_QUERY)
-        //   return false;
-        // seen_cursor = true;
-        // break;
-      case AST_KW_KEY:
-        if (seen_key || cmd_type != AST_CMD_INDEX)
-          return false;
-        seen_key = true;
-        break;
-      default:
-        return false;
-      }
-    } else {
-      if (cmd_type != AST_CMD_EVENT)
-        return false;
-      HASH_FIND_STR(*c_keys, t_node.custom_key, c_key);
-      if (c_key) {
-        return false;
-      }
-      c_key = malloc(sizeof(custom_key));
-      if (!c_key)
-        return false;
-      c_key->key = t_node.custom_key;
-      HASH_ADD_KEYPTR(hh, *c_keys, t_node.custom_key, strlen(t_node.custom_key),
-                      c_key);
-    }
-    tag = tag->next;
-  }
-
-  if (!seen_in && cmd_type != AST_CMD_INDEX) {
-    return false;
-  }
-
-  if (cmd_type == AST_CMD_EVENT && !seen_entity) {
-    return false;
-  }
-
-  if (cmd_type == AST_CMD_QUERY && !seen_where) {
-    return false;
-  }
-
-  if (cmd_type == AST_CMD_INDEX && !seen_key) {
-    return false;
-  }
-
-  return true;
-}
 
 void free_api_response(api_response_t *r) {
   if (!r)
@@ -209,17 +73,11 @@ api_response_t *api_exec(ast_node_t *ast, int64_t arrival_ts) {
     return NULL;
   }
 
-  custom_key *c_keys = NULL;
-  bool v_r = _validate_ast(ast, &c_keys);
-  if (c_keys) {
-    custom_key *c_key, *tmp;
-    HASH_ITER(hh, c_keys, c_key, tmp) {
-      HASH_DEL(c_keys, c_key);
-      free(c_key);
-    }
-  }
-  if (!v_r) {
-    r->err_msg = "Error: Invalid command";
+  validator_result_t v_r;
+  validator_analyze(ast, &v_r);
+
+  if (!v_r.is_valid) {
+    r->err_msg = v_r.err_msg;
     ast_free(ast);
     return r;
   }
