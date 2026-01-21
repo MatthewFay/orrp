@@ -166,7 +166,7 @@ void test_EVENT_MissingRequiredTag_IN_ShouldFail(void) {
 
   TEST_ASSERT_NOT_NULL(response);
   TEST_ASSERT_FALSE(response->is_ok);
-  TEST_ASSERT_EQUAL_STRING("Error: Invalid command", response->err_msg);
+  TEST_ASSERT_EQUAL_STRING("`in` tag is required", response->err_msg);
 
   free_api_response(response);
 }
@@ -177,7 +177,7 @@ void test_EVENT_MissingRequiredTag_ENTITY_ShouldFail(void) {
 
   TEST_ASSERT_NOT_NULL(response);
   TEST_ASSERT_FALSE(response->is_ok);
-  TEST_ASSERT_EQUAL_STRING("Error: Invalid command", response->err_msg);
+  TEST_ASSERT_EQUAL_STRING("`entity` tag is required", response->err_msg);
 
   free_api_response(response);
 }
@@ -188,7 +188,8 @@ void test_EVENT_DuplicateReservedTag_ShouldFail(void) {
 
   TEST_ASSERT_NOT_NULL(response);
   TEST_ASSERT_FALSE(response->is_ok);
-  TEST_ASSERT_EQUAL_STRING("Error: Invalid command", response->err_msg);
+  TEST_ASSERT_EQUAL_STRING("Duplicate `in` tags not yet supported",
+                           response->err_msg);
 
   free_api_response(response);
 }
@@ -199,7 +200,7 @@ void test_EVENT_DuplicateCustomTag_ShouldFail(void) {
 
   TEST_ASSERT_NOT_NULL(response);
   TEST_ASSERT_FALSE(response->is_ok);
-  TEST_ASSERT_EQUAL_STRING("Error: Invalid command", response->err_msg);
+  TEST_ASSERT_EQUAL_STRING("Duplicate tag", response->err_msg);
 
   free_api_response(response);
 }
@@ -243,7 +244,8 @@ void test_EVENT_CommandOnly_ShouldFail(void) {
 
   TEST_ASSERT_NOT_NULL(response);
   TEST_ASSERT_FALSE(response->is_ok);
-  TEST_ASSERT_EQUAL_STRING("Error: Invalid command", response->err_msg);
+  TEST_ASSERT_EQUAL_STRING("Invalid input: no key-value tags",
+                           response->err_msg);
 
   free_api_response(response);
 }

@@ -68,6 +68,7 @@ static bool _is_valid_where_exp(ast_node_t *node, validator_result_t *vr) {
   case AST_NOT_NODE:
     return _is_valid_where_exp(node->not_op.operand, vr);
   default:
+    vr->err_msg = "Unknown or unsupported system tag";
     return false;
   }
 }
@@ -88,7 +89,8 @@ static void _validate_ast(ast_node_t *ast, custom_tag_key_t **c_keys,
       switch (t_node.reserved_key) {
       case AST_KW_IN:
         if (cmd_type == AST_CMD_INDEX) {
-          r->err_msg = "INDEX command does not support `in` tag";
+          r->err_msg = "Indexing specific containers is not supported yet. "
+                       "Indexes apply globally to new data containers.";
           return;
         }
         if (seen_in) {
@@ -178,8 +180,10 @@ static void _validate_ast(ast_node_t *ast, custom_tag_key_t **c_keys,
         return;
       }
       c_key = malloc(sizeof(custom_tag_key_t));
-      if (!c_key)
+      if (!c_key) {
+        r->err_msg = "Memory allocation failed during validation";
         return;
+      }
       c_key->key = t_node.custom_key;
       HASH_ADD_KEYPTR(hh, *c_keys, t_node.custom_key, strlen(t_node.custom_key),
                       c_key);

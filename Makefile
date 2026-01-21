@@ -84,6 +84,7 @@ APP_SRCS = \
 			 src/engine/op_queue/op_queue_msg.c \
 			 src/engine/op_queue/op_queue.c \
 			 src/engine/routing/routing.c \
+			 src/engine/validator/validator.c \
 			 src/engine/worker/encoder.c \
 			 src/engine/worker/worker_ops.c \
 			 src/engine/worker/worker_writer.c \
@@ -243,6 +244,7 @@ test: bin/test_bin_log \
 			bin/test_eng_key_format \
 			bin/test_index \
 			bin/test_routing \
+			bin/test_validator \
 			bin/test_encoder \
 			bin/test_serializer \
 			bin/test_tokenizer \
@@ -293,6 +295,8 @@ test: bin/test_bin_log \
 	./bin/test_index
 	@echo "--- Running routing test ---"
 	./bin/test_routing
+	@echo "--- Running validator test ---"
+	./bin/test_validator
 	@echo "--- Running encoder test ---"
 	./bin/test_encoder
 
@@ -334,6 +338,7 @@ test_build: bin/test_bin_log \
 						bin/test_eng_key_format \
 						bin/test_index \
 						bin/test_routing \
+						bin/test_validator \
 						bin/test_encoder \
 						bin/test_serializer \
 					  bin/test_ast \
@@ -405,6 +410,11 @@ bin/test_stack: tests/core/test_stack.c \
 bin/test_api: tests/engine/test_api.c \
 							src/engine/api.c \
 							src/query/ast.c \
+							src/engine/validator/validator.c \
+							src/query/tokenizer.c \
+							src/query/parser.c \
+							src/core/stack.c \
+							src/core/queue.c \
 							${UNITY_SRC} | $(BIN_DIR)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
 
@@ -501,6 +511,17 @@ bin/test_index: tests/engine/test_index.c \
 bin/test_routing: tests/engine/test_routing.c \
 							src/engine/routing/routing.c \
 							src/core/hash.c \
+							${UNITY_SRC} | $(BIN_DIR)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
+
+# Rule to build the validator test executable
+bin/test_validator: tests/engine/test_validator.c \
+							src/engine/validator/validator.c \
+							src/query/ast.c \
+							src/query/parser.c \
+							src/query/tokenizer.c \
+							src/core/queue.c \
+							src/core/stack.c \
 							${UNITY_SRC} | $(BIN_DIR)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
 
