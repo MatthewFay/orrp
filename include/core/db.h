@@ -96,12 +96,19 @@ MDB_cursor *db_cursor_open(MDB_txn *txn, MDB_dbi db);
 // Close and free the cursor
 void db_cursor_close(MDB_cursor *cursor);
 
-// Get the next entry from cursor
-// Returns true if entry found, false if no more entries or error
-// entry_out is only valid if function returns true
-// Note: key and value pointers are valid only until next cursor operation or
-// txn end
-bool db_cursor_next(MDB_cursor *cursor, db_cursor_entry_t *entry_out);
+typedef enum {
+  DB_CURSOR_OK,
+  DB_CURSOR_NOTFOUND,
+  DB_CURSOR_ERR
+} db_cursor_get_result_t;
+
+// Retrieve by cursor.
+// `entry_out` key and value pointers are valid only until next cursor
+// operation or txn end.
+// `db_key`: Optional. Can be used to set starting key of cursor.
+db_cursor_get_result_t db_cursor_get(MDB_cursor *cursor,
+                                     db_cursor_entry_t *entry_out,
+                                     MDB_cursor_op op, db_key_t *db_key);
 
 // Iterate over all entries in database and call callback for each
 // callback should return true to continue iteration, false to stop

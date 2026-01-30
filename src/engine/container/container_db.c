@@ -120,7 +120,8 @@ eng_container_t *create_container_struct(eng_dc_type_t type) {
 }
 
 static bool _init_user_index(eng_container_t *sys_c, MDB_txn *sys_read_txn,
-                             MDB_dbi index_reg_db) {
+                             eng_container_t *usr_c,
+                             MDB_dbi usr_index_registry_db) {
   bool created_txn = false;
   if (sys_read_txn == NULL) {
     sys_read_txn = db_create_txn(sys_c->env, true);
@@ -134,7 +135,8 @@ static bool _init_user_index(eng_container_t *sys_c, MDB_txn *sys_read_txn,
                                      sys_c->data.sys->index_registry_global_db,
                                  .src_read_txn = sys_read_txn};
 
-  bool index_success = index_write_registry(sys_c->env, index_reg_db, &opts);
+  bool index_success =
+      index_write_registry(usr_c->env, usr_index_registry_db, &opts);
   if (created_txn) {
     db_abort_txn(sys_read_txn);
   }
@@ -226,14 +228,17 @@ container_result_t open_user_container(const char *name, const char *data_dir,
     return result;
   }
 
-  if (is_new_container && !_init_user_index(sys_c, sys_read_txn, ir)) {
+  if (is_new_container &&
+      !_init_user_index(sys_c, sys_read_txn, c,
+                        c->data.usr->index_registry_local_db)) {
     container_close(c);
     result.error_code = CONTAINER_ERR_INDEX;
     result.error_msg = "Failed to initialize indexes";
     return result;
   }
 
-  if (!index_open_registry(c->env, ir, &c->data.usr->key_to_index)) {
+  if (!index_open_registry(c->env, c->data.usr->index_registry_local_db,
+                           &c->data.usr->key_to_index)) {
     container_close(c);
     result.error_code = CONTAINER_ERR_INDEX;
     result.error_msg = "Failed to initialize indexes";

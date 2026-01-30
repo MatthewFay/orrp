@@ -1,4 +1,5 @@
 #include "core/db.h"
+#include "lmdb.h"
 #include "unity.h"
 #include <pthread.h>
 #include <stdlib.h>
@@ -547,7 +548,7 @@ void test_db_cursor_basic(void) {
   db_cursor_entry_t entry;
   int count = 0;
 
-  while (db_cursor_next(cursor, &entry)) {
+  while (db_cursor_get(cursor, &entry, MDB_NEXT, NULL) == DB_CURSOR_OK) {
     // Check keys are in order (a, b, c) because MDB_NEXT iterates sequentially
     TEST_ASSERT_EQUAL(strlen(keys[count]), entry.key_len);
     TEST_ASSERT_EQUAL_MEMORY(keys[count], entry.key, entry.key_len);
@@ -570,7 +571,7 @@ void test_db_cursor_empty(void) {
   TEST_ASSERT_NOT_NULL(cursor);
 
   db_cursor_entry_t entry;
-  bool has_next = db_cursor_next(cursor, &entry);
+  bool has_next = db_cursor_get(cursor, &entry, MDB_NEXT, NULL) == DB_CURSOR_OK;
   TEST_ASSERT_FALSE(has_next);
 
   db_cursor_close(cursor);
@@ -583,7 +584,8 @@ void test_db_cursor_invalid(void) {
 
   // db_cursor_next with NULL inputs
   db_cursor_entry_t entry;
-  TEST_ASSERT_FALSE(db_cursor_next(NULL, &entry));
+  TEST_ASSERT_TRUE(db_cursor_get(NULL, &entry, MDB_NEXT, NULL) ==
+                   DB_CURSOR_ERR);
 
   // Clean close should handle NULL
   db_cursor_close(NULL);
@@ -769,7 +771,7 @@ void test_dup_keys_insertion_and_traversal(void) {
   db_cursor_entry_t entry;
   int count = 0;
 
-  while (db_cursor_next(cursor, &entry)) {
+  while (db_cursor_get(cursor, &entry, MDB_NEXT, NULL) == DB_CURSOR_OK) {
     if (entry.key_len == strlen("common_key") &&
         strncmp(entry.key, "common_key", entry.key_len) == 0) {
 

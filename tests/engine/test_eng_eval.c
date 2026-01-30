@@ -60,6 +60,28 @@ void add_to_mock_db(const char *key, void *data, size_t len) {
 
 // --- Mocks / Stubs for External Dependencies ---
 
+bool index_get(const char *key, khash_t(key_index) * key_to_index,
+               index_t *index_out) {
+  return false;
+}
+
+// Create a cursor for iterating over database entries
+// Returns NULL on failure
+MDB_cursor *db_cursor_open(MDB_txn *txn, MDB_dbi db) { return NULL; }
+
+// Close and free the cursor
+void db_cursor_close(MDB_cursor *cursor) {}
+
+// Retrieve by cursor.
+// `entry_out` key and value pointers are valid only until next cursor
+// operation or txn end.
+// `db_key`: Optional. Can be used to set starting key of cursor.
+db_cursor_get_result_t db_cursor_get(MDB_cursor *cursor,
+                                     db_cursor_entry_t *entry_out,
+                                     MDB_cursor_op op, db_key_t *db_key) {
+  return 0;
+}
+
 // Mock Routing: Always route to consumer 0
 int route_key_to_consumer(const char *key, uint32_t total,
                           uint32_t per_consumer) {

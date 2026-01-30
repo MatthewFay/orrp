@@ -91,6 +91,31 @@ bool db_open(MDB_env *env, const char *db_name, bool int_only_keys,
   return true;
 }
 
+static bool _setup_mdb_key(db_key_t *db_key, MDB_val *mdb_key_out) {
+  if (!db_key || !mdb_key_out)
+    return false;
+  switch (db_key->type) {
+  case DB_KEY_STRING:
+    // For strings, the data is the string itself and size is its length.
+    mdb_key_out->mv_data = (void *)db_key->key.s;
+    mdb_key_out->mv_size = strlen(db_key->key.s);
+    return true;
+
+  case DB_KEY_U32:
+    mdb_key_out->mv_data = &db_key->key.u32;
+    mdb_key_out->mv_size = sizeof(uint32_t);
+    return true;
+
+  case DB_KEY_I64:
+    mdb_key_out->mv_data = &db_key->key.i64;
+    mdb_key_out->mv_size = sizeof(int64_t);
+    return true;
+
+  default:
+    return false;
+  }
+}
+
 db_put_result_t db_put(MDB_dbi db, MDB_txn *txn, db_key_t *key,
                        const void *value, size_t value_size, bool auto_commit,
                        bool no_overwrite) {
@@ -100,24 +125,7 @@ db_put_result_t db_put(MDB_dbi db, MDB_txn *txn, db_key_t *key,
   MDB_val mdb_key, mdb_value;
   int rc;
 
-  switch (key->type) {
-  case DB_KEY_STRING:
-    // For strings, the data is the string itself and size is its length.
-    mdb_key.mv_data = (void *)key->key.s;
-    mdb_key.mv_size = strlen(key->key.s);
-    break;
-
-  case DB_KEY_U32:
-    mdb_key.mv_data = &key->key.u32;
-    mdb_key.mv_size = sizeof(uint32_t);
-    break;
-
-  case DB_KEY_I64:
-    mdb_key.mv_data = &key->key.i64;
-    mdb_key.mv_size = sizeof(int64_t);
-    break;
-
-  default:
+  if (!_setup_mdb_key(key, &mdb_key)) {
     return DB_PUT_ERR;
   }
 
@@ -167,23 +175,7 @@ bool db_get(MDB_dbi db, MDB_txn *txn, db_key_t *key,
   int rc;
   void *result = NULL;
 
-  switch (key->type) {
-  case DB_KEY_STRING:
-    mdb_key.mv_data = (void *)key->key.s;
-    mdb_key.mv_size = strlen(key->key.s);
-    break;
-
-  case DB_KEY_U32:
-    mdb_key.mv_data = &key->key.u32;
-    mdb_key.mv_size = sizeof(uint32_t);
-    break;
-
-  case DB_KEY_I64:
-    mdb_key.mv_data = &key->key.i64;
-    mdb_key.mv_size = sizeof(int64_t);
-    break;
-
-  default:
+  if (!_setup_mdb_key(key, &mdb_key)) {
     return false;
   }
 
@@ -274,30 +266,35 @@ void db_cursor_close(MDB_cursor *cursor) {
   }
 }
 
-bool db_cursor_next(MDB_cursor *cursor, db_cursor_entry_t *entry_out) {
+db_cursor_get_result_t db_cursor_get(MDB_cursor *cursor,
+                                     db_cursor_entry_t *entry_out,
+                                     MDB_cursor_op op, db_key_t *db_key) {
   if (!cursor || !entry_out)
-    return false;
+    return DB_CURSOR_ERR;
 
-  MDB_val key, value;
-  int rc = mdb_cursor_get(cursor, &key, &value, MDB_NEXT);
+  MDB_val mdb_key, value;
+  if (db_key && !_setup_mdb_key(db_key, &mdb_key)) {
+    return DB_CURSOR_ERR;
+  }
+  int rc = mdb_cursor_get(cursor, &mdb_key, &value, op);
 
   if (rc == MDB_NOTFOUND) {
-    return false; // End of iteration
+    return DB_CURSOR_NOTFOUND;
   }
 
   if (rc != 0) {
-    fprintf(stderr, "db_cursor_next: mdb_cursor_get failed: %s\n",
+    fprintf(stderr, "db_cursor_get: mdb_cursor_get failed: %s\n",
             mdb_strerror(rc));
-    return false;
+    return DB_CURSOR_ERR;
   }
 
   // Note: These pointers are only valid until next cursor op or txn end
-  entry_out->key = key.mv_data;
-  entry_out->key_len = key.mv_size;
+  entry_out->key = mdb_key.mv_data;
+  entry_out->key_len = mdb_key.mv_size;
   entry_out->value = value.mv_data;
   entry_out->value_len = value.mv_size;
 
-  return true;
+  return DB_CURSOR_OK;
 }
 
 bool db_foreach(MDB_txn *txn, MDB_dbi db, db_foreach_cb callback,
@@ -342,7 +339,7 @@ bool db_foreach(MDB_txn *txn, MDB_dbi db, db_foreach_cb callback,
   }
 
   // Process remaining entries
-  while (db_cursor_next(cursor, &entry)) {
+  while (db_cursor_get(cursor, &entry, MDB_NEXT, NULL) == DB_CURSOR_OK) {
     if (!callback(&entry, user_data)) {
       // Callback requested early termination
       break;

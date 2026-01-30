@@ -6,10 +6,12 @@
 #include "engine/container/container.h"
 #include "engine/container/container_types.h"
 #include "engine/eng_key_format/eng_key_format.h"
+#include "engine/index/index.h"
 #include "engine/routing/routing.h"
 #include "lmdb.h"
 #include "query/ast.h"
 #include "uthash.h"
+#include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -241,6 +243,112 @@ static eval_bitmap_t *_or(eval_bitmap_t *left, eval_bitmap_t *right,
   return _store_intermediate_bitmap(ctx, res_bm, true);
 }
 
+static eval_bitmap_t *_compare(ast_node_t *comparison_node, eval_ctx_t *ctx,
+                               eng_eval_result_t *result) {
+  ast_node_t *key, *val;
+  index_t index;
+  ast_comparison_node_t *comp_node = &comparison_node->comparison;
+
+  if (comp_node->left->literal.type == AST_LITERAL_STRING) {
+    key = comp_node->left;
+    val = comp_node->right;
+  } else {
+    key = comp_node->right;
+    val = comp_node->left;
+  }
+
+  if (!index_get(key->literal.string_value,
+                 ctx->config->container->data.usr->key_to_index, &index)) {
+    result->err_msg = "Index does not exist for tag key.";
+    return NULL;
+  }
+
+  MDB_cursor *cursor = db_cursor_open(ctx->config->user_txn, index.index_db);
+  if (!cursor) {
+    return NULL;
+  }
+
+  bitmap_t *event_id_bm = bitmap_create();
+  if (!event_id_bm) {
+    db_cursor_close(cursor);
+    return NULL;
+  }
+
+  int64_t search_val = val->literal.number_value;
+  db_cursor_entry_t entry;
+  db_cursor_get_result_t r;
+
+  db_key_t db_key;
+  db_key.type = DB_KEY_I64;
+  db_key.key.i64 = search_val;
+
+  MDB_cursor_op scan_direction;
+  if (comp_node->op == AST_OP_GT || comp_node->op == AST_OP_GTE) {
+    scan_direction = MDB_NEXT;
+  } else {
+    scan_direction = MDB_PREV;
+  }
+
+  r = db_cursor_get(cursor, &entry, MDB_SET_RANGE, &db_key);
+
+  if (scan_direction == MDB_NEXT) {
+    if (r == DB_CURSOR_OK) {
+      int64_t found_key = (int64_t)entry.key;
+      // If we want GT (>), and we landed on an exact match (==),
+      // we must step forward once to skip it.
+      if (comp_node->op == AST_OP_GT && found_key == search_val) {
+        r = db_cursor_get(cursor, &entry, MDB_NEXT, NULL);
+      }
+    }
+    // If r == NOTFOUND, it means all keys are < search_val.
+    // Result is empty.
+  } else {
+    if (r == DB_CURSOR_NOTFOUND) {
+      // search_val is larger than any key in the DB.
+      // The "closest" value is the last item in the DB.
+      r = db_cursor_get(cursor, &entry, MDB_LAST, NULL);
+    } else if (r == DB_CURSOR_OK) {
+      int64_t found_key = (int64_t)entry.key;
+
+      // We landed on a key >= search_val.
+      if (found_key > search_val) {
+        // We landed on a larger neighbor. Step back to find the first
+        // key that is <= search_val.
+        r = db_cursor_get(cursor, &entry, MDB_PREV, NULL);
+      }
+
+      // Now, if r is OK, current key is <= search_val.
+      // If we specifically want LT (<) and we are currently on (==),
+      // we must step back one more time.
+      if (r == DB_CURSOR_OK) {
+        int64_t current_key = (int64_t)entry.key;
+        if (comp_node->op == AST_OP_LT && current_key == search_val) {
+          r = db_cursor_get(cursor, &entry, MDB_PREV, NULL);
+        }
+      }
+    }
+  }
+
+  // At this point, 'entry' is valid and satisfies the condition,
+  // OR 'r' is not OK (empty result).
+  while (r == DB_CURSOR_OK) {
+    uint32_t index_val = *(uint32_t *)entry.value;
+    bitmap_add(event_id_bm, index_val);
+
+    // Just move in the determined direction until end/start of DB
+    r = db_cursor_get(cursor, &entry, scan_direction, NULL);
+  }
+
+  db_cursor_close(cursor);
+
+  if (r == DB_CURSOR_ERR) {
+    bitmap_free(event_id_bm);
+    return NULL;
+  }
+
+  return _store_intermediate_bitmap(ctx, event_id_bm, true);
+}
+
 static eval_bitmap_t *_eval(ast_node_t *node, eval_ctx_t *ctx,
                             eng_eval_result_t *result) {
   if (!node) {
@@ -277,8 +385,7 @@ static eval_bitmap_t *_eval(ast_node_t *node, eval_ctx_t *ctx,
     return _tag(node, ctx, result);
 
   case AST_COMPARISON_NODE:
-    result->err_msg = "Comparisons not supported in WHERE clause";
-    return NULL;
+    return _compare(node, ctx, result);
 
   default:
     result->err_msg = "Invalid node type";
