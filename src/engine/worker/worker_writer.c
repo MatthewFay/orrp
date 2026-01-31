@@ -130,31 +130,46 @@ static bool _create_ent_entry(uint32_t ent_id, ast_literal_node_t *ent_node,
   return true;
 }
 
+static bool _idx_resolve_tag_val(const char *key, cmd_queue_msg_t *cmd_msg,
+                                 int64_t *out_val) {
+  if (strcmp(key, "ts") == 0) {
+    *out_val = cmd_msg->command->arrival_ts;
+    return true;
+  }
+
+  ast_node_t *ast_node =
+      ast_find_custom_tag(&cmd_msg->command->ast->command, key);
+
+  // we only support int64 index for now
+  if (ast_node && ast_node->tag.value->literal.type == AST_LITERAL_NUMBER) {
+    *out_val = ast_node->tag.value->literal.number_value;
+    return true;
+  }
+
+  return false;
+}
+
 static bool _create_index_entries(uint32_t event_id, cmd_queue_msg_t *cmd_msg,
                                   char *container_name,
                                   eng_container_t *user_dc,
                                   eng_writer_msg_t *msg) {
+  const char *idx_key;
+  index_t idx_info;
   eng_container_db_key_t db_key = {0};
-  index_t index = {0};
-  ast_node_t *custom_tag = cmd_msg->command->custom_tags_head;
-  while (custom_tag) {
-    if (custom_tag->tag.value->literal.type != AST_LITERAL_NUMBER) {
-      // right now we only support i64 index so skip
-      custom_tag = custom_tag->next;
-      continue;
-    }
-    char *ct_key = custom_tag->tag.custom_key;
-    bool is_index = index_get(ct_key, user_dc->data.usr->key_to_index, &index);
-    if (is_index) {
+
+  kh_foreach(user_dc->data.usr->key_to_index, idx_key, idx_info, {
+    int64_t val = 0;
+
+    if (_idx_resolve_tag_val(idx_key, cmd_msg, &val)) {
       db_key.dc_type = CONTAINER_TYPE_USR;
       db_key.container_name = strdup(container_name);
       if (!db_key.container_name) {
         return false;
       }
-      db_key.index_key = strdup(ct_key);
+      db_key.index_key = strdup(idx_key);
       db_key.usr_db_type = USR_DB_INDEX;
       db_key.db_key.type = DB_KEY_I64;
-      db_key.db_key.key.i64 = custom_tag->tag.value->literal.number_value;
+      db_key.db_key.key.i64 = val;
       uint32_t i = msg->count++;
       eng_writer_entry_t *entry = &msg->entries[i];
       entry->db_key = db_key;
@@ -164,8 +179,8 @@ static bool _create_index_entries(uint32_t event_id, cmd_queue_msg_t *cmd_msg,
       entry->value_size = sizeof(uint32_t);
       entry->write_condition = WRITE_COND_ALWAYS;
     }
-    custom_tag = custom_tag->next;
-  }
+  });
+
   return true;
 }
 

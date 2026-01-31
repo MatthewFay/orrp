@@ -199,3 +199,18 @@ ast_node_t *ast_create_not_node(ast_node_t *operand) {
   node->not_op.operand = operand;
   return node;
 }
+
+ast_node_t *ast_find_custom_tag(ast_command_node_t *cmd_node, const char *key) {
+  if (!cmd_node || !key || strlen(key) == 0)
+    return NULL;
+  ast_node_t *tag = cmd_node->tags;
+  while (tag) {
+    if (tag->tag.key_type == AST_TAG_KEY_CUSTOM &&
+        strcmp(key, tag->tag.custom_key) == 0) {
+      return tag;
+    }
+    tag = tag->next;
+    continue;
+  }
+  return NULL;
+}

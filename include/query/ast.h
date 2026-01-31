@@ -130,4 +130,6 @@ ast_node_t *ast_create_not_node(ast_node_t *operand);
 // List manipulation
 void ast_append_node(ast_node_t **list_head, ast_node_t *node_to_append);
 
+ast_node_t *ast_find_custom_tag(ast_command_node_t *cmd_node, const char *key);
+
 #endif // AST_H
