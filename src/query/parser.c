@@ -482,11 +482,11 @@ static ast_node_t *_parse_tag(queue_t *tokens, parse_result_t *r) {
     case TOKEN_KW_WHERE:
       kt = AST_KW_WHERE;
       break;
-    // case TOKEN_KW_TAKE:
-    //   kt = AST_KEY_TAKE;
-    //   break;
+    case TOKEN_KW_TAKE:
+      kt = AST_KW_TAKE;
+      break;
     // case TOKEN_KW_CURSOR:
-    //   kt = AST_KEY_CURSOR;
+    //   kt = AST_KW_CURSOR;
     //   break;
     case TOKEN_KW_KEY:
       kt = AST_KW_KEY;

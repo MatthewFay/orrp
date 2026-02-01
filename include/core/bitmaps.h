@@ -59,4 +59,6 @@ bitmap_t *bitmap_copy(bitmap_t *bm);
 
 roaring_uint32_iterator_t *bitmap_iterator_create(const bitmap_t *bm);
 
+void bitmap_take(bitmap_t *bm, uint32_t limit);
+
 #endif // CORE_BITMAPS_H

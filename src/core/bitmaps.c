@@ -240,3 +240,23 @@ roaring_uint32_iterator_t *bitmap_iterator_create(const bitmap_t *bm) {
     return NULL;
   return roaring_iterator_create(bm->rb);
 }
+
+void bitmap_take(bitmap_t *bm, uint32_t limit) {
+  if (!bm || !bm->rb)
+    return;
+  // Optimization: If the bitmap has fewer elements than the limit, do nothing.
+  uint64_t card = roaring_bitmap_get_cardinality(bm->rb);
+  if (card <= limit) {
+    return;
+  }
+
+  uint32_t element_at_limit;
+  // Since rank is 0-based, if limit is 2, we want to keep ranks 0 and 1.
+  // The item at rank 2 is the first one we want to REMOVE.
+  if (roaring_bitmap_select(bm->rb, limit, &element_at_limit)) {
+    // Remove that element and everything after it.
+    // remove_range range is [min, max), so we go up to UINT32_MAX + 1
+    roaring_bitmap_remove_range(bm->rb, element_at_limit,
+                                (uint64_t)UINT32_MAX + 1);
+  }
+}

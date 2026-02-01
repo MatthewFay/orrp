@@ -79,6 +79,7 @@ static void _validate_ast(ast_node_t *ast, custom_tag_key_t **c_keys,
   bool seen_where = false;
   bool seen_entity = false;
   bool seen_key = false;
+  bool seen_take = false;
 
   ast_command_type_t cmd_type = ast->command.type;
   custom_tag_key_t *c_key = NULL;
@@ -142,12 +143,24 @@ static void _validate_ast(ast_node_t *ast, custom_tag_key_t **c_keys,
 
         break;
       case AST_KW_TAKE:
-        r->err_msg = "`take` not yet supported";
-        return; // not yet implemented
-        // if (seen_take || cmd_type != AST_CMD_QUERY)
-        //   return false;
-        // seen_take = true;
-        // break;
+        if (seen_take) {
+          r->err_msg = "Duplicate `take` tag";
+          return;
+        }
+        if (cmd_type != AST_CMD_QUERY) {
+          r->err_msg = "Unexpected `take` tag";
+          return;
+        }
+        if (t_node.value->literal.type != AST_LITERAL_NUMBER) {
+          r->err_msg = "Value of `take` tag must be numeric";
+          return;
+        }
+        if (t_node.value->literal.number_value <= 0) {
+          r->err_msg = "Value of `take` tag must be positive";
+          return;
+        }
+        seen_take = true;
+        break;
       case AST_KW_CURSOR:
         r->err_msg = "`cursor` not yet supported";
         return; // not yet implemented
