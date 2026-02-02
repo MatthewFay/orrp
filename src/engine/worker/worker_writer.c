@@ -133,7 +133,7 @@ static bool _create_ent_entry(uint32_t ent_id, ast_literal_node_t *ent_node,
 static bool _idx_resolve_tag_val(const char *key, cmd_queue_msg_t *cmd_msg,
                                  int64_t *out_val) {
   if (strcmp(key, "ts") == 0) {
-    *out_val = cmd_msg->command->arrival_ts;
+    *out_val = cmd_msg->command->arrival_ts / 1000000L; // Convert ns to ms
     return true;
   }
 
@@ -219,6 +219,12 @@ eng_writer_msg_t *worker_create_writer_msg(cmd_queue_msg_t *cmd_msg,
     return NULL;
   }
 
+  if (index_count > 0 &&
+      !_create_index_entries(event_id, cmd_msg, container_name, user_dc, msg)) {
+    eng_writer_queue_free_msg(msg);
+    return NULL;
+  }
+
   if (!is_new_ent)
     return msg;
 
@@ -232,10 +238,6 @@ eng_writer_msg_t *worker_create_writer_msg(cmd_queue_msg_t *cmd_msg,
     eng_writer_queue_free_msg(msg);
     return NULL;
   }
-  if (index_count > 0 &&
-      !_create_index_entries(event_id, cmd_msg, container_name, user_dc, msg)) {
-    eng_writer_queue_free_msg(msg);
-    return NULL;
-  }
+
   return msg;
 }

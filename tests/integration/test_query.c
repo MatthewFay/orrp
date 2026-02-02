@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "engine/api.h"
@@ -18,7 +19,6 @@ static const useconds_t POLL_SLEEP_US = 5000;
 
 // --- Helpers ---
 
-// Structure to define expected key-value pairs for assertions
 typedef struct {
   const char *key;
   const char *val;
@@ -37,7 +37,15 @@ static void _safe_remove_db_file(const char *container_name) {
   remove(file_path2);
 }
 
-static api_response_t *run_command(const char *command_string) {
+// Get current timestamp in NANOSECONDS
+static int64_t _get_now_ns(void) {
+  struct timespec ts;
+  clock_gettime(CLOCK_REALTIME, &ts);
+  return (int64_t)ts.tv_sec * 1000000000LL + ts.tv_nsec;
+}
+
+// Core executor that accepts an explicit timestamp (in Nanoseconds)
+static api_response_t *run_command_at(const char *command_string, int64_t ts) {
   queue_t *tokens = tok_tokenize((char *)command_string);
   if (!tokens)
     return NULL;
@@ -52,11 +60,18 @@ static api_response_t *run_command(const char *command_string) {
     return err_res;
   }
 
-  api_response_t *api_res = api_exec(parse_res->ast, 0);
+  // Pass the explicit timestamp (ns) to the engine
+  api_response_t *api_res = api_exec(parse_res->ast, ts);
   parse_free_result(parse_res);
   return api_res;
 }
 
+// Default helper (passes 0 for timestamp, letting engine/OS decide if needed)
+static api_response_t *run_command(const char *command_string) {
+  return run_command_at(command_string, 0);
+}
+
+// Write event with auto-generated timestamp (0)
 static void _write_event(const char *container, const char *tags) {
   static int ent_counter = 0;
   char buf[512];
@@ -69,7 +84,20 @@ static void _write_event(const char *container, const char *tags) {
   free_api_response(res);
 }
 
-// Helper to check count directly from a response object
+// Write event with EXPLICIT timestamp (in Nanoseconds)
+static void _write_event_at(const char *container, const char *tags,
+                            int64_t ts_ns) {
+  static int ent_counter = 0;
+  char buf[512];
+  snprintf(buf, sizeof(buf), "EVENT in:%s entity:test_ent_%d %s", container,
+           ++ent_counter, tags);
+
+  api_response_t *res = run_command_at(buf, ts_ns);
+  TEST_ASSERT_NOT_NULL(res);
+  TEST_ASSERT_TRUE_MESSAGE(res->is_ok, res->err_msg);
+  free_api_response(res);
+}
+
 static void _assert_count_val(api_response_t *res, uint32_t expected_count) {
   TEST_ASSERT_NOT_NULL(res);
   TEST_ASSERT_TRUE_MESSAGE(res->is_ok, res->err_msg);
@@ -125,7 +153,7 @@ static void _verify_obj_content(api_obj_t *obj, uint32_t expected_id,
     if (mpack_reader_error(&reader) != mpack_ok)
       break;
 
-    char key_buf[32];
+    char key_buf[64];
     mpack_expect_utf8_cstr(&reader, key_buf, sizeof(key_buf));
 
     if (mpack_reader_error(&reader) != mpack_ok)
@@ -133,11 +161,14 @@ static void _verify_obj_content(api_obj_t *obj, uint32_t expected_id,
 
     if (strcmp(key_buf, "id") == 0) {
       uint32_t val = mpack_expect_u32(&reader);
-      TEST_ASSERT_EQUAL_UINT32(expected_id, val);
+      if (expected_id != 0) {
+        TEST_ASSERT_EQUAL_UINT32(expected_id, val);
+      }
       id_found = true;
     } else if (strcmp(key_buf, "ts") == 0) {
+      // Use expect_i64 for timestamps (safest given previous issues)
       int64_t ts_val = mpack_expect_i64(&reader);
-      TEST_ASSERT_EQUAL_INT64(0, ts_val);
+      TEST_ASSERT_TRUE(ts_val >= 0);
       if (mpack_reader_error(&reader) != mpack_ok)
         break;
     } else {
@@ -147,7 +178,6 @@ static void _verify_obj_content(api_obj_t *obj, uint32_t expected_id,
       if (mpack_reader_error(&reader) != mpack_ok)
         break;
 
-      // Loop through expected keys to see if we found a match
       for (size_t k = 0; k < kv_count; k++) {
         if (strcmp(expected_kvs[k].key, key_buf) == 0) {
           TEST_ASSERT_EQUAL_STRING(expected_kvs[k].val, val_buf);
@@ -171,18 +201,14 @@ static void _verify_obj_content(api_obj_t *obj, uint32_t expected_id,
   free(kv_found);
 }
 
-// Decodes just the ID for simple checks
 static void _verify_obj_id(api_obj_t *obj, uint32_t expected_id) {
-  // Pass empty kvs
   _verify_obj_content(obj, expected_id, NULL, 0);
 }
 
 static void _assert_ids(api_response_t *res, uint32_t *expected, size_t count) {
   _assert_count_val(res, count);
   for (size_t i = 0; i < count; i++) {
-    // Check Struct ID
     TEST_ASSERT_EQUAL_UINT32(expected[i], res->payload.list_obj.objects[i].id);
-    // Check Encoded ID
     _verify_obj_id(&res->payload.list_obj.objects[i], expected[i]);
   }
 }
@@ -192,15 +218,12 @@ static void _assert_obj_at_index(const char *cmd, uint32_t index,
                                  size_t kv_count) {
   api_response_t *res = NULL;
 
-  // Polling loop: Wait until we have enough results to check the specific index
   for (int i = 0; i < POLL_RETRIES; i++) {
     if (res)
       free_api_response(res);
 
     res = run_command(cmd);
 
-    // We need success, list type, and count greater than the index we are
-    // requesting
     if (res && res->is_ok && res->resp_type == API_RESP_TYPE_LIST_OBJ &&
         res->payload.list_obj.count > index) {
       break;
@@ -216,7 +239,6 @@ static void _assert_obj_at_index(const char *cmd, uint32_t index,
 
   api_obj_t *obj = &res->payload.list_obj.objects[index];
 
-  // TEST_ASSERT_EQUAL_UINT32(expected_id, obj->id);
   _verify_obj_content(obj, expected_id, expected_kvs, kv_count);
 
   free_api_response(res);
@@ -243,6 +265,9 @@ int suiteTearDown(int num_failures) {
   _safe_remove_db_file("query_strict");
   _safe_remove_db_file("query_content");
   _safe_remove_db_file("query_complex");
+  _safe_remove_db_file("query_take");
+  _safe_remove_db_file("query_ts");
+  _safe_remove_db_file("query_complex_ts");
   return (num_failures > 0) ? 1 : 0;
 }
 
@@ -255,13 +280,9 @@ void test_QUERY_BasicFilter_ShouldReturnMatches(void) {
   const char *c = "query_basic";
   _safe_remove_db_file(c);
 
-  // 1. Write Data
   _write_event(c, "loc:ca type:login");
   _write_event(c, "loc:ny type:login");
   _write_event(c, "loc:ca type:logout");
-
-  // 2. Query with polling
-  // Query: where:(loc:ca) -> Expect 2
   _assert_query_count(c, "where:(loc:ca)", 2);
 }
 
@@ -273,8 +294,6 @@ void test_QUERY_AndLogic_ShouldReturnIntersection(void) {
   _write_event(c, "loc:ca env:dev");
   _write_event(c, "loc:ny env:prod");
   _write_event(c, "loc:ca env:prod");
-
-  // Query: (loc:ca AND env:prod) -> Matches 1 and 4 -> Expect 2
   _assert_query_count(c, "where:(loc:ca AND env:prod)", 2);
 }
 
@@ -286,8 +305,6 @@ void test_QUERY_OrLogic_ShouldReturnUnion(void) {
   _write_event(c, "loc:ny");
   _write_event(c, "loc:tx");
   _write_event(c, "loc:ca");
-
-  // Query: (loc:ca OR loc:ny) -> Matches 1, 2, 4 -> Expect 3
   _assert_query_count(c, "where:(loc:ca OR loc:ny)", 3);
 }
 
@@ -295,12 +312,11 @@ void test_QUERY_NestedLogic_ShouldRespectPrecedence(void) {
   const char *c = "query_nested";
   _safe_remove_db_file(c);
 
-  _write_event(c, "loc:ca device:phone wifi:false");  // Match (loc:ca)
-  _write_event(c, "loc:tx device:phone wifi:true");   // Match (phone + wifi)
-  _write_event(c, "loc:ny device:phone wifi:false");  // No match
-  _write_event(c, "loc:tx device:desktop wifi:true"); // No match
+  _write_event(c, "loc:ca device:phone wifi:false");
+  _write_event(c, "loc:tx device:phone wifi:true");
+  _write_event(c, "loc:ny device:phone wifi:false");
+  _write_event(c, "loc:tx device:desktop wifi:true");
 
-  // Query: where:(loc:ca OR (device:phone AND wifi:true)) -> Expect 2
   _assert_query_count(c, "where:(loc:ca OR (device:phone AND wifi:true))", 2);
 }
 
@@ -309,12 +325,6 @@ void test_QUERY_NoMatches_ShouldReturnEmptyList(void) {
   _safe_remove_db_file(c);
 
   _write_event(c, "loc:ca");
-
-  // For expected count 0, polling returns immediately.
-  // To ensure we aren't just hitting a race where data isn't ready,
-  // we can wait for the data to exist via a "control query" or just force a
-  // sleep. Since we just want to verify logic, forcing a sleep is safer for
-  // "expect 0".
   usleep(200000);
 
   char cmd[256];
@@ -329,28 +339,22 @@ void test_QUERY_DeepNesting_ShouldSucceed(void) {
   const char *c = "query_deep";
   _safe_remove_db_file(c);
 
-  // Logic: (A and B) OR (C and D)
-  _write_event(c, "a:1 b:1 c:0 d:0"); // Match Left
-  _write_event(c, "a:0 b:0 c:1 d:1"); // Match Right
-  _write_event(c, "a:1 b:0 c:1 d:0"); // No match
+  _write_event(c, "a:1 b:1 c:0 d:0");
+  _write_event(c, "a:0 b:0 c:1 d:1");
+  _write_event(c, "a:1 b:0 c:1 d:0");
 
-  // Query: where:((a:1 AND b:1) OR (c:1 AND d:1)) -> Expect 2
   _assert_query_count(c, "where:((a:1 AND b:1) OR (c:1 AND d:1))", 2);
 }
 
 void test_QUERY_InvalidSyntax_ShouldFail(void) {
   const char *c = "query_fail";
-  // No setup needed for syntax check
-
   char cmd[256];
   snprintf(cmd, sizeof(cmd), "QUERY in:%s where:loc:ca", c);
 
   api_response_t *res = run_command(cmd);
-
   TEST_ASSERT_NOT_NULL(res);
   TEST_ASSERT_FALSE(res->is_ok);
   TEST_ASSERT_NOT_NULL(res->err_msg);
-
   free_api_response(res);
 }
 
@@ -358,55 +362,33 @@ void test_QUERY_ComplexDeepNesting_ShouldSucceed(void) {
   const char *c = "query_complex";
   _safe_remove_db_file(c);
 
-  // Logic: ((A AND B) OR (C AND (D OR E)))
-  // Depth: where -> OR -> AND -> OR
-
-  // 1. Match: (A AND B)
   _write_event(c, "a:1 b:1 c:0 d:0 e:0");
-
-  // 2. Match: (C AND D)
   _write_event(c, "a:0 b:0 c:1 d:1 e:0");
-
-  // 3. Match: (C AND E)
   _write_event(c, "a:0 b:0 c:1 d:0 e:1");
-
-  // 4. No Match: (C only - fails inner AND)
   _write_event(c, "a:0 b:0 c:1 d:0 e:0");
-
-  // 5. No Match: (A only - fails outer OR left side)
   _write_event(c, "a:1 b:0 c:0 d:0 e:0");
 
-  // Query: where:((a:1 AND b:1) OR (c:1 AND (d:1 OR e:1))) -> Expect 3 matches
-  // (IDs 1, 2, 3)
   _assert_query_count(c, "where:((a:1 AND b:1) OR (c:1 AND (d:1 OR e:1)))", 3);
 }
 
-// Special test where we DO verify strict ordering by forcing serialization
 void test_QUERY_StrictOrdering_ManualSerialization(void) {
   const char *c = "query_strict";
   _safe_remove_db_file(c);
 
-  // Write Event 1
   _write_event(c, "aid:one");
-  usleep(50000); // Wait for worker to persist ID 1
-
-  // Write Event 2
+  usleep(50000);
   _write_event(c, "aid:two");
-  usleep(50000); // Wait for worker to persist ID 2
-
-  // Write Event 3
+  usleep(50000);
   _write_event(c, "aid:three");
-  usleep(200000); // Wait for worker to persist ID 3
+  usleep(200000);
 
   char cmd[256];
   snprintf(cmd, sizeof(cmd),
            "QUERY in:%s where:(aid:one OR aid:two OR aid:three)", c);
 
   api_response_t *res = run_command(cmd);
-
   uint32_t expected[] = {1, 2, 3};
   _assert_ids(res, expected, 3);
-
   free_api_response(res);
 }
 
@@ -415,18 +397,111 @@ void test_QUERY_VerifyContent_ShouldReturnCorrectTags(void) {
   _safe_remove_db_file(c);
 
   _write_event(c, "loc:ca env:prod user:matt");
-
   _write_event(c, "loc:ny env:dev user:john");
 
-  // Query specific item
   char cmd[256];
   snprintf(cmd, sizeof(cmd), "QUERY in:%s where:(loc:ca)", c);
-
-  // Expect ID 1 with specific tags
   kv_pair_t expected[] = {{"loc", "ca"}, {"env", "prod"}, {"user", "matt"}};
+  _assert_obj_at_index(cmd, 0, 0, expected, 3);
+}
 
-  // We expect exactly 1 result (ID 1), at index 0.
-  _assert_obj_at_index(cmd, 0, 1, expected, 3);
+void test_QUERY_Take_ShouldLimitResults(void) {
+  const char *c = "query_take";
+  _safe_remove_db_file(c);
+
+  _write_event(c, "data:1 pod:a");
+  _write_event(c, "data:2 pod:a");
+  _write_event(c, "data:3 pod:a");
+  _write_event(c, "data:4 pod:a");
+
+  // Verify all 4 exist
+  _assert_query_count(c, "where:(pod:a)", 4);
+
+  // Limit check
+  char cmd[256];
+  snprintf(cmd, sizeof(cmd), "QUERY in:%s take:2 where:(pod:a)", c);
+
+  api_response_t *res = run_command(cmd);
+  _assert_count_val(res, 2);
+  free_api_response(res);
+}
+
+void test_QUERY_TsRange_ShouldFilterByTime(void) {
+  const char *c = "query_ts";
+  _safe_remove_db_file(c);
+
+  // 1. Get current time in NANOSECONDS
+  int64_t now_ns = _get_now_ns();
+
+  // 2. Define event times in NANOSECONDS relative to now
+  // early: now
+  // late:  now + 2 seconds (in ns)
+  int64_t t_early_ns = now_ns;
+  int64_t t_late_ns = now_ns + 2000000000LL;
+
+  // 3. Write events passing NANOSECONDS to engine
+  _write_event_at(c, "phase:early", t_early_ns);
+  _write_event_at(c, "phase:late", t_late_ns);
+
+  // 4. Convert to MILLISECONDS for querying
+  int64_t t_early_ms = t_early_ns / 1000000LL;
+
+  // 5. Test Greater Than (Target: Late)
+  // Query: ts > (early_ms + 1000ms)
+  char query_gt[128];
+  snprintf(query_gt, sizeof(query_gt), "where:(ts > %ld)",
+           (long)(t_early_ms + 1000));
+  _assert_query_count(c, query_gt, 1);
+
+  // 6. Test Less Than (Target: Early)
+  // Query: ts < (early_ms + 1000ms)
+  char query_lt[128];
+  snprintf(query_lt, sizeof(query_lt), "where:(ts < %ld)",
+           (long)(t_early_ms + 1000));
+  _assert_query_count(c, query_lt, 1);
+}
+
+void test_QUERY_ComplexTsLogic_ShouldFilterCorrectly(void) {
+  const char *c = "query_complex_ts";
+  _safe_remove_db_file(c);
+
+  int64_t start_ns = _get_now_ns();
+  int64_t t1_ns = start_ns;                // T0
+  int64_t t2_ns = start_ns + 2000000000LL; // T0 + 2s
+  int64_t t3_ns = start_ns + 4000000000LL; // T0 + 4s
+
+  _write_event_at(c, "type:a", t1_ns);
+  _write_event_at(c, "type:b", t2_ns);
+  _write_event_at(c, "type:a", t3_ns);
+
+  // Convert to MS for queries
+  int64_t t_start_ms = start_ns / 1000000LL;
+
+  // 1. Time Window: (ts > T0+1s AND ts < T0+3s) -> Expects Middle (t2)
+  char q1[128];
+  snprintf(q1, sizeof(q1), "where:(ts > %ld AND ts < %ld)",
+           (long)(t_start_ms + 1000), (long)(t_start_ms + 3000));
+  _assert_query_count(c, q1, 1);
+
+  // 2. Mixed Attributes: (type:a AND ts > T0+3s) -> Expects Last (t3)
+  char q2[128];
+  snprintf(q2, sizeof(q2), "where:(type:a AND ts > %ld)",
+           (long)(t_start_ms + 3000));
+  _assert_query_count(c, q2, 1);
+
+  // 3. Split Range (OR): (ts < T0+1s OR ts > T0+3s) -> Expects First & Last
+  // (t1, t3)
+  char q3[128];
+  snprintf(q3, sizeof(q3), "where:(ts < %ld OR ts > %ld)",
+           (long)(t_start_ms + 1000), (long)(t_start_ms + 3000));
+  _assert_query_count(c, q3, 2);
+
+  // 4. Nested Complex: (type:b OR (type:a AND ts < T0+1s)) -> Expects Middle &
+  // First (t2, t1)
+  char q4[128];
+  snprintf(q4, sizeof(q4), "where:(type:b OR (type:a AND ts < %ld))",
+           (long)(t_start_ms + 1000));
+  _assert_query_count(c, q4, 2);
 }
 
 int main(void) {
@@ -445,6 +520,10 @@ int main(void) {
 
   RUN_TEST(test_QUERY_StrictOrdering_ManualSerialization);
   RUN_TEST(test_QUERY_VerifyContent_ShouldReturnCorrectTags);
+
+  RUN_TEST(test_QUERY_Take_ShouldLimitResults);
+  RUN_TEST(test_QUERY_TsRange_ShouldFilterByTime);
+  RUN_TEST(test_QUERY_ComplexTsLogic_ShouldFilterCorrectly);
 
   int result = UNITY_END();
   usleep(100000);

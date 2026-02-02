@@ -293,8 +293,9 @@ static eval_bitmap_t *_compare(ast_node_t *comparison_node, eval_ctx_t *ctx,
 
   if (scan_direction == MDB_NEXT) {
     if (r == DB_CURSOR_OK) {
-      int64_t found_key = (int64_t)entry.key;
-      // If we want GT (>), and we landed on an exact match (==),
+      int64_t found_key =
+          *(int64_t *)entry
+               .key; // If we want GT (>), and we landed on an exact match (==),
       // we must step forward once to skip it.
       if (comp_node->op == AST_OP_GT && found_key == search_val) {
         r = db_cursor_get(cursor, &entry, MDB_NEXT, NULL);
@@ -308,8 +309,7 @@ static eval_bitmap_t *_compare(ast_node_t *comparison_node, eval_ctx_t *ctx,
       // The "closest" value is the last item in the DB.
       r = db_cursor_get(cursor, &entry, MDB_LAST, NULL);
     } else if (r == DB_CURSOR_OK) {
-      int64_t found_key = (int64_t)entry.key;
-
+      int64_t found_key = *(int64_t *)entry.key;
       // We landed on a key >= search_val.
       if (found_key > search_val) {
         // We landed on a larger neighbor. Step back to find the first
@@ -321,7 +321,7 @@ static eval_bitmap_t *_compare(ast_node_t *comparison_node, eval_ctx_t *ctx,
       // If we specifically want LT (<) and we are currently on (==),
       // we must step back one more time.
       if (r == DB_CURSOR_OK) {
-        int64_t current_key = (int64_t)entry.key;
+        int64_t current_key = *(int64_t *)entry.key;
         if (comp_node->op == AST_OP_LT && current_key == search_val) {
           r = db_cursor_get(cursor, &entry, MDB_PREV, NULL);
         }
