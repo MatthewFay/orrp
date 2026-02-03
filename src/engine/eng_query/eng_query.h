@@ -11,6 +11,7 @@ typedef struct eng_query_result_s {
   bool success;
   const char *err_msg;
   bitmap_t *events;
+  uint32_t next_cursor;
 } eng_query_result_t;
 
 /**

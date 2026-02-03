@@ -127,7 +127,11 @@ static void _encode_list_obj(const api_response_t *api_resp,
 
   mpack_writer_t writer;
   mpack_writer_init_growable(&writer, &data, &data_size);
-  mpack_start_map(&writer, 1);
+  mpack_start_map(&writer, list->next_cursor ? 2 : 1);
+  if (list->next_cursor) {
+    mpack_write_cstr(&writer, "next_cursor");
+    mpack_write_u32(&writer, list->next_cursor);
+  }
   mpack_write_cstr(&writer, "objects");
   mpack_start_array(&writer, list->count);
 

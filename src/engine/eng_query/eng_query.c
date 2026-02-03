@@ -4,12 +4,7 @@
 #include "engine/consumer/consumer_cache.h"
 #include "engine/eng_eval/eng_eval.h"
 #include "query/ast.h"
-
-static void _handle_pagination(ast_node_t *cursor_tag, eng_query_result_t *r) {}
-
-static void _handle_limit(ast_node_t *take_tag, eng_query_result_t *r) {
-  bitmap_take(r->events, take_tag->literal.number_value);
-}
+#include <stdint.h>
 
 void eng_query_exec(cmd_ctx_t *cmd_ctx, consumer_t *consumers, eval_ctx_t *ctx,
                     eng_query_result_t *r) {
@@ -38,10 +33,18 @@ void eng_query_exec(cmd_ctx_t *cmd_ctx, consumer_t *consumers, eval_ctx_t *ctx,
     return;
   }
 
-  if (cmd_ctx->cursor_tag_value) {
-    _handle_pagination(cmd_ctx->cursor_tag_value, r);
-  }
+  // default to 5k limit to avoid disruption
+  uint32_t limit = 5000;
+  uint32_t start_val = 0;
   if (cmd_ctx->take_tag_value) {
-    _handle_limit(cmd_ctx->take_tag_value, r);
+    limit = cmd_ctx->take_tag_value->literal.number_value;
+  }
+  if (cmd_ctx->cursor_tag_value) {
+    start_val = cmd_ctx->cursor_tag_value->literal.number_value;
+  }
+
+  if (limit || start_val) {
+    uint32_t next_cursor = bitmap_take(r->events, limit, start_val);
+    r->next_cursor = next_cursor;
   }
 }

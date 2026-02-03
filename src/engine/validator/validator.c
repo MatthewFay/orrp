@@ -80,6 +80,7 @@ static void _validate_ast(ast_node_t *ast, custom_tag_key_t **c_keys,
   bool seen_entity = false;
   bool seen_key = false;
   bool seen_take = false;
+  bool seen_cursor = false;
 
   ast_command_type_t cmd_type = ast->command.type;
   custom_tag_key_t *c_key = NULL;
@@ -162,12 +163,24 @@ static void _validate_ast(ast_node_t *ast, custom_tag_key_t **c_keys,
         seen_take = true;
         break;
       case AST_KW_CURSOR:
-        r->err_msg = "`cursor` not yet supported";
-        return; // not yet implemented
-        // if (seen_cursor || cmd_type != AST_CMD_QUERY)
-        //   return false;
-        // seen_cursor = true;
-        // break;
+        if (seen_cursor) {
+          r->err_msg = "Duplicate `cursor` tag";
+          return;
+        }
+        if (cmd_type != AST_CMD_QUERY) {
+          r->err_msg = "Unexpected `cursor` tag";
+          return;
+        }
+        if (t_node.value->literal.type != AST_LITERAL_NUMBER) {
+          r->err_msg = "Value of `cursor` tag must be numeric";
+          return;
+        }
+        if (t_node.value->literal.number_value <= 0) {
+          r->err_msg = "Value of `cursor` tag must be positive";
+          return;
+        }
+        seen_cursor = true;
+        break;
       case AST_KW_KEY:
         if (cmd_type != AST_CMD_INDEX) {
           r->err_msg = "Unexpected `key` tag";

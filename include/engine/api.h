@@ -28,6 +28,7 @@ typedef struct api_response_type_list_obj_s {
   enum api_obj_type type;
   api_obj_t *objects;
   uint32_t count;
+  uint32_t next_cursor;
 } api_response_type_list_obj_t;
 
 typedef struct api_response_type_list_u32_s {

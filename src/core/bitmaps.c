@@ -241,22 +241,31 @@ roaring_uint32_iterator_t *bitmap_iterator_create(const bitmap_t *bm) {
   return roaring_iterator_create(bm->rb);
 }
 
-void bitmap_take(bitmap_t *bm, uint32_t limit) {
+uint32_t bitmap_take(bitmap_t *bm, uint32_t limit, uint32_t start_val) {
   if (!bm || !bm->rb)
-    return;
-  // Optimization: If the bitmap has fewer elements than the limit, do nothing.
-  uint64_t card = roaring_bitmap_get_cardinality(bm->rb);
-  if (card <= limit) {
-    return;
+    return 0;
+
+  if (limit == 0) {
+    roaring_bitmap_clear(bm->rb);
+    return 0;
   }
 
-  uint32_t element_at_limit;
-  // Since rank is 0-based, if limit is 2, we want to keep ranks 0 and 1.
-  // The item at rank 2 is the first one we want to REMOVE.
-  if (roaring_bitmap_select(bm->rb, limit, &element_at_limit)) {
-    // Remove that element and everything after it.
-    // remove_range range is [min, max), so we go up to UINT32_MAX + 1
-    roaring_bitmap_remove_range(bm->rb, element_at_limit,
-                                (uint64_t)UINT32_MAX + 1);
+  if (start_val) {
+    roaring_bitmap_remove_range(bm->rb, 0, start_val);
   }
+
+  uint64_t card = roaring_bitmap_get_cardinality(bm->rb);
+  if (card <= limit) {
+    return 0; // All remaining items fit in this page. No next cursor.
+  }
+
+  uint32_t next_cursor = 0;
+
+  if (roaring_bitmap_select(bm->rb, limit, &next_cursor)) {
+    // We cast to uint64_t to safely represent UINT32_MAX + 1
+    roaring_bitmap_remove_range(bm->rb, next_cursor, (uint64_t)UINT32_MAX + 1);
+    return next_cursor;
+  }
+
+  return 0; // Should be unreachable given card > limit check
 }

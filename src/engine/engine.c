@@ -407,6 +407,7 @@ static void _handle_query_result(eng_query_result_t *query_r, api_response_t *r,
   r->is_ok = true;
   // set to `i` instead of `count` in case some events are missing
   r->payload.list_obj.count = i;
+  r->payload.list_obj.next_cursor = query_r->next_cursor;
   bitmap_free(query_r->events);
 }
 
