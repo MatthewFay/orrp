@@ -4,17 +4,31 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
+	"orrp-e2e/client"
+	"orrp-e2e/tests"
 	"os"
 	"strings"
 )
 
 func main() {
 	addr := flag.String("addr", "127.0.0.1:7878", "Address of the orrp server")
-	mode := flag.String("mode", "interactive", "Mode to run: 'interactive' or 'test'")
+	mode := flag.String("mode", "interactive", "Mode: 'interactive' (default) 'e2e', or 'load'")
+
+	suites := flag.String("suites", "all", "Comma-separated suites (ingest, query, pagination, robustness)")
+	workers := flag.Int("workers", 20, "Load test concurrency")
+	duration := flag.Int("duration", 5, "Load test duration (seconds)")
+
 	flag.Parse()
 
-	if *mode == "test" {
-		RunE2ETests(*addr)
+	if *mode == "e2e" || *mode == "load" {
+		cfg := tests.Config{
+			Mode:         *mode,
+			Address:      *addr,
+			SuitesToRun:  strings.Split(*suites, ","),
+			LoadWorkers:  *workers,
+			LoadDuration: *duration,
+		}
+		tests.Run(cfg)
 		return
 	}
 
@@ -22,18 +36,17 @@ func main() {
 }
 
 func runInteractive(addr string) {
-	client, err := NewClient(addr)
+	c, err := client.New(addr)
 	if err != nil {
-		fmt.Printf("Error connecting to server: %v\n", err)
+		fmt.Printf("❌ Error connecting: %v\n", err)
 		os.Exit(1)
 	}
-	defer client.Close()
+	defer c.Close()
 
 	reader := bufio.NewReader(os.Stdin)
 	fmt.Println("------------------------------------------------")
 	fmt.Printf("Connected to orrp at %s\n", addr)
-	fmt.Println("Type commands (e.g. EVENT ... or QUERY ...)")
-	fmt.Println("Type 'exit' or 'quit' to stop.")
+	fmt.Println("Type 'exit' to quit.")
 	fmt.Println("------------------------------------------------")
 
 	for {
@@ -48,19 +61,17 @@ func runInteractive(addr string) {
 			continue
 		}
 
-		err := client.SendCommand(text)
-		if err != nil {
-			fmt.Printf("Error sending command: %v\n", err)
-			// Try to reconnect? For now just exit loop
+		if err := c.SendCommand(text); err != nil {
+			fmt.Printf("Send error: %v\n", err)
 			break
 		}
 
-		response, err := client.ReadResponse()
+		response, err := c.ReadResponse()
 		if err != nil {
-			fmt.Printf("Error reading response: %v\n", err)
+			fmt.Printf("Read error: %v\n", err)
 			break
 		}
 
-		fmt.Println(PrettyPrint(response))
+		fmt.Println(client.PrettyPrint(response))
 	}
 }

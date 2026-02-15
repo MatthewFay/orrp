@@ -1,4 +1,4 @@
-package main
+package client
 
 import (
 	"encoding/json"
@@ -11,21 +11,20 @@ import (
 
 type DBClient struct {
 	conn    net.Conn
-	encoder *json.Encoder
 	decoder *msgpack.Decoder
+	Address string
 }
 
-func NewClient(address string) (*DBClient, error) {
+func New(address string) (*DBClient, error) {
 	conn, err := net.DialTimeout("tcp", address, 5*time.Second)
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to db: %v", err)
+		return nil, fmt.Errorf("failed to connect: %v", err)
 	}
 
 	return &DBClient{
-		conn: conn,
-		// We use a msgpack decoder directly on the stream to handle
-		// message boundaries automatically
+		conn:    conn,
 		decoder: msgpack.NewDecoder(conn),
+		Address: address,
 	}, nil
 }
 
@@ -35,32 +34,30 @@ func (c *DBClient) Close() {
 	}
 }
 
-// SendCommand sends a raw string command ending with newline
 func (c *DBClient) SendCommand(cmd string) error {
-	// Ensure newline termination for telnet compatibility
+	if cmd == "" {
+		return nil
+	}
 	if cmd[len(cmd)-1] != '\n' {
 		cmd += "\n"
 	}
+	
+	c.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 	_, err := c.conn.Write([]byte(cmd))
 	return err
 }
 
-// ReadResponse decodes the next MsgPack object from the stream
-// and returns it as a generic interface (map or slice)
 func (c *DBClient) ReadResponse() (any, error) {
+	c.conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 	var result any
 	err := c.decoder.Decode(&result)
-	if err != nil {
-		return nil, err
-	}
-	return result, nil
+	return result, err
 }
 
-// PrettyPrint converts the generic interface to indented JSON for display
 func PrettyPrint(v any) string {
 	b, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
-		return fmt.Sprintf("error marshalling json: %v", err)
+		return fmt.Sprintf("%v", v)
 	}
 	return string(b)
 }
