@@ -8,6 +8,16 @@ CC = gcc
 #   release: optimizations, LOG_LEVEL_WARN
 BUILD ?= dev
 
+INCLUDES = -Iinclude \
+   -Isrc \
+   -Ilib/roaring \
+   -Ilib/lmdb \
+   -Ilib/libuv/include \
+   -Ilib/uthash \
+   -Ilib/khash \
+   -Ilib/ck/include \
+   -Ilib/mpack
+
 ifeq ($(BUILD),release)
   # -O3: Max optimization
   # -DNDEBUG: Disable assertions
@@ -25,21 +35,14 @@ else
   BUILD_CFLAGS := -O0 -g
   BUILD_LDFLAGS :=
   LOG_LEVEL := LOG_LEVEL_DEBUG
+
+	INCLUDES += -Itests/unity
 endif
 
 DEPFLAGS = -MMD -MP
 
 # Compiler flags (base)
-CFLAGS = -Iinclude \
-	 -Isrc \
-	 -Itests/unity \
-	 -Ilib/roaring \
-	 -Ilib/lmdb \
-	 -Ilib/libuv/include \
-	 -Ilib/uthash \
-	 -Ilib/khash \
-	 -Ilib/ck/include \
-	 -Ilib/mpack \
+CFLAGS = $(INCLUDES) \
 	 -Wall -Wextra -std=c11 \
 	 $(BUILD_CFLAGS) \
 	 -DLOG_LEVEL=$(LOG_LEVEL) \
