@@ -5,12 +5,21 @@ CC = gcc
 
 # Build mode: dev (default) or release
 #   dev:  no optimizations, debug symbols, LOG_LEVEL_DEBUG
-#   release: optimizations, strip debug, LOG_LEVEL_WARN
+#   release: optimizations, LOG_LEVEL_WARN
 BUILD ?= dev
 
 ifeq ($(BUILD),release)
-  BUILD_CFLAGS := -O3 -DNDEBUG -march=native -flto
+  # -O3: Max optimization
+  # -DNDEBUG: Disable assertions
+  # -march=x86-64-v3: Haswell+ (AVX2)
+  # -flto: Link Time Optimization (cross-module optimization)
+  # -g: Debug symbols (crucial for profiling/crash dumps, no runtime perf cost)
+  # -fno-omit-frame-pointer: Better profiling (perf/flamegraphs)
+  BUILD_CFLAGS := -O3 -DNDEBUG -march=x86-64-v3 -flto -g -fno-omit-frame-pointer
+  
+  # -Wl,-O1: Optimize linker hash tables (standard linker optimization)
   BUILD_LDFLAGS := -Wl,-O1
+  
   LOG_LEVEL := LOG_LEVEL_WARN
 else
   BUILD_CFLAGS := -O0 -g
