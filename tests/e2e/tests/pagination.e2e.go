@@ -26,7 +26,7 @@ func (s *PaginationSuite) Run(cfg Config) error {
 				{Command: fmt.Sprintf("EVENT in:%s entity:A eid:10 loc:ca", ns), Validator: ExpectOK},
 				{Command: fmt.Sprintf("EVENT in:%s entity:B eid:20 loc:ca", ns), Validator: ExpectOK},
 				{Command: fmt.Sprintf("EVENT in:%s entity:C eid:30 loc:ca", ns), Validator: ExpectOK},
-
+				{Command: "SLEEP", Sleep: 50 * time.Millisecond},
 				{
 					Command:    fmt.Sprintf("QUERY in:%s where:(loc:ca)", ns),
 					MaxRetries: 10,

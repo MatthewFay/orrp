@@ -10,7 +10,9 @@ func (s *RobustnessSuite) Name() string { return "robustness" }
 
 func (s *RobustnessSuite) Run(cfg Config) error {
 	c, err := client.New(cfg.Address)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	defer c.Close()
 
 	testCases := []TestCase{
