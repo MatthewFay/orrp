@@ -22,7 +22,7 @@ func (s *LoadPerformanceSuite) Run(cfg Config) error {
 
 	// Shared Random Data
 	locations := []string{"aws-us-east", "aws-us-west", "gcp-eu-west", "azure-asia"}
-	eventTypes := []string{"click", "view", "purchase", "login", "error"}
+	eventTypes := []string{"click", "view", "purchase", "login", "logout"}
 
 	getRealisticUser := func(r *rand.Rand) string {
 		if r.Float32() < 0.8 {
