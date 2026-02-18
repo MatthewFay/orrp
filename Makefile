@@ -19,20 +19,30 @@ INCLUDES = -Iinclude \
    -Ilib/mpack
 
 ifeq ($(BUILD),release)
+  # Application optimization flags
   # -O3: Max optimization
   # -DNDEBUG: Disable assertions
   # -march=x86-64-v3: Haswell+ (AVX2)
   # -flto: Link Time Optimization (cross-module optimization)
   # -g: Debug symbols (crucial for profiling/crash dumps, no runtime perf cost)
   # -fno-omit-frame-pointer: Better profiling (perf/flamegraphs)
-  BUILD_CFLAGS := -O3 -DNDEBUG -march=x86-64-v3 -flto -g -fno-omit-frame-pointer
+  BUILD_CFLAGS := -O3 -DNDEBUG -march=x86-64-v3 -flto -g -fno-omit-frame-pointer 
   
-  # -Wl,-O1: Optimize linker hash tables (standard linker optimization)
+  # Roaring Bitmaps optimization flags (SIMD)
+  # Roaring is specifically built to leverage AVX2 instructions for performance
+  ROARING_CFLAGS := -O3 -DNDEBUG -march=x86-64-v3 -g -fno-omit-frame-pointer 
+  
+  # LMDB/mpack optimization flags
+  LMDB_MPACK_CFLAGS := -O3 -fno-strict-aliasing -march=x86-64-v3 -g -fno-omit-frame-pointer 
+  
+  # -Wl,-O1: Optimize linker hash tables
   BUILD_LDFLAGS := -Wl,-O1
   
   LOG_LEVEL := LOG_LEVEL_WARN
 else
   BUILD_CFLAGS := -O0 -g
+  ROARING_CFLAGS := -O0 -g
+  LMDB_MPACK_CFLAGS := -O0 -g
   BUILD_LDFLAGS :=
   LOG_LEVEL := LOG_LEVEL_DEBUG
 
@@ -46,6 +56,16 @@ CFLAGS = $(INCLUDES) \
 	 -Wall -Wextra -std=c11 \
 	 $(BUILD_CFLAGS) \
 	 -DLOG_LEVEL=$(LOG_LEVEL) \
+	 $(DEPFLAGS)
+
+ROARING_COMPILE_FLAGS = $(INCLUDES) \
+	 -Wall -Wextra -std=c11 \
+	 $(ROARING_CFLAGS) \
+	 $(DEPFLAGS)
+
+LMDB_MPACK_COMPILE_FLAGS = $(INCLUDES) \
+	 -Wall -Wextra -std=c11 \
+	 $(LMDB_MPACK_CFLAGS) \
 	 $(DEPFLAGS)
 
 # Linker flags base
@@ -67,6 +87,7 @@ APP_SRCS = \
 		   src/core/bitmaps.c \
 			 src/core/conversions.c \
 		   src/core/db.c \
+			 src/core/ebr.c \
 			 src/core/hash.c \
 			 src/core/lock_striped_ht.c \
 			 src/core/mmap_array.c \
@@ -125,17 +146,29 @@ UNITY_SRC = tests/unity/unity.c
 # --- BUILD ARTIFACTS ---
 
 # Directories for build artifacts
+# Use separate object directories for debug vs release to prevent stale objects
 BIN_DIR = bin
-OBJ_DIR = obj
+ifeq ($(BUILD),release)
+  OBJ_DIR = obj/release
+else
+  OBJ_DIR = obj/debug
+endif
 
-# Combine all application and library source files into one list
-ALL_SRCS = $(APP_SRCS) $(LIB_SRCS)
+# Application object files
+APP_OBJS = $(patsubst %.c,$(OBJ_DIR)/%.o,$(APP_SRCS))
 
-# Automatically generate all object file paths by replacing the extension
-# and prepending the object directory. This handles any subdirectory.
-OBJS = $(patsubst %.c,$(OBJ_DIR)/%.o,$(ALL_SRCS))
+# Library object files
+LIB_OBJS = $(patsubst %.c,$(OBJ_DIR)/%.o,$(LIB_SRCS))
+
+# All object files combined
+OBJS = $(APP_OBJS) $(LIB_OBJS)
 
 DEPS = $(OBJS:.o=.d)
+
+# Helper variables for test linking (use pre-compiled safe object files)
+LMDB_OBJS = $(OBJ_DIR)/lib/lmdb/mdb.o $(OBJ_DIR)/lib/lmdb/midl.o
+ROARING_OBJ = $(OBJ_DIR)/lib/roaring/roaring.o
+MPACK_OBJS = $(patsubst %.c,$(OBJ_DIR)/%.o,$(wildcard lib/mpack/*.c))
 
 # Target executable for the main application
 TARGET = $(BIN_DIR)/orrp
@@ -163,6 +196,8 @@ endif
 # add zlog link flags to LIBS so test targets and main target will get it automatically
 LIBS += $(ZLOG_LINK)
 CFLAGS += -I$(ZLOG_INC)
+ROARING_COMPILE_FLAGS += -I$(ZLOG_INC)
+LMDB_MPACK_COMPILE_FLAGS += -I$(ZLOG_INC)
 
 # --- BUILD RULES ---
 
@@ -370,7 +405,7 @@ bin/test_bin_log: 	tests/core/test_bin_log.c \
 # Rule to build the bitmaps test executable
 bin/test_bitmaps: 	tests/core/test_bitmaps.c \
 										src/core/bitmaps.c \
-										lib/roaring/roaring.c \
+										$(ROARING_OBJ) \
 										${UNITY_SRC} | $(BIN_DIR)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
 
@@ -383,7 +418,7 @@ bin/test_conversions: 	tests/core/test_conversions.c \
 # Rule to build the db test executable
 bin/test_db: 	tests/core/test_db.c \
 										src/core/db.c \
-										$(wildcard lib/lmdb/*.c) \
+										$(LMDB_OBJS) \
 										${UNITY_SRC} | $(BIN_DIR)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
 
@@ -449,7 +484,7 @@ bin/test_consumer_cache: tests/engine/test_consumer_cache.c \
 							src/engine/consumer/consumer_cache_entry.c \
 							src/core/bitmaps.c \
 							src/query/ast.c \
-							lib/roaring/roaring.c \
+							$(ROARING_OBJ) \
 							${UNITY_SRC} | $(BIN_DIR) $(LIBCK_A)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBCK_A) $(LIBS)
 
@@ -457,7 +492,7 @@ bin/test_consumer_cache: tests/engine/test_consumer_cache.c \
 bin/test_consumer_flush: tests/engine/test_consumer_flush.c \
 							src/engine/consumer/consumer_flush.c \
 							src/core/bitmaps.c \
-							lib/roaring/roaring.c \
+							$(ROARING_OBJ) \
 							src/engine/engine_writer/engine_writer_queue_msg.c \
 							${UNITY_SRC} | $(BIN_DIR)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
@@ -475,8 +510,8 @@ bin/test_container_db: tests/engine/test_container_db.c \
 							src/core/db.c \
 							src/core/mmap_array.c \
 							src/engine/index/index.c \
-										$(wildcard lib/lmdb/*.c) \
-											$(wildcard lib/mpack/*.c) \
+							$(LMDB_OBJS) \
+							$(MPACK_OBJS) \
 							${UNITY_SRC} | $(BIN_DIR)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
 
@@ -488,8 +523,8 @@ bin/test_container: tests/engine/test_container.c \
 							src/core/db.c \
 							src/core/mmap_array.c \
 							src/engine/index/index.c \
-										$(wildcard lib/lmdb/*.c) \
-											$(wildcard lib/mpack/*.c) \
+							$(LMDB_OBJS) \
+							$(MPACK_OBJS) \
 							${UNITY_SRC} | $(BIN_DIR) $(LIBUV_A)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBUV_A) $(LIBS)
 
@@ -499,7 +534,7 @@ bin/test_eng_eval: tests/engine/test_eng_eval.c \
 							src/query/ast.c \
 							src/core/bitmaps.c \
 							src/engine/eng_key_format/eng_key_format.c \
-							lib/roaring/roaring.c \
+							$(ROARING_OBJ) \
 							${UNITY_SRC} | $(BIN_DIR)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
 
@@ -514,8 +549,8 @@ bin/test_eng_key_format: tests/engine/test_eng_key_format.c \
 bin/test_index: tests/engine/test_index.c \
 							src/engine/index/index.c \
 							src/core/db.c \
-							$(wildcard lib/lmdb/*.c) \
-							$(wildcard lib/mpack/*.c) \
+							$(LMDB_OBJS) \
+							$(MPACK_OBJS) \
 							${UNITY_SRC} | $(BIN_DIR)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
 
@@ -542,14 +577,14 @@ bin/test_encoder: tests/engine/test_encoder.c \
 							src/engine/worker/encoder.c \
 							src/core/mmap_array.c \
 							src/query/ast.c \
-								$(wildcard lib/mpack/*.c) \
+							$(MPACK_OBJS) \
 							${UNITY_SRC} | $(BIN_DIR)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 # Rule to build the serializer test executable
 bin/test_serializer: tests/networking/test_serializer.c \
 							src/networking/serializer.c \
-							$(wildcard lib/mpack/*.c) \
+							$(MPACK_OBJS) \
 							${UNITY_SRC} | $(BIN_DIR)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
 
@@ -581,30 +616,44 @@ bin/test_tokenizer: tests/query/test_tokenizer.c \
 
 # Rule to build the event api test executable
 bin/test_event_api: tests/integration/test_event_api.c \
-  $(TEST_APP_SRCS) ${UNITY_SRC} $(LIB_SRCS) | $(BIN_DIR) $(LIBCK_A) $(LIBUV_A)
+  $(TEST_APP_SRCS) ${UNITY_SRC} $(LIB_OBJS) | $(BIN_DIR) $(LIBCK_A) $(LIBUV_A)
 	$(CC) $(CFLAGS) -ULOG_LEVEL -DLOG_LEVEL=LOG_LEVEL_WARN $(LDFLAGS) -o $@ $^ $(LIBCK_A) $(LIBUV_A) $(LIBS)
 
 # Rule to build the query test executable
 bin/test_query: tests/integration/test_query.c \
-  $(TEST_APP_SRCS) ${UNITY_SRC} $(LIB_SRCS) | $(BIN_DIR) $(LIBCK_A) $(LIBUV_A)
+  $(TEST_APP_SRCS) ${UNITY_SRC} $(LIB_OBJS) | $(BIN_DIR) $(LIBCK_A) $(LIBUV_A)
 	$(CC) $(CFLAGS) -ULOG_LEVEL -DLOG_LEVEL=LOG_LEVEL_WARN $(LDFLAGS) -o $@ $^ $(LIBCK_A) $(LIBUV_A) $(LIBS)
 
 # --- OBJECT FILE COMPILATION ---
 
-# Generic rule to compile any .c file into its corresponding .o file
-# inside the object directory, preserving the path.
-# e.g., src/engine/api.c -> obj/src/engine/api.o
-# e.g., lib/ck/src/ck_pr.c -> obj/lib/ck/src/ck_pr.o
-$(OBJ_DIR)/%.o: %.c
-	@echo "==> Compiling $<"
+# Rule for compiling application source files
+$(OBJ_DIR)/src/%.o: src/%.c
+	@echo "==> Compiling APP: $<"
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
+
+# Rule for compiling Roaring Bitmaps
+$(OBJ_DIR)/lib/roaring/%.o: lib/roaring/%.c
+	@echo "==> Compiling ROARING (AVX2-optimized): $<"
+	@mkdir -p $(dir $@)
+	$(CC) $(ROARING_COMPILE_FLAGS) -c $< -o $@
+
+# Rule for compiling LMDB and mpack 
+$(OBJ_DIR)/lib/lmdb/%.o: lib/lmdb/%.c
+	@echo "==> Compiling LMDB (conservative): $<"
+	@mkdir -p $(dir $@)
+	$(CC) $(LMDB_MPACK_COMPILE_FLAGS) -c $< -o $@
+
+$(OBJ_DIR)/lib/mpack/%.o: lib/mpack/%.c
+	@echo "==> Compiling mpack (conservative): $<"
+	@mkdir -p $(dir $@)
+	$(CC) $(LMDB_MPACK_COMPILE_FLAGS) -c $< -o $@
 
 # --- CLEANUP ---
 
 clean:
 	@echo "==> Cleaning application artifacts..."
-	rm -rf $(OBJ_DIR)
+	rm -rf obj/debug obj/release
 	rm -rf $(BIN_DIR)
 
 # Deep clean: Removes everything including static libs

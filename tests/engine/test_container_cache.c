@@ -35,6 +35,9 @@ void tearDown(void) {
   // Called after each test
 }
 
+// Mocks
+void container_close(eng_container_t *c) { (void)c; }
+
 // ============= container_cache_create tests =============
 
 void test_container_cache_create_success(void) {

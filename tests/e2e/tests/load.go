@@ -211,7 +211,7 @@ func measureSettlingTime(cfg Config, ns string) (time.Duration, error) {
 		return 0, err
 	}
 
-	attempts := 50000
+	attempts := 12000 // 2 mins
 	for i := 0; i < attempts; i++ {
 		c.SendCommand(fmt.Sprintf("QUERY in:%s where:(type:probe)", ns))
 		res, err := c.ReadResponse()

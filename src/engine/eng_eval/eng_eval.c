@@ -432,6 +432,10 @@ eng_eval_result_t eng_eval_resolve_exp_to_events(ast_node_t *exp,
       ebm->own = false;
     } else {
       result.events = bitmap_copy(ebm->bm);
+      if (!result.events) {
+        result.success = false;
+        result.err_msg = "Evaluation failed: Copy error";
+      }
     }
   } else {
     result.success = false;

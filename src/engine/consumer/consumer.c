@@ -1,9 +1,11 @@
 #include "consumer.h"
+#include "ck_epoch.h"
 #include "consumer_batch.h"
 #include "consumer_cache_entry.h"
 #include "consumer_ebr.h"
 #include "core/bitmaps.h"
 #include "core/db.h"
+#include "core/ebr.h"
 #include "engine/consumer/consumer_cache_internal.h"
 #include "engine/consumer/consumer_flush.h"
 #include "engine/container/container.h"
@@ -137,8 +139,7 @@ static bool _try_evict(consumer_t *consumer) {
     if (victim) {
       LOG_ACTION_DEBUG(ACT_CACHE_ENTRY_EVICTED, "key=\"%s\"",
                        victim->ser_db_key);
-      consumer_ebr_retire_bitmap(&consumer->consumer_epoch_record,
-                                 &victim->cc_bitmap->epoch_entry);
+      consumer_ebr_retire_bitmap(&victim->cc_bitmap->epoch_entry);
       consumer_cache_free_entry(victim);
       return true;
     } else {
@@ -203,8 +204,7 @@ static void _process_bitmap_ops(consumer_t *consumer,
     cache_entry->version++;
 
     if (was_cached) {
-      consumer_ebr_retire_bitmap(&consumer->consumer_epoch_record,
-                                 &cc_bm->epoch_entry);
+      consumer_ebr_retire_bitmap(&cc_bm->epoch_entry);
     }
     LOG_ACTION_DEBUG(ACT_OP_APPLIED,
                      "context=\"bitmap_ops\" count=%u key=\"%s\" version=%llu",
@@ -406,11 +406,12 @@ static void _flush_dirty(consumer_t *c) {
   consumer_cache_clear_dirty_list(&c->cache);
 }
 
-static void _reclamation(consumer_t *consumer) {
-  uint32_t pending = consumer->consumer_epoch_record.n_pending;
+static void _reclamation() {
+  ck_epoch_record_t *trecord = ebr_get_trecord();
+  unsigned int pending = trecord->n_pending;
   if (pending >= MIN_RECLAIM_BATCH_SIZE) {
     LOG_ACTION_DEBUG(ACT_EBR_RECLAIM, "pending=%u", pending);
-    consumer_ebr_reclaim(&consumer->consumer_epoch_record);
+    ebr_poll_nonblocking();
   }
 }
 
@@ -430,7 +431,7 @@ static void _consumer_thread_func(void *arg) {
                   config->consumer_id);
 
   consumer_cache_init(&consumer->cache, &cache_config);
-  consumer_ebr_register(&consumer->epoch, &consumer->consumer_epoch_record);
+  ebr_register();
 
   consumer_batch_container_t *container_table = NULL;
   op_queue_msg_t *msg = NULL;
@@ -528,7 +529,7 @@ static void _consumer_thread_func(void *arg) {
     if (cycle == config->flush_every_n) {
       cycle = 0;
       _flush_dirty(consumer);
-      _reclamation(consumer);
+      _reclamation();
 
       // Periodic stats
       if (total_cycles % 100000 == 0) {
@@ -541,7 +542,7 @@ static void _consumer_thread_func(void *arg) {
     }
   }
 
-  consumer_ebr_unregister(&consumer->consumer_epoch_record);
+  ebr_unregister();
   consumer_cache_destroy(&consumer->cache);
 
   LOG_ACTION_INFO(ACT_THREAD_STOPPED, "thread_type=consumer total_cycles=%llu",

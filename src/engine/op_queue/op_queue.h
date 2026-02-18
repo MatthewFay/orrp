@@ -2,7 +2,7 @@
 #define OP_QUEUE_H
 #include "ck_ring.h"
 #include "engine/op_queue/op_queue_msg.h"
-#define CAPACITY_PER_op_queue 65536
+#define CAPACITY_PER_op_queue 131072
 
 typedef struct op_queue_s {
   ck_ring_t ring;

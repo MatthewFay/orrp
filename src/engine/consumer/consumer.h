@@ -6,7 +6,6 @@ Operation consumers - consumers from Operation queues
 sends messages to engine writer for persistence
 */
 
-#include "ck_epoch.h"
 #include "consumer_cache_internal.h"
 #include "engine/engine_writer/engine_writer.h"
 #include "engine/op_queue/op_queue.h"
@@ -28,8 +27,6 @@ typedef struct consumer_s {
   uv_thread_t thread;
   volatile bool should_stop;
   uint64_t messages_processed; // Stats
-  ck_epoch_t epoch;
-  ck_epoch_record_t consumer_epoch_record;
   consumer_cache_t cache;
 } consumer_t;
 

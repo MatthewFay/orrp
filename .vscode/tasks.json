@@ -15,6 +15,19 @@
       "detail": "Build the orrp executable using Makefile."
     },
     {
+      "label": "build-orrp-rel",
+      "type": "shell",
+      "command": "make BUILD=release",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": [
+        "$gcc"
+      ],
+      "detail": "Build the orrp Release executable using Makefile."
+    },
+    {
       "label": "build-tests",
       "type": "shell",
       "command": "make",

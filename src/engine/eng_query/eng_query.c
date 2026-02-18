@@ -1,7 +1,8 @@
 #include "eng_query.h"
+#include "ck_epoch.h"
 #include "core/bitmaps.h"
+#include "core/ebr.h"
 #include "engine/cmd_context/cmd_context.h"
-#include "engine/consumer/consumer_cache.h"
 #include "engine/eng_eval/eng_eval.h"
 #include "query/ast.h"
 #include <stdint.h>
@@ -16,12 +17,13 @@ void eng_query_exec(cmd_ctx_t *cmd_ctx, consumer_t *consumers, eval_ctx_t *ctx,
     return;
   }
 
-  consumer_cache_query_begin();
+  ck_epoch_section_t section;
+  ebr_begin(&section);
 
   eng_eval_result_t eval_result =
       eng_eval_resolve_exp_to_events(cmd_ctx->where_tag_value, ctx);
 
-  consumer_cache_query_end();
+  ebr_end(&section);
 
   eng_eval_cleanup_state(ctx->state);
 

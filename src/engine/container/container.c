@@ -100,12 +100,10 @@ void container_shutdown(void) {
   if (g_container_state.cache) {
     uv_rwlock_wrlock(&g_container_state.cache_rwlock);
 
-    while (_container_evict_lru(g_container_state.cache)) {
-    }
-
-    uv_rwlock_wrunlock(&g_container_state.cache_rwlock);
     container_cache_destroy(g_container_state.cache);
     g_container_state.cache = NULL;
+
+    uv_rwlock_wrunlock(&g_container_state.cache_rwlock);
     uv_rwlock_destroy(&g_container_state.cache_rwlock);
   }
 

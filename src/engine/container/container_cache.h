@@ -20,6 +20,7 @@ bool container_cache_put(container_cache_t *cache,
 void container_cache_move_to_front(container_cache_t *cache,
                                    container_cache_node_t *node);
 
+// Frees the node
 bool container_cache_remove(container_cache_t *cache,
                             container_cache_node_t *node);
 

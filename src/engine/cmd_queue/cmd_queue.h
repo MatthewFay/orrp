@@ -5,7 +5,7 @@
 #include "cmd_queue_msg.h"
 #include <stdbool.h>
 
-#define CAPACITY_PER_cmd_queue 65536
+#define CAPACITY_PER_cmd_queue 131072
 
 typedef struct cmd_queue_s {
   ck_ring_t ring;

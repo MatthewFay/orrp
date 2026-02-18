@@ -351,7 +351,7 @@ static void _handle_query_result(eng_query_result_t *query_r, api_response_t *r,
   r->is_ok = false;
   r->err_msg = query_r->err_msg;
 
-  if (!(query_r->success && query_r->events)) {
+  if (!query_r->success) {
     LOG_ACTION_ERROR(ACT_QUERY_ERROR, "err=\"%s\"", query_r->err_msg);
     return;
   }

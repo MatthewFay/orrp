@@ -19,7 +19,7 @@ LOG_INIT(writer);
 #define ENG_WRITER_SPIN_LIMIT 100
 #define ENG_WRITER_MAX_SLEEP_MS 64
 
-#define MAX_DEQUEUE_MSG_COUNT 32
+#define MAX_DEQUEUE_MSG_COUNT 2056
 
 typedef struct write_batch_item_s {
   eng_writer_entry_t *entry;

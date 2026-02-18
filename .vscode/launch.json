@@ -21,6 +21,25 @@
       ]
     },
     {
+      "name": "Debug orrp Release",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/bin/orrp",
+      "args": [],
+      "stopAtEntry": false,
+      "cwd": "${workspaceFolder}",
+      "environment": [],
+      "externalConsole": false,
+      "MIMode": "lldb",
+      "preLaunchTask": "build-orrp-rel",
+      "setupCommands": [
+        {
+          "description": "Enable pretty-printing for lldb",
+          "text": "settings set target.inline-breakpoint-strategy always"
+        }
+      ]
+    },
+    {
       "name": "Debug test executable",
       "type": "cppdbg",
       "request": "launch",

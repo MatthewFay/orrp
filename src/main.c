@@ -1,3 +1,4 @@
+#include "core/ebr.h"
 #include "engine/api.h"
 #include "engine/engine.h"
 #include "log/log.h"
@@ -20,6 +21,8 @@ int main() {
   if (!LOG_CATEGORY) {
     return -1;
   }
+
+  ebr_epoch_global_init();
 
   uv_loop_t *loop = uv_default_loop();
   if (!loop) {
