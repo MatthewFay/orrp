@@ -2,7 +2,7 @@ package tests
 
 import (
 	"fmt"
-	"orrp-e2e/client"
+	"orrp-client/internal/client"
 	"time"
 )
 

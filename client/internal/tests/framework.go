@@ -2,7 +2,7 @@ package tests
 
 import (
 	"fmt"
-	"orrp-e2e/client"
+	"orrp-client/internal/client"
 	"strings"
 	"time"
 )
@@ -39,7 +39,7 @@ func runSingleTest(c *client.DBClient, t TestCase) error {
 		if step.Sleep > 0 {
 			time.Sleep(step.Sleep)
 		}
-		
+
 		if after, ok := strings.CutPrefix(step.Command, "SLEEP "); ok {
 			d, _ := time.ParseDuration(after)
 			time.Sleep(d)
@@ -54,7 +54,7 @@ func runSingleTest(c *client.DBClient, t TestCase) error {
 
 			if err := c.SendCommand(step.Command); err != nil {
 				lastErr = fmt.Errorf("send failed: %v", err)
-				break 
+				break
 			}
 
 			resp, err := c.ReadResponse()

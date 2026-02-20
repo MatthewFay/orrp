@@ -1,7 +1,7 @@
 package tests
 
 import (
-	"orrp-e2e/client"
+	"orrp-client/internal/client"
 )
 
 type RobustnessSuite struct{}

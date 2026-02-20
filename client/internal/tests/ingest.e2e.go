@@ -2,7 +2,7 @@ package tests
 
 import (
 	"fmt"
-	"orrp-e2e/client"
+	"orrp-client/internal/client"
 )
 
 type IngestSuite struct{}
@@ -11,7 +11,9 @@ func (s *IngestSuite) Name() string { return "ingest" }
 
 func (s *IngestSuite) Run(cfg Config) error {
 	c, err := client.New(cfg.Address)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	defer c.Close()
 
 	ns := UniqueNamespace("ingest")

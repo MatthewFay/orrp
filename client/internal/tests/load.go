@@ -3,7 +3,7 @@ package tests
 import (
 	"fmt"
 	"math/rand"
-	"orrp-e2e/client"
+	"orrp-client/internal/client"
 	"os"
 	"sort"
 	"strings"

@@ -1,4 +1,4 @@
-module orrp-e2e
+module orrp-client
 
 go 1.22
 

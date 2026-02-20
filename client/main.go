@@ -4,8 +4,8 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
-	"orrp-e2e/client"
-	"orrp-e2e/tests"
+	"orrp-client/internal/client"
+	"orrp-client/internal/tests"
 	"os"
 	"strings"
 )

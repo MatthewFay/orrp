@@ -41,7 +41,7 @@ func (c *DBClient) SendCommand(cmd string) error {
 	if cmd[len(cmd)-1] != '\n' {
 		cmd += "\n"
 	}
-	
+
 	c.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 	_, err := c.conn.Write([]byte(cmd))
 	return err
