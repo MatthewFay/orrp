@@ -37,6 +37,10 @@ func Run(cfg Config) {
 		allSuites = []Suite{
 			&LoadPerformanceSuite{},
 		}
+	case "bench":
+		allSuites = []Suite{
+			&BenchmarkSuite{},
+		}
 	}
 
 	passed, failed := 0, 0

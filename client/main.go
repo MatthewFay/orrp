@@ -12,7 +12,7 @@ import (
 
 func main() {
 	addr := flag.String("addr", "127.0.0.1:7878", "Address of the orrp server")
-	mode := flag.String("mode", "interactive", "Mode: 'interactive' (default) 'e2e', or 'load'")
+	mode := flag.String("mode", "interactive", "Mode: 'interactive' (default) 'e2e', 'load', or 'bench'")
 
 	suites := flag.String("suites", "all", "Comma-separated suites (ingest, query, pagination, robustness)")
 	workers := flag.Int("workers", 20, "Load test concurrency")
@@ -20,7 +20,10 @@ func main() {
 
 	flag.Parse()
 
-	if *mode == "e2e" || *mode == "load" {
+	switch *mode {
+	case "", "interactive":
+		runInteractive(*addr)
+	case "e2e", "load", "bench":
 		cfg := tests.Config{
 			Mode:         *mode,
 			Address:      *addr,
@@ -29,10 +32,10 @@ func main() {
 			LoadDuration: *duration,
 		}
 		tests.Run(cfg)
-		return
+	default:
+		fmt.Printf("❌ Invalid mode: %v\n", *mode)
+		os.Exit(1)
 	}
-
-	runInteractive(*addr)
 }
 
 func runInteractive(addr string) {
