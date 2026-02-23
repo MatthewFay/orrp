@@ -1,0 +1,41 @@
+site_name: orrp
+site_description: A high-performance events database.
+site_author: Matthew Fay
+repo_name: MatthewFay/orrp
+repo_url: https://github.com/MatthewFay/orrp
+
+theme:
+  name: material
+  logo: assets/orrp.png
+  favicon: assets/orrp.png
+  palette:
+    # Palette toggle for light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: black
+      accent: grey
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    # Palette toggle for dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: black
+      accent: white
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - toc.integrate
+    - search.suggest
+    - search.highlight
+
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - Architecture: architecture.md
+  - Query Language: query-language.md
+  - Benchmarks:
+      - Overview: benchmarks/index.md

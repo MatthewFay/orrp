@@ -1,5 +1,5 @@
 <p align="center">
-    <img src="orrp.png" alt="orrp" />
+    <img src="docs/assets/orrp.png" alt="orrp" />
 </p>
 
 # orrp

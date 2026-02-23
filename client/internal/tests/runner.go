@@ -21,7 +21,7 @@ type Suite interface {
 }
 
 func Run(cfg Config) {
-	fmt.Printf("🚀 Starting Orrp %s Suite...\n", strings.ToUpper(cfg.Mode))
+	fmt.Printf("🚀 Starting orrp %s Suite...\n", strings.ToUpper(cfg.Mode))
 	fmt.Printf("   Target: %s\n", cfg.Address)
 
 	allSuites := []Suite{}
