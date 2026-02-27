@@ -376,6 +376,24 @@
         
       
       
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
       <a href="." class="md-nav__link md-nav__link--active">
         
   
@@ -392,6 +410,47 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#what-is-orrp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is orrp?
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#next-steps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Next Steps
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
       
     </li>
   
@@ -587,9 +646,11 @@
 
 <h1 id="orrp">orrp</h1>
 <p>Hello! Welcome to the <strong>orrp</strong> Documentation site. We're happy to have you here. </p>
+<h2 id="what-is-orrp">What is <code>orrp</code>?</h2>
 <p>orrp is a high-performing database that is built for heavy write workloads like analytics, event stores, IoT workloads, network traffic, etc. It is eventually consistent, which means that writes are not always immediately available for queries.</p>
 <p>Everything that you write to orrp is an event. An event is a piece of data that is composed of key-value tags and is associated with an entity. An entity might be a user, a node, a service, a device, etc. These events get written to the orrp database and can be queried using a SQL-like syntax that supports range queries, pagination, indexing, and more. </p>
 <p>orrp is also built for scale. Under the hood, it uses libuv, which is the same event loop that powers node.js. This allows orrp to handle many connections concurrently. It also runs in a multi-threaded environment, utilizing lock-free data structures and other advanced techniques to ensure that it can handle high load quickly. </p>
+<h2 id="next-steps">Next Steps</h2>
 <p>Feel free to poke around and read some of the other documentation on this site. It's a work in progress, and more documentation will be added over time. As always, if you have any questions or ideas (or want to contribute!), start a new discussion or open an Issue in the <a href="https://github.com/MatthewFay/orrp">orrp GitHub repository</a>.</p>
 <p><strong>orrp is completely free to use and open-source. Apache 2.0 Licensed.</strong></p>
 <!-- ## Project layout
