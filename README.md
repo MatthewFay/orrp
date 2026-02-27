@@ -14,6 +14,10 @@ orrp is built for workloads with high writes and high reads. It is an eventually
 
 orrp exposes a SQL-like query language, and supports indexes, pagination, and range queries.
 
+## Benchmarks
+
+[Go here for benchmarks.](docs/benchmarks/index.md)
+
 ## Version
 
 orrp is currently at version 0.1.0. In other words, it is a fairly new project and is still apt to change a lot. There are many features on the roadmap.
