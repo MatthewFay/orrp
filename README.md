@@ -31,3 +31,5 @@ orrp follows semver. Its API will be considered stable at version 1.0.0.
 ## Questions?
 
 If you want to contribute or have a question, feel free to open a Discussion or Issue in this repository.
+
+**orrp is completely free to use and open-source. Apache 2.0 Licensed.**
