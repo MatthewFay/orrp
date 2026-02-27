@@ -11,3 +11,4 @@ You can reproduce these results using the orrp Go client:
 ```bash
 cd client
 go run . -mode bench
+```
