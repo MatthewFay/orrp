@@ -16,13 +16,17 @@ orrp exposes a SQL-like query language, and supports indexes, pagination, and ra
 
 ## Benchmarks
 
-[Go here for benchmarks.](docs/benchmarks/index.md)
+[Go here for benchmarks.](https://matthewfay.github.io/orrp/benchmarks/)
+
+## Client
+
+There is a Go client for orrp in this repo within the `client` folder. This client can connect to an orrp db and be used to run queries, as well as run various end-to-end tests. Running the client is a useful way to get familiar with the query syntax and how to use the database.
 
 ## Version
 
-orrp is currently at version 0.1.0. In other words, it is a fairly new project and is still apt to change a lot. There are many features on the roadmap.
+orrp is currently at version 0.1.0. In other words, it is a fairly new project and is still apt to change a lot. There are many features on the roadmap. Reach out if you have questions.
 
-orrp follows semver.
+orrp follows semver. Its API will be considered stable at version 1.0.0.
 
 ## Questions?
 
